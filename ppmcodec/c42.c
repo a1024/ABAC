@@ -266,13 +266,16 @@ AWM_INLINE int rice_dec(RiceCoder *ec, int nbypass)
 	return sym;
 }
 
-#define LZMIN 6
-#define LZLENBITS 9
-#define LZMAX (1<<LZLENBITS)
-#define LZBACKBITS 24
+enum
+{
+	LZMIN=6,
+	LZLENBITS=9,
+	LZMAX=(1<<LZLENBITS),
+	LZBACKBITS=24,
 
-#define EBITS 14
-#define ESIZE (1<<EBITS)
+	EBITS=14,
+	ESIZE=(1<<EBITS),
+};
 typedef struct _ETable
 {
 	int32_t etable[ESIZE], estart, eend, ecount;
@@ -582,7 +585,7 @@ int c42_codec(int argc, char **argv)
 	}
 	else
 	{
-		for(;imptr<imend;)
+		while(imptr<imend)
 		{
 			int mode=rice_dec(&ec, 0);
 			int count=rice_dec(&ec, LZLENBITS)+1;

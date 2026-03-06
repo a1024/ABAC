@@ -18,6 +18,12 @@ else
 SRC_ZYDIS =
 endif
 
+ifeq ($(PROF), 1)
+SRC_ZYDIS2 = -DPROFILER -DDISABLE_MT -DENABLE_PROFILER_DISASSEMBLY -Wno-unused-const-variable -Izydist_amalgamated410 zydist_amalgamated410/Zydis.c util.c
+else
+SRC_ZYDIS2 =
+endif
+
 ifeq ($(OS), Windows_NT)
 LIBS += -static
 else
@@ -68,7 +74,7 @@ c10:
 	clang $(FLAGS) -DCODEC_EXT=c10 -mavx2 -mbmi -mbmi2 -mlzcnt  $(SRC_ZYDIS) c10.c codec.c util.c  -o c10 $(LIBS)
 
 c11:
-	gcc $(FLAGS) -DCODEC_EXT=c11 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c11.c codec.c util.c  -o c11 $(LIBS)
+	gcc $(FLAGS) -fopt-info -Dc11_codec=main -mtune=native -mavx2 -mlzcnt $(SRC_ZYDIS2) c11.c -o c11 $(LIBS)
 
 c12m:
 	gcc $(FLAGS) -DCODEC_EXT=c12 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c12m.c codec.c util.c  -o c12 $(LIBS)
@@ -257,4 +263,10 @@ c53:
 	gcc $(FLAGS) -fopt-info -Dc53_codec=main -mavx2 -mbmi -mlzcnt c53.c -o c53 $(LIBS)
 
 c54:
-	gcc $(FLAGS) -fopt-info -Dc54_codec=main -mavx2 -mbmi -mlzcnt c54.c -o c54 $(LIBS)
+	gcc $(FLAGS) -fopt-info -Dc54_codec=main -mavx2 -mlzcnt $(SRC_ZYDIS2) c54.c -o c54 $(LIBS)
+
+c55:
+	gcc $(FLAGS) -fopt-info -Dc55_codec=main -mavx2 -mlzcnt $(SRC_ZYDIS2) c55.c -o c55 $(LIBS)
+
+c56:
+	gcc $(FLAGS) -fopt-info -Dc56_codec=main -mavx2 -mlzcnt c56.c -o c56 $(LIBS)

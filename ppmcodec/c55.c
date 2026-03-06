@@ -28,12 +28,13 @@ void prof_end(void *prof_ctx);
 
 #ifdef _MSC_VER
 	#define LOUD
-//	#define ENABLE_GUIDE
+	#define ENABLE_GUIDE
 //	#define FIFOVAL
 #endif
 
 
-	#define USE_LUT
+//	#define USE_GAMMA	//X
+//	#define USE_LUT
 	#define USE_L1
 	#define ENABLE_CRCT
 
@@ -49,7 +50,7 @@ void prof_end(void *prof_ctx);
 enum
 {
 #ifdef USE_L1
-	SHIFT=19,
+	SHIFT=24,
 #define PRED(...) +1
 	NPREDS=PREDLIST,
 #undef  PRED
@@ -145,16 +146,16 @@ static double time_sec(void)
 }
 #ifdef ENABLE_GUIDE
 static int g_iw=0, g_ih=0;
-static uint8_t *g_image=0;
+static uint16_t *g_image=0;
 static double g_sqe[3]={0};
 static void guide_save(FILE *f, int iw, int ih)
 {
 	ptrdiff_t idx=0, size=0;
 	
-	size=(ptrdiff_t)3*iw*ih;
+	size=(ptrdiff_t)6*iw*ih;
 	g_iw=iw;
 	g_ih=ih;
-	g_image=(uint8_t*)malloc(size);
+	g_image=(uint16_t*)malloc(size);
 	if(!g_image)
 	{
 		CRASH("Alloc error");
@@ -163,6 +164,12 @@ static void guide_save(FILE *f, int iw, int ih)
 	idx=ftell(f);
 	fread(g_image, 1, size, f);
 	fseek(f, (long)idx, SEEK_SET);
+	for(ptrdiff_t k=0, res=(ptrdiff_t)3*iw*ih-2;k<res;k+=3)
+	{
+		g_image[k+0]=(uint16_t)(g_image[k+0]<<8|g_image[k+0]>>8);
+		g_image[k+1]=(uint16_t)(g_image[k+1]<<8|g_image[k+1]>>8);
+		g_image[k+2]=(uint16_t)(g_image[k+2]<<8|g_image[k+2]>>8);
+	}
 }
 static void guide_check(uint8_t *image, int kx, int ky)
 {
@@ -513,14 +520,17 @@ static int crct_analysis(FILE *f, int iw, int ih)
 	uint8_t *ptr=rdbuf+BUFSIZE;
 	long idx=ftell(f);
 
-	for(ptrdiff_t k=0, size=(ptrdiff_t)3*iw*ih;k<size;k+=3)
+	for(ptrdiff_t k=0, size=(ptrdiff_t)6*iw*ih;k<size;k+=6)
 	{
 		int r, g, b, rg, gb, br;
 
-		uint64_t data=acme_read(&ptr, 3, f);
-		r=data>> 0&255;
-		g=data>> 8&255;
-		b=data>>16&255;
+		uint64_t data=acme_read(&ptr, 6, f);
+		r=data>> 0&65535;
+		g=data>>16&65535;
+		b=data>>32&65535;
+		r=(uint16_t)(r<<8|r>>8);
+		g=(uint16_t)(g<<8|g>>8);
+		b=(uint16_t)(b<<8|b>>8);
 		rg=r-g;
 		gb=g-b;
 		br=b-r;
@@ -599,9 +609,9 @@ typedef struct _CSymInfo
 static CSymInfo csymtable[8][256];
 static int8_t dsymtable[256];
 #endif
-int c54_codec(int argc, char **argv)
+int c55_codec(int argc, char **argv)
 {
-	const uint16_t tag='5'|'4'<<8;
+	const uint16_t tag='5'|'5'<<8;
 
 	const char *srcfn=0, *dstfn=0;
 	FILE *fsrc=0, *fdst=0;
@@ -609,7 +619,7 @@ int c54_codec(int argc, char **argv)
 	int fwd=0, iw=0, ih=0;
 	int64_t usize=0, csize=0;
 	int psize=0;
-	int16_t *pixels=0;
+	int32_t *pixels=0;
 	uint64_t cache=0;
 	int nbits=0;
 	uint8_t *rdptr=0, *wtptr=0;
@@ -617,8 +627,8 @@ int c54_codec(int argc, char **argv)
 	int bestrct=0, yidx=0, uidx=0, vidx=0, uc0=0, vc0=0, vc1=0;
 #endif
 #ifdef USE_L1
-	int32_t coeffs[3][NPREDS]={0}, p1=0;
-	int estim[NPREDS]={0};
+	int32_t coeffs[3][NPREDS]={0}, estim[NPREDS]={0};
+	int64_t p1=0;
 	int j=0;
 #endif
 #ifdef LOUD
@@ -632,7 +642,7 @@ int c54_codec(int argc, char **argv)
 	{
 		printf(
 			"Usage:  \"%s\"  src  dst\n"
-			"Only for 24-bit PPM images\n"
+			"Only for 48-bit PPM images\n"
 			"Built on %s %s\n"
 			, argv[0]
 			, __DATE__, __TIME__
@@ -699,12 +709,16 @@ int c54_codec(int argc, char **argv)
 		c|=(int64_t)fgetc(fsrc)<<8*2;
 		c|=(int64_t)fgetc(fsrc)<<8*3;
 		c|=(int64_t)fgetc(fsrc)<<8*4;
+		c|=(int64_t)fgetc(fsrc)<<8*5;
+		c|=(int64_t)fgetc(fsrc)<<8*6;
 		if(c!=(
 			(uint64_t)'\n'<<8*0|
-			(uint64_t) '2'<<8*1|
+			(uint64_t) '6'<<8*1|
 			(uint64_t) '5'<<8*2|
 			(uint64_t) '5'<<8*3|
-			(uint64_t)'\n'<<8*4
+			(uint64_t) '3'<<8*4|
+			(uint64_t) '5'<<8*5|
+			(uint64_t)'\n'<<8*6
 		))
 		{
 			CRASH("Unsupported PPM file");
@@ -726,9 +740,9 @@ int c54_codec(int argc, char **argv)
 		CRASH("Unsupported source file");
 		return 1;
 	}
-	usize=(int64_t)3*iw*ih;
-	psize=(iw+2*XPAD)*(int)sizeof(int16_t[NCH*NROWS*NVAL]);
-	pixels=(int16_t*)malloc(psize);
+	usize=(int64_t)6*iw*ih;
+	psize=(iw+2*XPAD)*(int)sizeof(int32_t[NCH*NROWS*NVAL]);
+	pixels=(int32_t*)malloc(psize);
 	if(!pixels)
 	{
 		CRASH("Alloc error");
@@ -776,16 +790,16 @@ int c54_codec(int argc, char **argv)
 		fread(&cache, 1, sizeof(uint64_t), fsrc);
 		nbits=0;
 
-		fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
+		fprintf(fdst, "P6\n%d %d\n65535\n", iw, ih);
 #ifdef USE_LUT
 		for(int k=0;k<256;++k)
 			dsymtable[k]=k>>1^-(k&1);
 #endif
 	}
 #ifdef ENABLE_CRCT
-	yidx=rct_combinations[bestrct][II_PERM_Y]*8;
-	uidx=rct_combinations[bestrct][II_PERM_U]*8;
-	vidx=rct_combinations[bestrct][II_PERM_V]*8;
+	yidx=rct_combinations[bestrct][II_PERM_Y]*16;
+	uidx=rct_combinations[bestrct][II_PERM_U]*16;
+	vidx=rct_combinations[bestrct][II_PERM_V]*16;
 	uc0=rct_combinations[bestrct][II_COEFF_U_SUB_Y];
 	vc0=rct_combinations[bestrct][II_COEFF_V_SUB_Y];
 	vc1=rct_combinations[bestrct][II_COEFF_V_SUB_U];
@@ -798,13 +812,15 @@ int c54_codec(int argc, char **argv)
 	}
 #endif
 	memset(pixels, 0, psize);
+	for(int k=0;k<psize/sizeof(int32_t);++k)
+		pixels[k]=256;
 	rdptr=rdbuf+BUFSIZE;
 	wtptr=wtbuf;
 	for(int ky=0;ky<ih;++ky)
 	{
 		int yuv[3]={0};
 		int pred=0;
-		int16_t *rows[]=
+		int32_t *rows[]=
 		{
 			pixels+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,
 			pixels+(XPAD*NCH*NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
@@ -818,22 +834,25 @@ int c54_codec(int argc, char **argv)
 #endif
 			if(fwd)
 			{
-				uint64_t data=acme_read(&rdptr, 3, fsrc);
+				uint64_t data=acme_read(&rdptr, 6, fsrc);
 #ifdef ENABLE_CRCT
-				yuv[0]=data>>yidx&255;
-				yuv[1]=data>>uidx&255;
-				yuv[2]=data>>vidx&255;
+				yuv[0]=data>>yidx&65535;
+				yuv[1]=data>>uidx&65535;
+				yuv[2]=data>>vidx&65535;
+				yuv[0]=(uint16_t)(yuv[0]<<8|yuv[0]>>8);
+				yuv[1]=(uint16_t)(yuv[1]<<8|yuv[1]>>8);
+				yuv[2]=(uint16_t)(yuv[2]<<8|yuv[2]>>8);
 #else
-				yuv[0]=data>> 0&255;
-				yuv[1]=data>> 8&255;
-				yuv[2]=data>>16&255;
+				yuv[0]=data>> 0&65535;
+				yuv[1]=data>>16&65535;
+				yuv[2]=data>>32&65535;
 				yuv[0]-=yuv[1];
 				yuv[2]-=yuv[1];
 #endif
 			}
 			for(int kc=0;kc<3;++kc)
 			{
-				int
+				int32_t
 					NNN	=rows[3][0+0*NCH*NROWS*NVAL],
 					NN	=rows[2][0+0*NCH*NROWS*NVAL],
 					NNE	=rows[2][0+1*NCH*NROWS*NVAL],
@@ -876,17 +895,19 @@ int c54_codec(int argc, char **argv)
 				(void)eNEEE;
 				(void)eWW;
 				(void)eW;
+#ifndef USE_GAMMA
 				nbypass=FLOOR_LOG2((eW+(1<<GRBITS>>1))>>GRBITS);
-				if(nbypass<0)
-					nbypass=0;
+				if(nbypass<8)
+					nbypass=8;
+#endif
 #ifdef USE_L1
-				p1=1<<SHIFT>>1;
-#define PRED(E) estim[j]=E; p1+=coeffs[kc][j]*estim[j]; ++j;
+				p1=1LL<<SHIFT>>1;
+#define PRED(E) estim[j]=E; p1+=(int64_t)coeffs[kc][j]*estim[j]; ++j;
 				j=0;
 				PREDLIST;
 #undef  PRED
 				p1>>=SHIFT;
-				pred=p1;
+				pred=(int)p1;
 				vmax=N, vmin=W;
 				if(N<W)vmin=N, vmax=W;
 				if(vmin>NE)vmin=NE;
@@ -903,21 +924,20 @@ int c54_codec(int argc, char **argv)
 #endif
 #ifdef ENABLE_CRCT
 				pred+=offset;
-				CLAMP2(pred, 0, 255);
+				CLAMP2(pred, 0, 65535);
 #endif
+				//if(ky==ih/2&&kx==iw/2)//
+				//	printf("");
 				if(fwd)
 				{
-#ifdef USE_LUT
-					CSymInfo *p=csymtable[nbypass]+(uint8_t)(yuv[kc]-pred+128);
-					sym=p->sym;
-					nzeros=p->nzeros;
-					bypass=p->bypass;
-#else
-					error=(int8_t)(yuv[kc]-pred);
+					error=(int16_t)(yuv[kc]-pred);
 					sym=error<<1^error>>31;
-					
+#ifdef USE_GAMMA
+					++sym;
+					bypass=sym;
+					nzeros=nbypass=31-_lzcnt_u32(sym);
+#else
 					nzeros=sym>>nbypass;
-					//bypass=_bextr_u32(sym, 0, nbypass);
 					bypass=sym&0x7FFFFFFF>>(31-nbypass);
 #endif
 					if(nzeros>=nbits)//fill the rest of cache with zeros, and flush
@@ -967,7 +987,11 @@ int c54_codec(int argc, char **argv)
 					}
 					nbits=(int)_lzcnt_u64(cache);
 					sym+=nbits;
-
+					
+#ifdef USE_GAMMA
+					nbypass=sym;
+					sym=1<<nbypass;
+#endif
 					sym<<=nbypass;
 					cache&=0x7FFFFFFFFFFFFFFF>>nbits;//remove stop bit
 					nbits+=nbypass+1;
@@ -985,14 +1009,11 @@ int c54_codec(int argc, char **argv)
 						sym|=(int)(cache>>(64-nbits));
 						cache&=0xFFFFFFFFFFFFFFFF>>nbits;//nbits=61 -> cache&=7;
 					}
-					
-#ifdef USE_LUT
-					error=dsymtable[sym];
-					sym<<=GRBITS;
-#else
-					error=sym>>1^-(sym&1);
+#ifdef USE_GAMMA
+					--sym;
 #endif
-					yuv[kc]=(uint8_t)(error+pred);
+					error=sym>>1^-(sym&1);
+					yuv[kc]=(uint16_t)(error+pred);
 #ifdef ENABLE_GUIDE
 					int perm[]=
 					{
@@ -1002,7 +1023,7 @@ int c54_codec(int argc, char **argv)
 					};
 					if(yuv[kc]!=g_image[3*(iw*ky+kx)+perm[kc]])
 					{
-						CRASH("Guide");
+						CRASH("Guide  X%d Y%d C%d  %d != %d", kx, ky, kc, yuv[kc], g_image[3*(iw*ky+kx)+perm[kc]]);
 						return 1;
 					}
 #endif
@@ -1035,7 +1056,10 @@ int c54_codec(int argc, char **argv)
 			if(!fwd)
 			{
 #ifdef ENABLE_CRCT
-				acme_write(&wtptr, 3, fdst, (uint64_t)yuv[2]<<vidx|(uint64_t)yuv[1]<<uidx|(uint64_t)yuv[0]<<yidx);
+				yuv[0]=(uint16_t)(yuv[0]<<8|yuv[0]>>8);
+				yuv[1]=(uint16_t)(yuv[1]<<8|yuv[1]>>8);
+				yuv[2]=(uint16_t)(yuv[2]<<8|yuv[2]>>8);
+				acme_write(&wtptr, 6, fdst, (uint64_t)yuv[2]<<vidx|(uint64_t)yuv[1]<<uidx|(uint64_t)yuv[0]<<yidx);
 #else
 				yuv[2]+=yuv[1];
 				yuv[0]+=yuv[1];

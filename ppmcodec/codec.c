@@ -20,7 +20,7 @@ int c07_codec(int argc, char **argv);//MT o0 (binary) AC speed test
 int c08_codec(int argc, char **argv);//ST disk AC5 test
 int c09_codec(int argc, char **argv);//ST J2K CG o0 disk symbol ANS
 int c10_codec(int argc, char **argv);//ST cRCT-L1-GRctx AC
-int c11_codec(int argc, char **argv);//ST SubG CG o0 disk nibble AC
+int c11_codec(int argc, char **argv);//ST cRCT mix4 GRctx disk hex AC
 int c12_codec(int argc, char **argv);//ST RCT o1 binary AC
 int c13_codec(int argc, char **argv);//MT WG4_12
 int c14_codec(int argc, char **argv);//MT WG4_8 binary AC
@@ -55,15 +55,17 @@ int c42_codec(int argc, char **argv);//LZ+Rice
 int c43_codec(int argc, char **argv);//LZ+Rice (file-agnostic)
 int c44_codec(int argc, char **argv);//adaptive o1 rANS
 int c45_codec(int argc, char **argv);//simple, fast, static-o1 AC
-int c46_codec(int argc, char **argv);//Rice vs AC
+int c46_codec(int argc, char **argv);//Rice vs [AC]
 int c47_codec(int argc, char **argv);//lossy DCT size 4
 int c48_codec(int argc, char **argv);//lossy VarDCT size {4, 8, 16, 32}
 int c49_codec(int argc, char **argv);//lossy DWT+AC
 int c50_codec(int argc, char **argv);//FELICS-like
 int c51_codec(int argc, char **argv);//chroma subsampling + DCT4 + adaptive quantization
 int c52_codec(int argc, char **argv);//multichannel-AC
-int c53_codec(int argc, char **argv);//bit coding
+int c53_codec(int argc, char **argv);//bit coding, paq0f mixer
 int c54_codec(int argc, char **argv);//low memory
+int c55_codec(int argc, char **argv);//16-bit
+int c56_codec(int argc, char **argv);//synth
 #endif
 
 
@@ -99,7 +101,7 @@ int c54_codec(int argc, char **argv);//low memory
 //	#define CODEC_EXT c29
 //	#define CODEC_EXT c30
 //	#define CODEC_EXT c31
-//	#define CODEC_EXT c32
+	#define CODEC_EXT c32
 //	#define CODEC_EXT c33
 //	#define CODEC_EXT c34
 //	#define CODEC_EXT c35
@@ -121,7 +123,9 @@ int c54_codec(int argc, char **argv);//low memory
 //	#define CODEC_EXT c51
 //	#define CODEC_EXT c52//CHECK ARGS
 //	#define CODEC_EXT c53
-	#define CODEC_EXT c54
+//	#define CODEC_EXT c54
+//	#define CODEC_EXT c55
+//	#define CODEC_EXT c56
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -211,13 +215,14 @@ int main(int argc, char **argv)
 	//	"C:/dataset-HUGE-ppm/chaos1.ppm"
 	//	"C:/dataset-HUGE-ppm/diagram.ppm"
 	//	"C:/dataset-HUGE-ppm/gaia.ppm"
-		"C:/dataset-HUGE-ppm/jwst.ppm"
+	//	"C:/dataset-HUGE-ppm/jwst.ppm"
 	//	"C:/dataset-HUGE-ppm/jwst.ppm"
 	//	"C:/dataset-HUGE-ppm/jwst.ppm"
 	//	"C:/dataset-HUGE-ppm/jwst.ppm"
 	//	"C:/dataset-HUGE-ppm/kodak.PPM"
 	//	"C:/dataset-HUGE-ppm/space_huge.ppm"
-	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+	//	"C:/dataset-ic16-ppm/big_building.ppm"		//16-bit
+		"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_13.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA12811.ppm"
@@ -250,7 +255,8 @@ int main(int argc, char **argv)
 	//	"C:/dataset-synth2-ppm/20240419 3.ppm"
 	//	"C:/dataset-synth2-ppm/20240422 1.PPM"
 	//	"C:/dataset-synth2-ppm/20240524 numbers.ppm"
-	//	"C:/dataset-synth2-ppm/20241006 linux is cursed.ppm"
+	//	"C:/dataset-synth2-ppm/20241006 linux.ppm"
+	//	"C:/dataset-synth2-ppm/20241110 4 serpinski_triangle.ppm"
 	//	"C:/dataset-synth2-ppm/art.ppm"
 	//	"C:/dataset-synthetic-ppm/20240409 1 LPCB.ppm"
 	//	"C:/dataset-synth-ppm/20240421 1 the front.ppm"
@@ -291,10 +297,10 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_03.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/olympus_xz1_16.ppm"
-	//	"C:/Projects/datasets/dataset-LPCB-ppm/sony_a55_11.ppm"	//noisy, hard
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA12811.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13803.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13882.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/sony_a55_11.ppm"	//noisy, hard
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"	//large hard
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13844.ppm"	//large normal

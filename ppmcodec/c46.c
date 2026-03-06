@@ -132,7 +132,7 @@ enum
 	A2XSTRIDE=1,
 	A2YSTRIDE=1,
 #endif
-	PROB_SCALE=0,
+	PROBSHIFT=0,
 };
 
 //runtime
@@ -1603,7 +1603,7 @@ int c46_codec(int argc, char **argv)
 #endif
 #ifdef USE_AC
 				uint32_t *currhist=hists[kc][ctx][pred>>(8-PREDBITS)];
-				int den=((currhist[NLEVELS]+(1<<PROB_SCALE>>1))>>PROB_SCALE)+NLEVELS, cdf=0, freq, tmp;
+				int den=((currhist[NLEVELS]+(1<<PROBSHIFT>>1))>>PROBSHIFT)+NLEVELS, cdf=0, freq, tmp;
 				if(fwd)
 				{
 					error=(int8_t)(yuv[kc]-pred);
@@ -1619,7 +1619,7 @@ int c46_codec(int argc, char **argv)
 					}
 					for(tmp=0;;++tmp)
 					{
-						freq=(currhist[tmp]>>PROB_SCALE)+1;
+						freq=(currhist[tmp]>>PROBSHIFT)+1;
 						if(tmp>=sym)
 							break;
 						cdf+=freq;
@@ -1641,7 +1641,7 @@ int c46_codec(int argc, char **argv)
 					tmp=(int)(((code-low+1)*den-1)/range);
 					for(sym=0;;++sym)
 					{
-						freq=(currhist[sym]>>PROB_SCALE)+1;
+						freq=(currhist[sym]>>PROBSHIFT)+1;
 						if(cdf+freq>tmp)
 							break;
 						cdf+=freq;
@@ -1653,7 +1653,7 @@ int c46_codec(int argc, char **argv)
 				}
 				++currhist[sym];
 				++currhist[NLEVELS];
-				if(currhist[NLEVELS]>=(0xFFFF-2*NLEVELS)<<PROB_SCALE)
+				if(currhist[NLEVELS]>=(0xFFFF-2*NLEVELS)<<PROBSHIFT)
 				{
 					den=0;
 					for(int ks=0;ks<NLEVELS;++ks)
