@@ -488,7 +488,7 @@ void pred_mixN(Image *src, int fwd)
 		XPAD=8,
 		NROWS=4,
 		NCH=4,
-		NVAL=2,
+		NVAL=1,
 	};
 	ALIGN(16) int32_t coeffs[4][MIXPREDS]={0}, estims[MIXPREDS]={0}, bias[4]={1<<SHIFT>>1};
 
@@ -552,9 +552,10 @@ void pred_mixN(Image *src, int fwd)
 					WWWW	=rows[0][0-4*NCH*NROWS*NVAL],
 					WWW	=rows[0][0-3*NCH*NROWS*NVAL],
 					WW	=rows[0][0-2*NCH*NROWS*NVAL],
-					W	=rows[0][0-1*NCH*NROWS*NVAL],
-					eN	=rows[1][1+0*NCH*NROWS*NVAL],
-					eW	=rows[0][1-1*NCH*NROWS*NVAL];
+					W	=rows[0][0-1*NCH*NROWS*NVAL];
+				//	eN	=rows[1][1+0*NCH*NROWS*NVAL],
+				//	eNE	=rows[1][1+1*NCH*NROWS*NVAL],
+				//	eW	=rows[0][1-1*NCH*NROWS*NVAL];
 				int curr=src->data[idx];
 				int j=0;
 
@@ -564,16 +565,16 @@ void pred_mixN(Image *src, int fwd)
 				estims[j++]=W;
 #endif
 
-				//mix 5
+				//mix 4
 #if 1
 				//		NN
-				//	NW	N	NE
-				//	W	?		216 MB/s  4.49 ms/MB  i7
+				//	NW	N	NE	147 MB/s  6.77 ms/MB  i5-1145G7
+				//	W	?		216 MB/s  4.49 ms/MB  i7-13700KF
 				estims[j++]=W;
-				estims[j++]=N+W-NW;
-				estims[j++]=2*N-NN;
 				estims[j++]=NE;
-				estims[j++]=eW;
+				estims[j++]=2*N-NN;
+				estims[j++]=N+W-NW;
+				//estims[j++]=eW;
 #endif
 
 				//mix 8 - c32
@@ -611,14 +612,29 @@ void pred_mixN(Image *src, int fwd)
 				}
 #endif
 				int p1=(int)((bias[kc]
-					+(int64_t)coeffs[kc][0]*estims[0]
-					+(int64_t)coeffs[kc][1]*estims[1]
-					+(int64_t)coeffs[kc][2]*estims[2]
-					+(int64_t)coeffs[kc][3]*estims[3]
-					+(int64_t)coeffs[kc][4]*estims[4]
+					+coeffs[kc][0]*estims[0]
+					+coeffs[kc][1]*estims[1]
+					+coeffs[kc][2]*estims[2]
+					+coeffs[kc][3]*estims[3]
+				//	+coeffs[kc][4]*estims[4]
 				)>>SHIFT);
 				int pred=p1;
-				
+
+				//cheat
+#if 0
+				//int E=kx<src->iw-1?src->data[idx+4]:0, EE=kx<src->iw-2?src->data[idx+2*4]:0;
+				//int S=ky<src->ih-1?src->data[idx+4*src->iw]:0, SS=ky<src->ih-2?src->data[idx+2*4*src->iw]:0;
+				//int e1=(W+E)>>1, e2=(N+S)>>1;
+				//int e1=W+E-((WW+EE)>>1);
+				//int e2=N+S-((NN+SS)>>1);
+				//pred=(W+E)>>1;
+				//int e1=W;
+				//int e2=E;
+				//int e1=(N+W)>>1;
+				//int e2=N+W-NW;
+				//pred=32*(abs(curr-e1)<abs(curr-e2));
+				//pred=abs(curr-e1)<abs(curr-e2)?e1:e2;
+#endif
 				int vmax=N, vmin=W;
 				if(N<W)vmin=N, vmax=W;
 				if(vmin>NE)vmin=NE;
@@ -652,6 +668,7 @@ void pred_mixN(Image *src, int fwd)
 						error<<=32-src->depth[kc];
 						error>>=32-src->depth[kc];
 						src->data[idx]=error;
+						//src->data[idx]=32*(abs(curr-e1)<abs(curr-e2));
 					}
 					else
 					{
@@ -662,15 +679,15 @@ void pred_mixN(Image *src, int fwd)
 					}
 				}
 				rows[0][0]=curr;
-				rows[0][1]=curr-p1;
+				//rows[0][1]=curr-p1;
 
 				int e=(curr>p1)-(curr<p1);//L1
 				bias[kc]+=e;
-				coeffs[kc][0]+=e*estims[0];
-				coeffs[kc][1]+=e*estims[1];
-				coeffs[kc][2]+=e*estims[2];
-				coeffs[kc][3]+=e*estims[3];
-				coeffs[kc][4]+=e*estims[4];
+				coeffs[kc][0]+=(int16_t)((int16_t)e*(int16_t)estims[0]);
+				coeffs[kc][1]+=(int16_t)((int16_t)e*(int16_t)estims[1]);
+				coeffs[kc][2]+=(int16_t)((int16_t)e*(int16_t)estims[2]);
+				coeffs[kc][3]+=(int16_t)((int16_t)e*(int16_t)estims[3]);
+				//coeffs[kc][4]+=e*estims[4];
 			}
 		}
 	}
