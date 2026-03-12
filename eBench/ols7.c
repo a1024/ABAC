@@ -481,7 +481,7 @@ void pred_mixN(Image *src, int fwd)
 
 	enum
 	{
-		MIXPREDS=5,
+		MIXPREDS=4,
 
 		SHIFT=18,
 
@@ -490,7 +490,7 @@ void pred_mixN(Image *src, int fwd)
 		NCH=4,
 		NVAL=1,
 	};
-	ALIGN(16) int32_t coeffs[4][MIXPREDS]={0}, estims[MIXPREDS]={0}, bias[4]={1<<SHIFT>>1};
+	ALIGN(16) int32_t coeffs[4][MIXPREDS]={0}, bias[4]={1<<SHIFT>>1}, estims[MIXPREDS]={0};
 
 	/*
 	cache-friendly layout:
@@ -568,7 +568,7 @@ void pred_mixN(Image *src, int fwd)
 				//mix 4
 #if 1
 				//		NN
-				//	NW	N	NE	147 MB/s  6.77 ms/MB  i5-1145G7
+				//	NW	N	NE
 				//	W	?		216 MB/s  4.49 ms/MB  i7-13700KF
 				estims[j++]=W;
 				estims[j++]=NE;
@@ -681,13 +681,29 @@ void pred_mixN(Image *src, int fwd)
 				rows[0][0]=curr;
 				//rows[0][1]=curr-p1;
 
-				int e=(curr>p1)-(curr<p1);//L1
+				//150 MB/s  6.65 ms/MB  i5-1145G7
+#if 0
+				{
+					__m128i p=_mm_load_si128((__m128i*)estims);
+					__m128i c=_mm_load_si128((__m128i*)coeffs[kc]);
+					p=_mm_sign_epi32(p, _mm_set1_epi32(curr-p1));
+					c=_mm_add_epi32(c, p);
+					_mm_store_si128((__m128i*)coeffs[kc], c);
+				}
+#endif
+
+				//147 MB/s  6.77 ms/MB  i5-1145G7
+#if 1
+				//int e=(curr>p1)-(curr<p1);//L1
+				int e=((curr-p1)>>31)-((p1-curr)>>31);
+				//int e=curr-p1; CLAMP2(e, -1, 1);//jump?
 				bias[kc]+=e;
-				coeffs[kc][0]+=(int16_t)((int16_t)e*(int16_t)estims[0]);
+				coeffs[kc][0]+=(int16_t)((int16_t)e*(int16_t)estims[0]);//these casts prevent pmulld
 				coeffs[kc][1]+=(int16_t)((int16_t)e*(int16_t)estims[1]);
 				coeffs[kc][2]+=(int16_t)((int16_t)e*(int16_t)estims[2]);
 				coeffs[kc][3]+=(int16_t)((int16_t)e*(int16_t)estims[3]);
 				//coeffs[kc][4]+=e*estims[4];
+#endif
 			}
 		}
 	}
