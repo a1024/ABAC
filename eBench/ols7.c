@@ -483,7 +483,7 @@ void pred_mixN(Image *src, int fwd)
 	{
 		MIXPREDS=4,
 
-		SHIFT=18,
+		SHIFT=18+6,
 
 		XPAD=8,
 		NROWS=4,
@@ -570,11 +570,21 @@ void pred_mixN(Image *src, int fwd)
 				//		NN
 				//	NW	N	NE
 				//	W	?		216 MB/s  4.49 ms/MB  i7-13700KF
-				estims[j++]=W;
-				estims[j++]=NE;
-				estims[j++]=2*N-NN;
+
+				estims[j++]=(W+NE)>>1;
+				estims[j++]=(WWWW+WWW+NNN+NEEE)>>2;
+				estims[j++]=NW-((NN+WW)>>1);
 				estims[j++]=N+W-NW;
-				//estims[j++]=eW;
+
+				//estims[j++]=4*(W+NE);
+				//estims[j++]=2*(WWWW+WWW+NNN+NEEE);
+				//estims[j++]=4*(2*NW-(NN+WW));
+				//estims[j++]=8*(N+W-NW);
+
+				//estims[j++]=W;
+				//estims[j++]=NE;
+				//estims[j++]=2*N-NN;
+				//estims[j++]=N+W-NW;
 #endif
 
 				//mix 8 - c32
@@ -612,11 +622,10 @@ void pred_mixN(Image *src, int fwd)
 				}
 #endif
 				int p1=(int)((bias[kc]
-					+coeffs[kc][0]*estims[0]
-					+coeffs[kc][1]*estims[1]
-					+coeffs[kc][2]*estims[2]
-					+coeffs[kc][3]*estims[3]
-				//	+coeffs[kc][4]*estims[4]
+					+(int64_t)coeffs[kc][0]*estims[0]
+					+(int64_t)coeffs[kc][1]*estims[1]
+					+(int64_t)coeffs[kc][2]*estims[2]
+					+(int64_t)coeffs[kc][3]*estims[3]
 				)>>SHIFT);
 				int pred=p1;
 
@@ -698,11 +707,10 @@ void pred_mixN(Image *src, int fwd)
 				int e=((curr-p1)>>31)-((p1-curr)>>31);
 				//int e=curr-p1; CLAMP2(e, -1, 1);//jump?
 				bias[kc]+=e;
-				coeffs[kc][0]+=(int16_t)((int16_t)e*(int16_t)estims[0]);//these casts prevent pmulld
+				coeffs[kc][0]+=(int16_t)((int16_t)e*(int16_t)estims[0]);//casts prevent pmulld
 				coeffs[kc][1]+=(int16_t)((int16_t)e*(int16_t)estims[1]);
 				coeffs[kc][2]+=(int16_t)((int16_t)e*(int16_t)estims[2]);
 				coeffs[kc][3]+=(int16_t)((int16_t)e*(int16_t)estims[3]);
-				//coeffs[kc][4]+=e*estims[4];
 #endif
 			}
 		}
