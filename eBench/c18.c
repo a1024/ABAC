@@ -218,7 +218,7 @@ void c18_analyze(Image const *src, int x1, int x2, int y1, int y2, C18Info *info
 		nlevels[3]-1,
 	};
 	int maxdepth=calc_maxdepth(src, 0), maxlevels=1<<maxdepth;
-	int histsize=sizeof(int[OCH_COUNT*PRED_COUNT])<<maxdepth;
+	int histsize=sizeof(int[OCH2_COUNT*PRED_COUNT])<<maxdepth;
 	int *hist=(int*)malloc(histsize);
 	if(!hist)
 	{

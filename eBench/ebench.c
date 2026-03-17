@@ -3503,7 +3503,7 @@ static void chart_dwthist_update(Image const *image, int kc, int kband, int x1, 
 		int xcount=x2-x1, ycount=y2-y1, count=xcount*ycount;
 		if(count)
 		{
-			calc_histogram(image->data, image->iw, image->ih, kc, x1, x2, y1, y2, image->depth[kc], hist_full, hist+(kc<<8));
+			calc_histogram(image->data, image->iw, image->ih, kc, x1, x2, y1, y2, image->depth[kc], hist_full, hist+((ptrdiff_t)kc<<8));
 			histmax[kband]=0;
 			for(int k=0;k<256;++k)
 			{
@@ -5499,14 +5499,19 @@ static void chart_hist_draw(float x1, float x2, float y1, float y2, int cstart, 
 				for(int k2=0;k2<256;++k2)
 				{
 					draw_rect(x1+k2*(x2-x1)/256, x1+(k2+1)*(x2-x1)/256, y1+(kc+1)*dy-_hist[kc<<8|k2]*histpx, y1+(kc+1)*dy, color?color:alpha<<24|0xFF<<(kc<<3));//0x80
-					float x=x1+(k2+0.5f)*(x2-x1)/256, y;
-					if(k2<128)
-						y=(float)_hist[kc<<8|(k2+0)]/_hist[kc<<8|(k2+1)];
-					else if(k2>128)
-						y=(float)_hist[kc<<8|(k2+0)]/_hist[kc<<8|(k2-1)];
-					else
-						y=0;
-					draw_line(x, y1+(kc+1)*dy, x, y1+(kc+1)*dy-y*dy*0.25f, color?color:0xFF<<24|0xFF<<(kc<<3));
+					//float x=x1+(k2+0.5f)*(x2-x1)/256, y;
+					//if(k2<128)
+					//	y=(float)_hist[kc<<8|(k2+0)]/_hist[kc<<8|(k2+1)];
+					//else if(k2>128)
+					//	y=(float)_hist[kc<<8|(k2+0)]/_hist[kc<<8|(k2-1)];
+					//else
+					//	y=0;
+					//draw_line(x, y1+(kc+1)*dy, x, y1+(kc+1)*dy-y*dy*0.25f, color?color:0xFF<<24|0xFF<<(kc<<3));
+				}
+				for(int k2=0;k2<256;++k2)//
+				{
+					if(_hist[kc<<8|k2]>(k2>0?_hist[kc<<8|(k2-1)]:0)&&_hist[kc<<8|k2]>(k2<255?_hist[kc<<8|(k2+1)]:0))
+						GUIPrint(0, x1+k2*(x2-x1)/256, y1+(kc+1)*dy-_hist[kc<<8|k2]*histpx, 0.8f, "%lf", k2*(1./256));
 				}
 			}
 		}
@@ -5587,6 +5592,14 @@ static void chart_hist_draw(float x1, float x2, float y1, float y2, int cstart, 
 					);
 				}
 				draw_2d_flush(rectangles, color?color:alpha<<24|0xFF<<(kc<<3), GL_TRIANGLES);
+
+				//for(int k2=0;k2<256;++k2)//
+				//	GUIPrint(0, x1+k2*(x2-x1)/256, y1+(kc+1)*dy-hist2[k2]*histpx, 0.6f, "%d", _hist[kc<<8|k2]);
+				for(int k2=0;k2<256;++k2)//
+				{
+					if(hist2[k2]>(k2>0?hist2[k2-1]:0)&&hist2[k2]>(k2<255?hist2[k2+1]:0))
+						GUIPrint(0, x1+k2*(x2-x1)/256, y1+(kc+1)*dy-hist2[k2]*histpx, 0.8f, "%lf", k2*(1./256));
+				}
 			}
 		}
 		break;
@@ -7105,6 +7118,7 @@ int io_keydn(IOKey key, char c)
 			"Ctrl Mouse1:\tReplace all transforms of this type\n"
 			"E:\t\tShow image at 1:1 scale\n"
 			"C:\t\tCenter image\n"
+			"Ctrl C:\t\tToggle histogram type\n"
 			"Ctrl G:\t\tGoto pixel from clipboard\n"
 			"Ctrl H:\t\tToggle hex pixel labels\n"
 			"J / Shift J:\tToggle single-channel view\n"

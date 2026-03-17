@@ -29,11 +29,11 @@ typedef enum _OCH2Index
 #undef  OCH2
 	OCH2_COUNT,
 } OCH2Index;
-static const char *och_names[OCH_COUNT]=
+static const char *och_names[OCH2_COUNT]=
 {
-#define OCH(LABEL) #LABEL,
-	OCHLIST
-#undef  OCH
+#define OCH2(LABEL) #LABEL,
+	OCH2LIST
+#undef  OCH2
 };
 
 #define RCT2LIST\
@@ -113,7 +113,8 @@ static const char *rct2_names[RCT2_COUNT]=
 	PRED(AV5, "[-5 [5] 1;-1 8 ?]/8")\
 	PRED(AV6, "[[-1];-5 [6] 1;-1 8 ?]/8")\
 	PRED(AV9, "[1 [-2] -1;-1 -9 [10] 4;-2 16 ?]/16")\
-	PRED(AVB, "[4 3 [-31] -38;7 -158 [219] 30 19;-42 243 ?]/256")
+	PRED(AVB, "[4 3 [-31] -38;7 -158 [219] 30 19;-42 243 ?]/256")\
+
 static const char *pred_desc[]=
 {
 #define PRED(LABEL, DESC) DESC,
@@ -149,7 +150,7 @@ static const short av12_icoeffs[12]=
 };
 typedef struct _C18Info
 {
-	double esizes[OCH_COUNT*PRED_COUNT], rctsizes[RCT_COUNT];
+	double esizes[OCH2_COUNT*PRED_COUNT], rctsizes[RCT_COUNT];
 	int bestrct, predidx[3];
 //	double ACsize[3], GRsize[3];
 	double t_analysis;
