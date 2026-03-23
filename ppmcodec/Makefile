@@ -80,7 +80,7 @@ c12m:
 	gcc $(FLAGS) -DCODEC_EXT=c12 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c12m.c codec.c util.c  -o c12 $(LIBS)
 
 c12:
-	clang $(FLAGS) -Dc12_codec=main -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c12.c  -o c12 $(LIBS)
+	clang $(FLAGS) -Dc12_codec=main -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS2) c12.c  -o c12 $(LIBS)
 
 c12debug:
 	clang -Wall -g -D_DEBUG -DLOUD -DCODEC_EXT=c12 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c12.c codec.c  -o c12 $(LIBS)

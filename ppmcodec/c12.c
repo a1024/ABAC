@@ -21,6 +21,9 @@
 #include<time.h>
 #endif
 #include<immintrin.h>//_lzcnt_u32
+#ifdef PROFILER
+#include"util.h"
+#endif
 
 
 #if defined _MSC_VER && !defined RELEASE
@@ -32,6 +35,7 @@
 //	#define PRINTBITS
 #endif
 
+	#define SIMD_L1
 	#define USE_TABLES
 //	#define USE_DIV
 //	#define ZIPF_VIEW
@@ -76,11 +80,14 @@
 	PRED(W+xNE)\
 	PRED(W+xNEE)\
 	PRED(W+xNW)\
-	PRED(N+2*yN-yNN)\
 	PRED(W+2*xW-xWW)\
-	PRED(NEEE)\
 	PRED(NEEEE)\
 
+#if 0
+	PRED(N+2*yN-yNN)\
+	PRED(NEEE)\
+
+#endif
 #endif
 #if 0
 #define PREDLIST\
@@ -151,13 +158,20 @@ enum
 #else
 #define INLINE __attribute__((always_inline)) inline static
 #endif
+#ifndef ALIGN
+#ifdef _MSC_VER
+#define	ALIGN(N) __declspec(align(N))
+#else
+#define	ALIGN(N) __attribute__((aligned(N)))
+#endif
+#endif
 #define CLAMP2(X, LO, HI)\
 	do\
 	{\
 		if((X)<(LO))X=LO;\
 		if((X)>(HI))X=HI;\
 	}while(0)
-static void memfill(void *dst, const void *src, size_t dstbytes, size_t srcbytes)
+static void memfill_s(void *dst, const void *src, size_t dstbytes, size_t srcbytes)
 {
 	size_t copied;
 	char *d=(char*)dst;
@@ -181,13 +195,13 @@ static void memfill(void *dst, const void *src, size_t dstbytes, size_t srcbytes
 	if(copied<dstbytes)
 		memcpy(d+copied, d, dstbytes-copied);
 }
-#define FILLMEM(PTR, DATA, ASIZE, ESIZE)\
+#define FILLMEM_S(PTR, DATA, ASIZE, ESIZE)\
 	do\
 	{\
 		*(PTR)=(DATA);\
-		memfill((PTR)+1, PTR, (ASIZE)-(ESIZE), ESIZE);\
+		memfill_s((PTR)+1, PTR, (ASIZE)-(ESIZE), ESIZE);\
 	}while(0)
-static double time_sec(void)
+static double time_sec2(void)
 {
 #ifdef _MSC_VER
 	static long long t0=0;
@@ -557,7 +571,7 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 	int32_t ky, kx;
 	int32_t psize=0;
 	int16_t *pixels=0;
-	int32_t coeffs[3][(L1NPREDS>L1NPREDS_LOSSY?L1NPREDS:L1NPREDS_LOSSY)+1]={0};
+	ALIGN(32) int32_t lcoeffs[3][L1NPREDS_LOSSY+1]={0}, coeffs[3][L1NPREDS]={0}, bias[3]={0};
 	int32_t invdist=((1<<16)+dist-1)/dist;
 	uint8_t *imptr=image;
 #ifdef PRINTBITS
@@ -580,20 +594,20 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 	memset(stats2, 0, sizeof(stats2));
 	memset(stats3, 0, sizeof(stats3));
 #else
-	FILLMEM((uint32_t*)stats, 1<<PROBBITS_STORE>>1, sizeof(stats), sizeof(int32_t));
-	FILLMEM((uint32_t*)stats2, 1<<PROBBITS_STORE>>1, sizeof(stats2), sizeof(int32_t));
-	FILLMEM((uint32_t*)stats3, 1<<PROBBITS_STORE>>1, sizeof(stats3), sizeof(int32_t));
+	FILLMEM_S((uint32_t*)stats, 1<<PROBBITS_STORE>>1, sizeof(stats), sizeof(int32_t));
+	FILLMEM_S((uint32_t*)stats2, 1<<PROBBITS_STORE>>1, sizeof(stats2), sizeof(int32_t));
+	FILLMEM_S((uint32_t*)stats3, 1<<PROBBITS_STORE>>1, sizeof(stats3), sizeof(int32_t));
 #endif
 	if(lossy)
 	{
-		FILLMEM((int32_t*)coeffs, (1<<L1SH_LOSSY)/L1NPREDS_LOSSY, sizeof(coeffs), sizeof(int32_t));
+		FILLMEM_S((int32_t*)lcoeffs, (1<<L1SH_LOSSY)/L1NPREDS_LOSSY, sizeof(lcoeffs), sizeof(int32_t));
 	}
 	else
 	{
-		FILLMEM((int32_t*)coeffs, (1<<L1SH)/L1NPREDS, sizeof(coeffs), sizeof(int32_t));
-		coeffs[0][L1NPREDS]=1<<L1SH>>1;
-		coeffs[1][L1NPREDS]=1<<L1SH>>1;
-		coeffs[2][L1NPREDS]=1<<L1SH>>1;
+		FILLMEM_S((int32_t*)coeffs, (1<<L1SH)/L1NPREDS, sizeof(coeffs), sizeof(int32_t));
+		bias[0]=1<<L1SH>>1;
+		bias[1]=1<<L1SH>>1;
+		bias[2]=1<<L1SH>>1;
 	}
 #ifdef USE_TABLES
 	uint8_t *const epredptr=epredtable;
@@ -739,30 +753,83 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				uint32_t *statsptr;
 				int32_t bit=0;
 				int32_t ctx;
-				int32_t *currw=coeffs[kc];
-				int32_t preds[L1NPREDS>L1NPREDS_LOSSY?L1NPREDS:L1NPREDS_LOSSY];
+				ALIGN(32) int32_t preds[L1NPREDS>L1NPREDS_LOSSY?L1NPREDS:L1NPREDS_LOSSY];
 
 				{
 					int j;
 
-#define PRED(EXPR) preds[j]=EXPR; pred+=currw[j]*preds[j]; ++j;
 					if(lossy)
 					{
 						pred=1<<L1SH_LOSSY>>1;
+#define PRED(EXPR) preds[j]=EXPR; pred+=lcoeffs[kc][j]*preds[j]; ++j;
 						j=0;
 						PREDLIST_LOSSY;
+#undef  PRED
 						upred2=pred>>(L1SH_LOSSY-2);
 						pred>>=L1SH_LOSSY;
 					}
 					else
 					{
-						pred=currw[L1NPREDS];
+						pred=bias[kc];
+#ifdef SIMD_L1
+#define PRED(EXPR) preds[j++]=EXPR;
 						j=0;
-						PREDLIST
+						PREDLIST;
+#undef  PRED
+						__m256i mc0=_mm256_load_si256((__m256i*)coeffs[kc]+0);
+						__m256i mc1=_mm256_load_si256((__m256i*)coeffs[kc]+1);
+						__m256i mp0=_mm256_load_si256((__m256i*)preds+0);
+						__m256i mp1=_mm256_load_si256((__m256i*)preds+1);
+
+						__m256i lo0=_mm256_mul_epi32(mc0, mp0);
+						__m256i lo1=_mm256_mul_epi32(mc1, mp1);
+						__m256i hi0=_mm256_mul_epi32(_mm256_srli_epi64(mc0, 32), _mm256_srli_epi64(mp0, 32));
+						__m256i hi1=_mm256_mul_epi32(_mm256_srli_epi64(mc1, 32), _mm256_srli_epi64(mp1, 32));
+						mc0=_mm256_add_epi64(lo0, lo1);
+						mc0=_mm256_add_epi64(mc0, hi0);
+						mc0=_mm256_add_epi64(mc0, hi1);
+						__m128i xc0=_mm_add_epi64(_mm256_extracti128_si256(mc0, 1), _mm256_castsi256_si128(mc0));
+						xc0=_mm_add_epi64(xc0, _mm_shuffle_epi32(xc0, _MM_SHUFFLE(1, 0, 3, 2)));
+						pred+=_mm_extract_epi32(xc0, 0);
+
+#if 0
+						int LOL_1=mc0.m256i_i32[0], LOL_2=mp0.m256i_i32[0];
+						if(ky==ih/2&&kx==iw/2&&kc==1)//
+							printf("");
+						mp0=_mm256_blend_epi16(mp0, _mm256_slli_epi32(mp0, 16), 0xAA);
+						mp1=_mm256_blend_epi16(mp1, _mm256_slli_epi32(mp1, 16), 0xAA);
+						__m256i lo0=_mm256_mullo_epi16(mc0, mp0);
+						__m256i hi0=_mm256_mulhi_epi16(mc0, mp0);
+						__m256i lo1=_mm256_mullo_epi16(mc1, mp1);
+						__m256i hi1=_mm256_mulhi_epi16(mc1, mp1);
+						mc0=_mm256_add_epi16(lo0, _mm256_slli_epi32(hi0, 16));
+						mc1=_mm256_add_epi16(lo1, _mm256_slli_epi32(hi1, 16));
+						if(mc0.m256i_i32[0]!=LOL_1*LOL_2)
+							CRASH("");
+						mc0=_mm256_add_epi32(mc0, mc1);
+						__m128i xc0=_mm_add_epi32(_mm256_extracti128_si256(mc0, 1), _mm256_castsi256_si128(mc0));
+						xc0=_mm_add_epi32(xc0, _mm_shuffle_epi32(xc0, _MM_SHUFFLE(1, 0, 3, 2)));
+						xc0=_mm_add_epi32(xc0, _mm_shuffle_epi32(xc0, _MM_SHUFFLE(2, 3, 0, 1)));
+						pred+=_mm_extract_epi32(xc0, 0);
+#endif
+#if 0
+						mc0=_mm256_mullo_epi32(mc0, mp0);
+						mc1=_mm256_mullo_epi32(mc1, mp1);
+						mc0=_mm256_add_epi32(mc0, mc1);
+						__m128i xc0=_mm_add_epi32(_mm256_extracti128_si256(mc0, 1), _mm256_castsi256_si128(mc0));
+						xc0=_mm_add_epi32(xc0, _mm_shuffle_epi32(xc0, _MM_SHUFFLE(1, 0, 3, 2)));
+						xc0=_mm_add_epi32(xc0, _mm_shuffle_epi32(xc0, _MM_SHUFFLE(2, 3, 0, 1)));
+						pred+=_mm_extract_epi32(xc0, 0);
+#endif
+#else
+#define PRED(EXPR) preds[j]=EXPR; pred+=coeffs[kc][j]*preds[j]; ++j;
+						j=0;
+						PREDLIST;
+#undef  PRED
+#endif
 						upred2=pred>>(L1SH-2);
 						pred>>=L1SH;
 					}
-#undef  PRED
 				}
 				upred2+=offset0&~3;
 				CLAMP2(upred2, 0, 1023);
@@ -849,10 +916,10 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 					if(lossy)
 					{
 						int pixel;
-						error=yuv[kc]-(int32_t)pred;
+						error=yuv[kc]-pred;
 						epred=epred*invdist>>16;
 						error=(error*invdist>>16)-(error>>31);
-						pixel=error*dist+(int32_t)pred;
+						pixel=error*dist+pred;
 #ifdef UNSIGNED_PIXEL
 #ifdef USE_TABLES
 						pixel=clampptr[pixel];
@@ -1056,18 +1123,20 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 					e=(curr>pred0)-(curr<pred0);
 
 					k=0;
-#define PRED(EXPR) currw[k]+=e*preds[k]; ++k;
 					if(lossy)
 					{
+#define PRED(EXPR) lcoeffs[kc][k]+=e*preds[k]; ++k;
 						//currw[L1NPREDS_LOSSY]+=e;
-						PREDLIST_LOSSY
+						PREDLIST_LOSSY;
+#undef  PRED
 					}
 					else
 					{
-						currw[L1NPREDS]+=e<<4;
-						PREDLIST
-					}
+						bias[kc]+=e<<4;
+#define PRED(EXPR) coeffs[kc][k]+=e*preds[k]; ++k;
+						PREDLIST;
 #undef  PRED
+					}
 
 					error=yuv[kc]-(int32_t)pred;
 					if(lossy)
@@ -1157,7 +1226,10 @@ int c12_codec(int argc, char **argv)
 		0, 0,
 	};
 #ifdef LOUD
-	double t=time_sec();
+	double t=time_sec2();
+#endif
+#ifdef PROFILER
+	void *prof_ctx=prof_start();
 #endif
 
 #if 0
@@ -1556,7 +1628,7 @@ int c12_codec(int argc, char **argv)
 	free(image);
 	free(stream);
 #ifdef LOUD
-	t=time_sec()-t;
+	t=time_sec2()-t;
 	if(fwd)
 	{
 		usize=srcsize;
@@ -1639,6 +1711,9 @@ int c12_codec(int argc, char **argv)
 #endif
 	(void)dstsize;
 	(void)csize;
-	(void)time_sec;
+	(void)time_sec2;
+#ifdef PROFILER
+	prof_end(prof_ctx);
+#endif
 	return 0;
 }
