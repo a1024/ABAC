@@ -197,7 +197,7 @@ static void guide_check(uint8_t *image, int kx, int ky)
 #ifdef FIFOVAL
 static ptrdiff_t fifoidx=0, fifocap=0, fifoidx2=0;
 static uint32_t *fifoval=0;
-static void valfifo_enqueue(uint32_t val)
+static void fifoval_enqueue(uint32_t val)
 {
 	if(fifoidx+1>=fifocap)
 	{
@@ -216,7 +216,7 @@ static void valfifo_enqueue(uint32_t val)
 	}
 	fifoval[fifoidx++]=val;
 }
-static void valfifo_check(uint32_t val)
+static void fifoval_check(uint32_t val)
 {
 	uint32_t val0=fifoval[fifoidx2++];
 	if(val!=val0)

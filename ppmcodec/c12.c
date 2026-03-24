@@ -30,9 +30,10 @@
 	#define LOUD
 
 //	#define PRINT_RCT
-//	#define ESTIMATE_BITSIZE
-	#define ENABLE_GUIDE
+	#define ESTIMATE_BITSIZE
 //	#define PRINTBITS
+	#define ENABLE_GUIDE
+	#define FIFOVAL
 #endif
 
 	#define SIMD_L1
@@ -139,13 +140,15 @@ enum
 	GRBITS=6,
 	NCTX=24,
 	GRLIMIT=18,
-	PROBBITS_STORE=24,
-	PROBBITS_USE=15,
+	PROBBITS_STORE=15,
+	PROBBITS_USE=14,
+	PROBSHIFT=PROBBITS_STORE-PROBBITS_USE,
 
 	XPAD=8,
 	NCH=3,
 	NROWS=4,
 	NVAL=4,
+	NVAL0=2,
 };
 
 
@@ -273,6 +276,64 @@ static void guide_check(uint8_t *image, int kx, int ky)
 #define guide_save(...)
 #define guide_check(...)
 #define guide_update(...)
+#endif
+#ifdef FIFOVAL
+static ptrdiff_t fifoidx=0, fifocap=0, fifoidx2=0;
+static uint32_t *fifoval=0;
+static void fifoval_enqueue(uint32_t val)
+{
+	if(fifoidx+1>=fifocap)
+	{
+		void *p=0;
+
+		if(!fifocap)
+			fifocap=1;
+		fifocap<<=1;
+		p=realloc(fifoval, fifocap*sizeof(uint32_t));
+		if(!p)
+		{
+			CRASH("Alloc error");
+			return;
+		}
+		fifoval=(uint32_t*)p;
+	}
+	fifoval[fifoidx++]=val;
+}
+static void fifoval_check(uint32_t val)
+{
+	uint32_t val0=fifoval[fifoidx2++];
+	if(val!=val0)
+	{
+		--fifoidx2;
+		printf(
+			"\n"
+			"FIFO Error  at %10lld,  remaining %10lld\n"
+			"    0x%08X  !=  original 0x%08X\n"
+			"\n"
+			, fifoidx2
+			, fifoidx-fifoidx2//current element was not decoded successfully
+			, val, val0
+		);
+		for(int k=-32;k<32;++k)
+		{
+			ptrdiff_t idx=fifoidx2+k;
+			if((size_t)idx<(size_t)fifoidx)
+			{
+				printf(
+					"%10td  0x%08X"
+					, idx
+					, fifoval[idx]
+				);
+				if(idx<fifoidx2)
+					printf("  OK");
+				if(idx==fifoidx2)
+					printf("  !=  corrupt 0x%08X", val);
+				printf("\n");
+			}
+		}
+		CRASH("");
+	}
+}
 #endif
 #endif
 
@@ -446,9 +507,9 @@ static const char *rct_names[RCT_COUNT]=
 };
 #endif
 
-static uint32_t stats[3][1024][NCTX][GRLIMIT];//unary
-static uint32_t stats2[3][1024][256];//remainder
-static uint32_t stats3[3][8][256];//bypass on GRLIMIT
+static int32_t stats[3][1024][NCTX][GRLIMIT];//unary
+static int32_t stats2[3][1024][256];//remainder
+static int32_t stats3[3][8][256];//bypass on GRLIMIT
 static const size_t memusage=sizeof(stats)+sizeof(stats2)+sizeof(stats3);
 typedef struct _ACState
 {
@@ -475,7 +536,10 @@ uint8_t clamptable[512];
 uint16_t errortable[512][2];
 uint8_t ctxtable[(2<<NCTX/2)/3][2];
 #endif
-INLINE void codebit(ACState *ac, uint32_t *pp1a, int32_t *bit, const int fwd)
+#ifdef _MSC_VER
+static uint64_t unary_count=0, binary_count=0;
+#endif
+INLINE void codebit(ACState *ac, int32_t *pp1a, int32_t *bit, int sh, const int fwd)
 {
 	int rbit;
 	uint64_t r2, mid;
@@ -500,7 +564,7 @@ INLINE void codebit(ACState *ac, uint32_t *pp1a, int32_t *bit, const int fwd)
 		if(ac->ptr>=ac->end)
 		{
 #ifdef _MSC_VER
-			CRASH("ERROR at %d/%d  inflation %8.4lf%%\n"
+			CRASH("inflation  %d/%d  %8.4lf%%\n"
 				, (int32_t)ac->bitidx
 				, (int32_t)ac->totalbits
 				, 100.*ac->totalbits/ac->bitidx
@@ -526,6 +590,14 @@ INLINE void codebit(ACState *ac, uint32_t *pp1a, int32_t *bit, const int fwd)
 		rbit=*bit;
 	else
 		*bit=rbit=ac->code<mid;
+#ifdef FIFOVAL
+	//if(p1<1||p1>(1<<PROBBITS_USE)-1)
+	//	CRASH("");
+	if(fwd)
+		fifoval_enqueue(rbit<<PROBBITS_STORE^p1);
+	else
+		fifoval_check(rbit<<PROBBITS_STORE^p1);
+#endif
 	if(rbit)
 		ac->range=r2;
 	else
@@ -544,9 +616,9 @@ INLINE void codebit(ACState *ac, uint32_t *pp1a, int32_t *bit, const int fwd)
 	}
 	*pp1a=n[1]<<16|n[0];
 #else
-//	p10a+=((rbit<<PROBBITS_STORE)-p10a)>>8;
-	p10a+=((rbit<<PROBBITS_STORE)-p10a)>>7;
-	*pp1a=p10a;
+//	p10a+=(int32_t)((rbit<<PROBBITS_STORE)-p10a)>>sh;
+//	p10a+=(int32_t)((rbit<<PROBBITS_STORE)-p10a)>>7;
+//	*pp1a=p10a;
 #endif
 #ifdef ESTIMATE_BITSIZE
 	bitsizes[ekc][eidx]+=shannontable[rbit?p1:(1<<PROBBITS_USE)-p1];
@@ -559,7 +631,7 @@ INLINE void codebit(ACState *ac, uint32_t *pp1a, int32_t *bit, const int fwd)
 	++ac->n[rbit];
 #endif
 }
-INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint8_t *stream, ACState *ac, const int lossy, const int fwd)
+INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint8_t *stream, ACState *ac, int32_t *gaintable2, const int lossy, const int fwd)
 {
 	int
 		yidx=rct_combinations[bestrct][II_PERM_Y],
@@ -750,7 +822,7 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				int32_t nbypass, nbypass0;
 				int32_t nzeros=-1, grflag;
 				int32_t tidx=0;
-				uint32_t *statsptr;
+				int32_t *statsptr;
 				int32_t bit=0;
 				int32_t ctx;
 				ALIGN(32) int32_t preds[L1NPREDS>L1NPREDS_LOSSY?L1NPREDS:L1NPREDS_LOSSY];
@@ -988,19 +1060,72 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 #ifdef ESTIMATE_BITSIZE
 				ekc=kc;
 #endif
+			//	static const shift_unary[GRLIMIT]=
+			//	{//	0	1	2	3	4	5	6	7	8	9
+			//		9,	8,	8,	7,	7,	7,	7,	7,	7,	7,
+			//		7,	7,	7,	7,	7,	7,	7,	7,
+			//	};
+				int bits[GRLIMIT]={0};
+				
+				//if(ky==0&&kx==1044&&kc==2)//
+				//	printf("");
+
 				do
 				{
-					if(fwd)
-						bit=nzeros--<=0;
+					bit=tidx>=nzeros;
 #ifdef ESTIMATE_BITSIZE
 					eidx=tidx;
 #endif
-					codebit(ac, statsptr+tidx, &bit, fwd);
+					codebit(ac, statsptr+tidx, &bit, 7, fwd);
+					bits[tidx]=bit;
 #ifdef PRINTBITS
 					if(fwd&&(uint32_t)(idx-10000)<1000)printf("%c", '0'+bit);//
 #endif
+#ifdef _MSC_VER
+					++unary_count;
+#endif
+					if(bit)
+						break;
 					++tidx;
-				}while(!bit&&tidx<GRLIMIT);
+				}while(tidx<GRLIMIT);
+				{
+					static const uint8_t shifttable[GRLIMIT+1]=
+					{//	0	1	2	3	4	5	6	7	8	9
+						7+4,	7+4,	7+4,	7+4,	7+4,	7+4,	7+4,	7+4,	7+4,	7+4,
+						7+4,	7+4,	7+4,	7+4,	7+4,	7+4,	7+4,	7+4,	4+4,
+					};
+					static const int16_t gaintable[GRLIMIT]=//<256!
+					{
+						8,	15,	20,	36,	52,	64,	72,	80,	96,	192,
+						192,	192,	192,	192,	192,	192,	192,	192,
+					};
+					int sh=shifttable[tidx];
+					for(int k=0;k<tidx+(tidx<GRLIMIT);++k)
+					//	statsptr[k]+=(int32_t)(((k>=tidx)<<PROBBITS_STORE)-statsptr[k])*gaintable[kc*(GRLIMIT+1)+k]>>sh;
+						statsptr[k]+=(int32_t)(((k>=tidx)<<PROBBITS_STORE)-statsptr[k])*gaintable[k]>>sh;
+				}
+				//if(tidx<GRLIMIT)
+				//{
+				//	for(int k=0;k<tidx+(tidx<GRLIMIT);++k)
+				//	{
+				//		//int sh=shift_unary[k]+5;
+				//		//statsptr[k]+=(int32_t)(((k>=tidx)<<PROBBITS_STORE)-statsptr[k])*(k-tidx+50)>>sh;
+				//
+				//		//statsptr[k]+=(int32_t)(((k>=tidx)<<PROBBITS_STORE)-statsptr[k])>>shift_unary[k];
+				//		//statsptr[k]+=(int32_t)(((k>=tidx)<<PROBBITS_STORE)-statsptr[k])>>7;
+				//		
+				//		//statsptr[k]+=(int32_t)((bits[k]<<PROBBITS_STORE)-statsptr[k])*(80-tidx)>>(7+6);
+				//		statsptr[k]+=(int32_t)(((k>=tidx)<<PROBBITS_STORE)-statsptr[k])>>7;
+				//
+				//		//if(statsptr[k]<1||statsptr[k]>(1<<PROBBITS_STORE)-1)
+				//		//	CRASH("");
+				//	}
+				//}
+				//else
+				//{
+				//	for(int k=0;k<tidx+(tidx<GRLIMIT);++k)
+				//		statsptr[k]+=(int32_t)(((k>=tidx)<<PROBBITS_STORE)-statsptr[k])>>1;
+				//}
 				nbypass0=nbypass;
 				grflag=tidx==GRLIMIT;
 				if(grflag)
@@ -1013,7 +1138,7 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				else
 				{
 					statsptr=stats2[kc][upred2];
-					tidx=(256>>nbypass)-1+tidx;
+					tidx=(256>>nbypass)+tidx;//bit coding:  tidx=2*tidx+bit  tidx=0b1XX
 				}
 				{
 					int32_t kb=nbypass-1;
@@ -1025,11 +1150,15 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 #ifdef ESTIMATE_BITSIZE
 						eidx=GRLIMIT+8-nbypass+kb;
 #endif
-						codebit(ac, statsptr+tidx, &bit, fwd);
+						codebit(ac, statsptr+tidx, &bit, 6, fwd);
+						statsptr[tidx]+=(int32_t)((bit<<PROBBITS_STORE)-statsptr[tidx])>>7;
 #ifdef PRINTBITS
 						if(fwd&&(uint32_t)(idx-10000)<1000)printf("%c", '0'+bit);//
 #endif
 						tidx=2*tidx+bit;
+#ifdef _MSC_VER
+						++binary_count;
+#endif
 					}
 				}
 				if(grflag)
@@ -1132,7 +1261,7 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 					}
 					else
 					{
-						bias[kc]+=e<<4;
+						bias[kc]+=e<<8;
 #define PRED(EXPR) coeffs[kc][k]+=e*preds[k]; ++k;
 						PREDLIST;
 #undef  PRED
@@ -1231,6 +1360,7 @@ int c12_codec(int argc, char **argv)
 #ifdef PROFILER
 	void *prof_ctx=prof_start();
 #endif
+	int32_t gaintable[3*(GRLIMIT+1)]={0};
 
 #if 0
 #define NBITS 4
@@ -1518,7 +1648,101 @@ int c12_codec(int argc, char **argv)
 			);
 #undef  UPDATE
 		}
-		imptr=image;
+#if 0
+		{
+			int yidx=rct_combinations[bestrct][II_PERM_Y];
+			int uidx=rct_combinations[bestrct][II_PERM_U];
+			int vidx=rct_combinations[bestrct][II_PERM_V];
+			int cu0=rct_combinations[bestrct][II_COEFF_U_SUB_Y];
+			int cv0=rct_combinations[bestrct][II_COEFF_V_SUB_Y];
+			int cv1=rct_combinations[bestrct][II_COEFF_V_SUB_U];
+			int psize=(iw+2*XPAD)*(int)sizeof(int16_t[NCH*NROWS*NVAL0]);
+			int16_t *pixels=(int16_t*)malloc(psize);
+
+			if(!pixels)
+			{
+				CRASH("Alloc error\n");
+				return 1;
+			}
+			memset(pixels, 0, psize);
+			imptr=image;
+			for(int ky=0;ky<ih;++ky)
+			{
+				int16_t *rows[]=
+				{
+					pixels+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NVAL0,
+					pixels+(XPAD*NCH*NROWS+(ky-1LL+NROWS)%NROWS)*NVAL0,
+					pixels+(XPAD*NCH*NROWS+(ky-2LL+NROWS)%NROWS)*NVAL0,
+					pixels+(XPAD*NCH*NROWS+(ky-3LL+NROWS)%NROWS)*NVAL0,
+				};
+				for(int kx=0;kx<iw;++kx, imptr+=3)
+				{
+					int y, u, v, py, pu, pv, uoffset, voffset, nby, nbu, nbv;
+
+					y=imptr[yidx];
+					u=imptr[uidx];
+					v=imptr[vidx];
+					py=(rows[1][(0+0*NCH)*NROWS*NVAL0]+rows[0][(0-1*NCH)*NROWS*NVAL0])>>1;
+					pu=(rows[1][(1+0*NCH)*NROWS*NVAL0]+rows[0][(1-1*NCH)*NROWS*NVAL0])>>1;
+					pv=(rows[1][(2+0*NCH)*NROWS*NVAL0]+rows[0][(2-1*NCH)*NROWS*NVAL0])>>1;
+					uoffset=cu0*y>>2;
+					voffset=(cv0*y+cv1*v)>>2;
+					pu+=uoffset; CLAMP2(pu, 0, 255);
+					pv+=voffset; CLAMP2(pv, 0, 255);
+					rows[0][(0+0*NCH)*NROWS*NVAL0]=y;
+					rows[0][(1+0*NCH)*NROWS*NVAL0]=u-uoffset;
+					rows[0][(2+0*NCH)*NROWS*NVAL0]=v-voffset;
+					y-=py;
+					u-=pu;
+					v-=pv;
+					y=(int8_t)y;
+					u=(int8_t)u;
+					v=(int8_t)v;
+					y=y<<1^y>>31;
+					u=u<<1^u>>31;
+					v=v<<1^v>>31;
+					nby=31-_lzcnt_u32((rows[0][1+(0-1*NCH)*NROWS*NVAL0]>>GRBITS)+1);
+					nbu=31-_lzcnt_u32((rows[0][1+(1-1*NCH)*NROWS*NVAL0]>>GRBITS)+1);
+					nbv=31-_lzcnt_u32((rows[0][1+(2-1*NCH)*NROWS*NVAL0]>>GRBITS)+1);
+					if(nby>7)nby=7;
+					if(nbu>7)nbu=7;
+					if(nbv>7)nbv=7;
+					rows[0][1+(0+0*NCH)*NROWS*NVAL0]=(2*rows[0][1+(0-1*NCH)*NROWS*NVAL0]+(y<<GRBITS)+rows[1][1+(0+3*NCH)*NROWS*NVAL0])>>2;
+					rows[0][1+(1+0*NCH)*NROWS*NVAL0]=(2*rows[0][1+(1-1*NCH)*NROWS*NVAL0]+(u<<GRBITS)+rows[1][1+(1+3*NCH)*NROWS*NVAL0])>>2;
+					rows[0][1+(2+0*NCH)*NROWS*NVAL0]=(2*rows[0][1+(2-1*NCH)*NROWS*NVAL0]+(v<<GRBITS)+rows[1][1+(2+3*NCH)*NROWS*NVAL0])>>2;
+					y>>=nby;
+					u>>=nbu;
+					v>>=nbv;
+					if(y>GRLIMIT)y=GRLIMIT;
+					if(u>GRLIMIT)u=GRLIMIT;
+					if(v>GRLIMIT)v=GRLIMIT;
+					++gaintable[0*(GRLIMIT+1)+y];
+					++gaintable[1*(GRLIMIT+1)+u];
+					++gaintable[2*(GRLIMIT+1)+v];
+					rows[0]+=NCH*NROWS*NVAL0;
+					rows[1]+=NCH*NROWS*NVAL0;
+					rows[2]+=NCH*NROWS*NVAL0;
+					rows[3]+=NCH*NROWS*NVAL0;
+				}
+			}
+			for(int kc=0;kc<3;++kc)
+			{
+				int32_t vmax=0;
+				for(int ks=0;ks<GRLIMIT+1;++ks)
+				{
+					int f=gaintable[kc*(GRLIMIT+1)+ks]+1;
+					f=(f*127>>7)+(iw*ih*1>>7);
+					f=(0x7FFFFFFF / (GRLIMIT+1))/f;
+					if(vmax<f)
+						vmax=f;
+					gaintable[kc*(GRLIMIT+1)+ks]=f;
+				}
+				for(int ks=0;ks<GRLIMIT+1;++ks)
+					gaintable[kc*(GRLIMIT+1)+ks]=(uint32_t)(((uint64_t)gaintable[kc*(GRLIMIT+1)+ks]*255)/vmax);
+			}
+			free(pixels);
+		}
+#endif
 		{
 			int kt;
 
@@ -1558,16 +1782,27 @@ int c12_codec(int argc, char **argv)
 		}
 		streamptr=stream;
 		streamend=stream+usize;
-
+#if 0
+		for(int kc=0;kc<3;++kc)
+		{
+			for(int ks=0;ks<GRLIMIT+1;++ks)
+				*streamptr++=(uint8_t)gaintable[kc*(GRLIMIT+1)+ks];
+		}
+#endif
 		ac.ptr=streamptr;
 		ac.end=streamend;
 	}
 	else
 	{
-		imptr=image;
 		streamptr=stream;
 		streamend=stream+srcsize;
-		
+#if 0
+		for(int kc=0;kc<3;++kc)
+		{
+			for(int ks=0;ks<GRLIMIT+1;++ks)
+				gaintable[kc*(GRLIMIT+1)+ks]=*streamptr++;
+		}
+#endif
 		ac.code=*(uint64_t*)streamptr;//load
 		streamptr+=sizeof(uint64_t);
 		ac.code=ac.code<<32|ac.code>>32;
@@ -1582,16 +1817,16 @@ int c12_codec(int argc, char **argv)
 	if(dist>1)
 	{
 		if(fwd)
-			mainloop(iw, ih, bestrct, dist, image, stream, &ac, 1, 1);
+			mainloop(iw, ih, bestrct, dist, image, stream, &ac, gaintable, 1, 1);
 		else
-			mainloop(iw, ih, bestrct, dist, image, stream, &ac, 1, 0);
+			mainloop(iw, ih, bestrct, dist, image, stream, &ac, gaintable, 1, 0);
 	}
 	else
 	{
 		if(fwd)
-			mainloop(iw, ih, bestrct, dist, image, stream, &ac, 0, 1);
+			mainloop(iw, ih, bestrct, dist, image, stream, &ac, gaintable, 0, 1);
 		else
-			mainloop(iw, ih, bestrct, dist, image, stream, &ac, 0, 0);
+			mainloop(iw, ih, bestrct, dist, image, stream, &ac, gaintable, 0, 0);
 	}
 	{
 		FILE *fdst=fopen(dstfn, "wb");
@@ -1635,8 +1870,13 @@ int c12_codec(int argc, char **argv)
 #ifdef PRINTBITS
 		printf("\n");
 #endif
-		printf("%12.2lf zeros B\n%12.2lf ones  B\n", ac.n[0]/8., ac.n[1]/8.);
-		printf("%12.2lf /%12.2lf bytes GR  %12.6lf bit/sym\n", ac.bitidx/8., ac.totalbits/8., ac.bitidx/(3.*iw*ih));
+#ifdef _MSC_VER
+		printf("%12.2lf bytes unary  %8.4lf%%\n", unary_count/8., 100.*unary_count/(unary_count+binary_count));
+		printf("%12.2lf bytes binary\n", binary_count/8.);
+		printf("%8.4lf%% GR CR\n", 100.*csize/((unary_count+binary_count)/8.));
+#endif
+		//printf("%12.2lf B zeros\n%12.2lf B ones\n", ac.n[0]/8., ac.n[1]/8.);
+		//printf("%12.2lf /%12.2lf bytes GR  %12.6lf bit/sym\n", ac.bitidx/8., ac.totalbits/8., ac.bitidx/(3.*iw*ih));
 #ifdef ESTIMATE_BITSIZE
 		double total[3]={0};
 		printf("plane  csize / usize = invCR  nzeros%%\n");
