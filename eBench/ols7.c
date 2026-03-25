@@ -587,18 +587,33 @@ static void experiment2(Image *src)
 			//		NN
 			//	NW	N	NE
 			//	W	?
-			estims[j++]=W;
-			estims[j++]=NE;
+			
+			estims[j++]=(N+W)>>1;
 			estims[j++]=N+W-NW;
+			estims[j++]=W+NE-N;
+			
+			//estims[j++]=N;
+			//estims[j++]=W;
+			//estims[j++]=NE;
+
+			//estims[j++]=W;
+			//estims[j++]=NE;
+			//estims[j++]=N+W-NW;
 			int ebest=0, kbest=0;
 			for(int k=0;k<HISTSIZE;++k)
 			{
-				int a1=k>>0*PARAMBITS&(PARAMLEVELS-1);
-				int a2=k>>1*PARAMBITS&(PARAMLEVELS-1);
+				int a1=(k>>0*PARAMBITS&(PARAMLEVELS-1))+1;
+				int a2=(k>>1*PARAMBITS&(PARAMLEVELS-1))+1;
 
-				int pred=estims[0];
-				pred+=(estims[1]-pred)*a1>>PARAMBITS;
-				pred+=(estims[2]-pred)*a2>>PARAMBITS;
+				int pred=(a1*estims[0]+a2*estims[1]+((1<<PARAMBITS>>2)-a1-a2)*estims[2])>>(PARAMBITS-2);
+
+				//int pred=(a1*estims[0]+a2*estims[1])/(a1+a2);
+
+				//int pred=(a1*estims[0]+a2*estims[1])>>PARAMBITS;
+
+				//int pred=estims[0];
+				//pred+=(estims[1]-pred)*a1>>PARAMBITS;
+				//pred+=(estims[2]-pred)*a2>>PARAMBITS;
 				CLAMP2(pred, vmin, vmax);
 
 				//int pred=(
@@ -613,7 +628,7 @@ static void experiment2(Image *src)
 			++hist[kbest];
 			++count;
 		}
-		set_window_title("%d/%d", ky+1, src->ih);
+		set_window_title("%d/%d  remaining %12.6lf mins", ky+1, src->ih, (time_sec()-t)/(60*(ky+1))*(src->ih-(ky+1)));
 	}
 	int32_t *psrc=(int32_t*)hist;
 	uint8_t *pdst=(uint8_t*)im2;
@@ -658,11 +673,11 @@ static void experiment2(Image *src)
 }
 void pred_mixN(Image *src, int fwd)
 {
-	if(loud_transforms)//
-	{
-		experiment2(src);
-		return;
-	}
+	//if(loud_transforms)//
+	//{
+	//	experiment2(src);
+	//	return;
+	//}
 
 
 	int amin[]=
@@ -1044,9 +1059,9 @@ void pred_mixN(Image *src, int fwd)
 #endif
 
 				//147 MB/s  6.77 ms/MB  i5-1145G7
-#if 0
-				//int e=(curr>p1)-(curr<p1);//L1
-				int e=((curr-p1)>>31)-((p1-curr)>>31);
+#if 1
+				int e=(curr>p1)-(curr<p1);//L1
+				//int e=((curr-p1)>>31)-((p1-curr)>>31);
 				//int e=curr-p1; CLAMP2(e, -1, 1);//jump?
 				bias[kc]+=e;
 				coeffs[kc][0]+=(int16_t)((int16_t)e*(int16_t)estims[0]);//casts prevent pmulld
@@ -1055,7 +1070,7 @@ void pred_mixN(Image *src, int fwd)
 				coeffs[kc][3]+=(int16_t)((int16_t)e*(int16_t)estims[3]);
 #endif
 
-#if 1
+#if 0
 				//if(ky>10&&kx>10&&!kc)//
 				//	printf("");
 
@@ -1121,7 +1136,7 @@ void pred_mixN(Image *src, int fwd)
 	}
 	_mm_free(pixels);
 }
-void pred_mixN_crct2(Image *src, int fwd)
+void pred_rls(Image *src, int fwd)
 {
 	enum
 	{
@@ -1131,7 +1146,7 @@ void pred_mixN_crct2(Image *src, int fwd)
 		XPAD=8,
 		NROWS=4,
 		NCH=4,
-		NVAL=2,
+		NVAL=1,
 	};
 	int amin[]=
 	{
@@ -1149,7 +1164,8 @@ void pred_mixN_crct2(Image *src, int fwd)
 	};
 	int invdist=((1<<16)+g_dist-1)/g_dist;
 
-	ALIGN(16) int coeffs[4][MIXPREDS]={0}, estims[MIXPREDS]={0}, coeff2[4][MIXPREDS]={0}, estim2[MIXPREDS]={0};
+	ALIGN(32) double coeffs[4][MIXPREDS]={0}, params[4][MIXPREDS]={0}, invcov[4][MIXPREDS*MIXPREDS]={0};
+	int estims[MIXPREDS]={0};
 
 	int psize=(src->iw+2*XPAD)*(int)sizeof(int16_t[NROWS*NCH*NVAL]);
 	int16_t *pixels=(int16_t*)_mm_malloc(psize, sizeof(__m128i));
@@ -1166,8 +1182,13 @@ void pred_mixN_crct2(Image *src, int fwd)
 	}
 	FILLMEM((int32_t*)coeffs, (1<<SHIFT)/MIXPREDS, sizeof(coeffs), sizeof(int32_t));
 	memset(pixels, 0, psize);
-	if(fwd)
-		crct2_analysis(src, alphas);
+	invcov[0][(MIXPREDS+1)*0]=1;
+	invcov[0][(MIXPREDS+1)*1]=1;
+	invcov[0][(MIXPREDS+1)*2]=1;
+	invcov[0][(MIXPREDS+1)*3]=1;
+	memcpy(invcov[1], invcov[0], sizeof(double[MIXPREDS*MIXPREDS]));
+	memcpy(invcov[2], invcov[0], sizeof(double[MIXPREDS*MIXPREDS]));
+	memcpy(invcov[3], invcov[0], sizeof(double[MIXPREDS*MIXPREDS]));
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
 		int16_t *rows[]=
@@ -1179,7 +1200,6 @@ void pred_mixN_crct2(Image *src, int fwd)
 		};
 		for(int kx=0;kx<src->iw;++kx)
 		{
-			int offset=0;
 			for(int kc=0;kc<4;++kc, ++idx)
 			{
 				rows[0]+=NROWS*NVAL;
@@ -1206,87 +1226,32 @@ void pred_mixN_crct2(Image *src, int fwd)
 					WWW	=rows[0][0-3*NCH*NROWS*NVAL],
 					WW	=rows[0][0-2*NCH*NROWS*NVAL],
 					W	=rows[0][0-1*NCH*NROWS*NVAL];
-				int16_t
-					aNNN	=rows[3][1+0*NCH*NROWS*NVAL],
-					aNNWW	=rows[2][1-2*NCH*NROWS*NVAL],
-					aNNW	=rows[2][1-1*NCH*NROWS*NVAL],
-					aNN	=rows[2][1+0*NCH*NROWS*NVAL],
-					aNNE	=rows[2][1+1*NCH*NROWS*NVAL],
-					aNNEE	=rows[2][1+2*NCH*NROWS*NVAL],
-					aNWW	=rows[1][1-2*NCH*NROWS*NVAL],
-					aNW	=rows[1][1-1*NCH*NROWS*NVAL],
-					aN	=rows[1][1+0*NCH*NROWS*NVAL],
-					aNE	=rows[1][1+1*NCH*NROWS*NVAL],
-					aNEE	=rows[1][1+2*NCH*NROWS*NVAL],
-					aNEEE	=rows[1][1+3*NCH*NROWS*NVAL],
-					aNEEEE	=rows[1][1+4*NCH*NROWS*NVAL],
-					aWWWW	=rows[0][1-4*NCH*NROWS*NVAL],
-					aWWW	=rows[0][1-3*NCH*NROWS*NVAL],
-					aWW	=rows[0][1-2*NCH*NROWS*NVAL],
-					aW	=rows[0][1-1*NCH*NROWS*NVAL];
 				int curr=src->data[idx];
-				int *weights=coeffs[kc];
 				int vmax=N, vmin=W;
 
 				int j=0;
 				//mix 4
 				//		NN
 				//	NW	N	NE
-				//	W	?		133 MB/s  7.47 ms/MB  4T
+				//	W	?		198 MB/s
 				j=0;
 				estims[j++]=W;
 				estims[j++]=N+W-NW;
 				estims[j++]=2*N-NN;
 				estims[j++]=NE;
-				int pred=((1<<SHIFT>>1)
-					+weights[0]*estims[0]
-					+weights[1]*estims[1]
-					+weights[2]*estims[2]
-					+weights[3]*estims[3]
-				)>>SHIFT, pred2=0, p2=0;
-				int p1=pred;
+				double fpred=
+					+params[kc][0]*estims[0]
+					+params[kc][1]*estims[1]
+					+params[kc][2]*estims[2]
+					+params[kc][3]*estims[3]
+				;
+				int pred=(int)CVTFP64_I64(fpred);
 				if(N<W)vmin=N, vmax=W;
 				if(vmin>NE)vmin=NE;
 				if(vmax<NE)vmax=NE;
 				if(vmin>NEEE)vmin=NEEE;
 				if(vmax<NEEE)vmax=NEEE;
 				CLAMP2(pred, vmin, vmax);
-				if(kc)
-				{
-					//pred2=aN+aW-aNW;
-					//vmax=aN, vmin=aW;
-					//if(aN<aW)vmin=aN, vmax=aW;
-					//CLAMP2(pred2, vmin, vmax);
-
-				//	pred2=0;
-#if 1
-					j=0;
-					estim2[j++]=aW;
-					estim2[j++]=aN+aW-aNW;
-					estim2[j++]=2*aN-aNN;
-					estim2[j++]=aNE;
-					pred2=((1<<SHIFT>>1)
-						+coeff2[kc][0]*estim2[0]
-						+coeff2[kc][1]*estim2[1]
-						+coeff2[kc][2]*estim2[2]
-						+coeff2[kc][3]*estim2[3]
-					)>>SHIFT;
-					p2=pred2;
-					vmax=aN, vmin=aW;
-					if(aN<aW)vmin=aN, vmax=aW;
-					if(vmin>aNE)vmin=aNE;
-					if(vmax<aNE)vmax=aNE;
-					if(vmin>aNEEE)vmin=aNEEE;
-					if(vmax<aNEEE)vmax=aNEEE;
-					CLAMP2(pred2, vmin, vmax);
-#endif
-
-					pred+=offset;
-				//	int p=(pred2-pred)*(0x10000-alphas[kc-1]);
-					int p=(pred2-pred)*alphas[kc-1];
-					pred+=p<0?-(-p>>16):p>>16;
-					CLAMP2(pred, amin[kc], amax[kc]);
-				}
 				if(g_dist>1)
 				{
 					if(fwd)
@@ -1320,27 +1285,72 @@ void pred_mixN_crct2(Image *src, int fwd)
 						src->data[idx]=curr;
 					}
 				}
-				rows[0][1]=curr;
-				curr-=offset;
 				rows[0][0]=curr;
-				int e=(curr>p1)-(curr<p1);//L1
-				weights[0]+=e*estims[0];
-				weights[1]+=e*estims[1];
-				weights[2]+=e*estims[2];
-				weights[3]+=e*estims[3];
-				if(kc)
-				{
-#if 1
-					int acurr=rows[0][1];
-					int e=(acurr>p2)-(acurr<p2);
-					coeff2[kc][0]+=e*estim2[0];
-					coeff2[kc][1]+=e*estim2[1];
-					coeff2[kc][2]+=e*estim2[2];
-					coeff2[kc][3]+=e*estim2[3];
-#endif
-				}
-				else
-					offset=curr;
+
+				//if(ky==src->ih/2&&kx==src->iw/2)//
+				//	printf("");
+				double vec[MIXPREDS];
+				vec[0]=
+					+invcov[kc][MIXPREDS*0+0]*estims[0]
+					+invcov[kc][MIXPREDS*0+1]*estims[1]
+					+invcov[kc][MIXPREDS*0+2]*estims[2]
+					+invcov[kc][MIXPREDS*0+3]*estims[3]
+				;
+				vec[1]=
+					+invcov[kc][MIXPREDS*1+0]*estims[0]
+					+invcov[kc][MIXPREDS*1+1]*estims[1]
+					+invcov[kc][MIXPREDS*1+2]*estims[2]
+					+invcov[kc][MIXPREDS*1+3]*estims[3]
+				;
+				vec[2]=
+					+invcov[kc][MIXPREDS*2+0]*estims[0]
+					+invcov[kc][MIXPREDS*2+1]*estims[1]
+					+invcov[kc][MIXPREDS*2+2]*estims[2]
+					+invcov[kc][MIXPREDS*2+3]*estims[3]
+				;
+				vec[3]=
+					+invcov[kc][MIXPREDS*3+0]*estims[0]
+					+invcov[kc][MIXPREDS*3+1]*estims[1]
+					+invcov[kc][MIXPREDS*3+2]*estims[2]
+					+invcov[kc][MIXPREDS*3+3]*estims[3]
+				;
+				double norm=1/(
+					+estims[0]*vec[0]
+					+estims[1]*vec[1]
+					+estims[2]*vec[2]
+					+estims[3]*vec[3]
+					+1
+				);
+				double gain[MIXPREDS];
+				gain[0]=vec[0]*norm;
+				gain[1]=vec[1]*norm;
+				gain[2]=vec[2]*norm;
+				gain[3]=vec[3]*norm;
+				double error=curr-fpred;
+				params[kc][0]+=gain[0]*error;
+				params[kc][1]+=gain[1]*error;
+				params[kc][2]+=gain[2]*error;
+				params[kc][3]+=gain[3]*error;
+				invcov[kc][MIXPREDS*0+0]-=gain[0]*vec[0];
+				invcov[kc][MIXPREDS*0+1]-=gain[0]*vec[1];
+				invcov[kc][MIXPREDS*0+2]-=gain[0]*vec[2];
+				invcov[kc][MIXPREDS*0+3]-=gain[0]*vec[3];
+
+				invcov[kc][MIXPREDS*1+0]-=gain[1]*vec[0];
+				invcov[kc][MIXPREDS*1+1]-=gain[1]*vec[1];
+				invcov[kc][MIXPREDS*1+2]-=gain[1]*vec[2];
+				invcov[kc][MIXPREDS*1+3]-=gain[1]*vec[3];
+
+				invcov[kc][MIXPREDS*2+0]-=gain[2]*vec[0];
+				invcov[kc][MIXPREDS*2+1]-=gain[2]*vec[1];
+				invcov[kc][MIXPREDS*2+2]-=gain[2]*vec[2];
+				invcov[kc][MIXPREDS*2+3]-=gain[2]*vec[3];
+
+				invcov[kc][MIXPREDS*3+0]-=gain[3]*vec[0];
+				invcov[kc][MIXPREDS*3+1]-=gain[3]*vec[1];
+				invcov[kc][MIXPREDS*3+2]-=gain[3]*vec[2];
+				invcov[kc][MIXPREDS*3+3]-=gain[3]*vec[3];
+
 			}
 		}
 	}

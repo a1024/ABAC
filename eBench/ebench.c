@@ -223,7 +223,7 @@ typedef enum TransformTypeEnum
 	
 	ST_FWD_GRAY,		ST_INV_GRAY,
 	ST_FWD_MIXN,		ST_INV_MIXN,
-//	ST_FWD_MIXN_CRCT2,	ST_INV_MIXN_CRCT2,
+	ST_FWD_RLS,		ST_INV_RLS,
 	ST_FWD_ADAQUANT,	ST_INV_ADAQUANT,
 	ST_FWD_GRFILT,		ST_INV_GRFILT,
 	ST_FWD_L1CRCT,		ST_INV_L1CRCT,
@@ -2971,8 +2971,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_GRAY:		a=" S Inv Gray";		break;
 	case ST_FWD_MIXN:		a=" S Fwd MIX N";		break;
 	case ST_INV_MIXN:		a=" S Inv MIX N";		break;
-//	case ST_FWD_MIXN_CRCT2:		a=" S Fwd MIX N cRCT2";		break;
-//	case ST_INV_MIXN_CRCT2:		a=" S Inv MIX N cRCT2";		break;
+	case ST_FWD_RLS:		a=" S Fwd RLS";			break;
+	case ST_INV_RLS:		a=" S Inv RLS";			break;
 //	case ST_FWD_AV3:		a=" S Fwd AV3";			break;
 //	case ST_INV_AV3:		a=" S Inv AV3";			break;
 	case ST_FWD_WGRAD:		a="CS Fwd WGrad";		break;
@@ -4254,8 +4254,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_GRAY:		pred_gray(image, 0);					break;
 	case ST_FWD_MIXN:		pred_mixN(image, 1);					break;
 	case ST_INV_MIXN:		pred_mixN(image, 0);					break;
-//	case ST_FWD_MIXN_CRCT2:		pred_mixN_crct2(image, 1);				break;
-//	case ST_INV_MIXN_CRCT2:		pred_mixN_crct2(image, 0);				break;
+	case ST_FWD_RLS:		pred_rls(image, 1);					break;
+	case ST_INV_RLS:		pred_rls(image, 0);					break;
 //	case ST_FWD_AV3:		pred_av3(image, 1);					break;
 //	case ST_INV_AV3:		pred_av3(image, 0);					break;
 	case ST_FWD_WGRAD:		pred_wgrad(image, 1, hasRCT);				break;
@@ -9870,10 +9870,20 @@ void io_render(void)
 #endif
 				if(mode==VIS_HISTOGRAM)
 				{
-					if(wndh>5*tdy)
-						chart_hist_draw(0, (float)wndw, 0, (float)wndh-5*tdy
-							, 0, 3, 0, 0x60, hist, histmax
-						);
+					if(histmode==HISTMODE_LINEAR_NOSPIKE||histmode==HISTMODE_LOG2_NOSPIKE)
+					{
+						if(wndh*0.75f>5*tdy)
+							chart_hist_draw(0, (float)wndw, (float)wndh*0.25f, (float)wndh-5*tdy
+								, 0, 3, 0, 0x60, hist, histmax
+							);
+					}
+					else
+					{
+						if(wndh>5*tdy)
+							chart_hist_draw(0, (float)wndw, 0, (float)wndh-5*tdy
+								, 0, 3, 0, 0x60, hist, histmax
+							);
+					}
 					GUIPrint(0, 0, 5*tdy, 1, "Mean, RMSE, MAD, RMSE/MAD, Gsize, Lsize");
 					GUIPrint(0, 0, 6*tdy, 1, "Y %10.4lf %10.4lf %10.4lf %10.4lf %12.2lf %12.2lf", hist_mean[0]-128, hist_sdev[0], hist_mad[0], hist_sdev[0]/hist_mad[0], hist_gausslike[0], hist_laplacelike[0]);
 					GUIPrint(0, 0, 7*tdy, 1, "U %10.4lf %10.4lf %10.4lf %10.4lf %12.2lf %12.2lf", hist_mean[1]-128, hist_sdev[1], hist_mad[1], hist_sdev[1]/hist_mad[1], hist_gausslike[1], hist_laplacelike[1]);

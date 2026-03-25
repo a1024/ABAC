@@ -28,17 +28,18 @@
 
 #if defined _MSC_VER && !defined RELEASE
 	#define LOUD
-
 //	#define PRINT_RCT
 	#define ESTIMATE_BITSIZE
 //	#define PRINTBITS
+
 	#define ENABLE_GUIDE
-	#define FIFOVAL
+//	#define FIFOVAL
 #endif
 
+//	#define NEW_SYSTEM//X
 	#define SIMD_L1
 	#define USE_TABLES
-//	#define USE_DIV
+	#define USE_COUNTERS
 //	#define ZIPF_VIEW
 
 	#define UNSIGNED_PIXEL
@@ -142,6 +143,8 @@ enum
 	GRLIMIT=18,
 	PROBBITS_STORE=15,
 	PROBBITS_USE=14,
+//	PROBBITS_STORE=17,
+//	PROBBITS_USE=12,
 	PROBSHIFT=PROBBITS_STORE-PROBBITS_USE,
 
 	XPAD=8,
@@ -149,6 +152,17 @@ enum
 	NROWS=4,
 	NVAL=4,
 	NVAL0=2,
+#ifdef USE_COUNTERS
+	CTRBITS=9,
+	CTRMASK=(1<<CTRBITS)-1,
+
+	HISTBITS=22,// <= 64-CTRBITS*2
+	HISTMASK=(1<<HISTBITS)-1,
+
+//	CTRFBITS=(32-CTRBITS)>>1,
+//	CTRFBITS=4,
+//	CTRFMASK=(1<<CTRFBITS)-1,
+#endif
 };
 
 
@@ -174,6 +188,10 @@ enum
 		if((X)<(LO))X=LO;\
 		if((X)>(HI))X=HI;\
 	}while(0)
+#define CVTFP32_I32(X) _mm_cvt_ss2si(_mm_set_ss(X))
+#define CVTTFP32_I32(X) _mm_cvtt_ss2si(_mm_set_ss(X))
+#define CVTFP64_I64(X) _mm_cvtsd_si64(_mm_set_sd(X))
+#define CVTTFP64_I64(X) _mm_cvttsd_si64(_mm_set_sd(X))
 static void memfill_s(void *dst, const void *src, size_t dstbytes, size_t srcbytes)
 {
 	size_t copied;
@@ -507,10 +525,21 @@ static const char *rct_names[RCT_COUNT]=
 };
 #endif
 
-static int32_t stats[3][1024][NCTX][GRLIMIT];//unary
+#ifdef USE_COUNTERS
+static uint64_t stats1[3][1024][NCTX][GRLIMIT];//unary
+static uint64_t stats2[3][1024][256];//remainder
+static uint64_t stats3[3][8][256];//bypass on GRLIMIT
+static const size_t memusage=sizeof(stats1)+sizeof(stats2)+sizeof(stats3);
+#else
+#ifdef NEW_SYSTEM
+static int32_t stats1[3][1024][NCTX][GRLIMIT+2];//unary
+#else
+static int32_t stats1[3][1024][NCTX][GRLIMIT];//unary
+#endif
 static int32_t stats2[3][1024][256];//remainder
 static int32_t stats3[3][8][256];//bypass on GRLIMIT
-static const size_t memusage=sizeof(stats)+sizeof(stats2)+sizeof(stats3);
+static const size_t memusage=sizeof(stats1)+sizeof(stats2)+sizeof(stats3);
+#endif
 typedef struct _ACState
 {
 	uint64_t low, range, code;
@@ -531,30 +560,58 @@ static double zsize=0;
 static uint8_t *zptr=0;
 #endif
 #ifdef USE_TABLES
-uint8_t epredtable[256];
-uint8_t clamptable[512];
-uint16_t errortable[512][2];
-uint8_t ctxtable[(2<<NCTX/2)/3][2];
+static uint8_t epredtable[256];
+static uint8_t clamptable[512];
+static uint16_t errortable[512][2];
+static uint8_t ctxtable[(2<<NCTX/2)/3][2];
 #endif
-#ifdef _MSC_VER
-static uint64_t unary_count=0, binary_count=0;
+#ifdef USE_COUNTERS
+//static int32_t table;
 #endif
-INLINE void codebit(ACState *ac, int32_t *pp1a, int32_t *bit, int sh, const int fwd)
+//#ifdef _MSC_VER
+//static uint64_t unary_count=0, binary_count=0;
+//#endif
+static int squash(int32_t d)
+{
+	static const int t[33]=
+	{
+		1,2,3,6,10,16,27,45,73,120,194,310,488,747,1101,
+		1546,2047,2549,2994,3348,3607,3785,3901,3975,4022,
+		4050,4068,4079,4085,4089,4092,4093,4094
+	};
+	if(d>2047)return 4095;
+	if(d<-2047)return 1;
+	int w=d&127;
+	d=(d>>7)+16;
+	return (t[d]*(128-w)+t[(d+1)]*w+64)>>7;
+}
+INLINE void codebit(ACState *ac, uint64_t *pcell, int32_t *bit, const int fwd)
 {
 	int rbit;
 	uint64_t r2, mid;
 	
-#ifdef USE_DIV
-	uint32_t p10a=*pp1a;
-	int32_t n[]={p10a&0xFFFF, p10a>>16};
-	int n0e=n[0]+!n[0];
-	int n1e=n[1]+!n[1];
-	int32_t p1=(n1e<<PROBBITS_USE)/(n0e+n1e);
+#ifdef USE_COUNTERS
+#if 1
+	uint64_t cell=*pcell;
+	int32_t n[]={cell&CTRMASK, cell>>CTRBITS&CTRMASK};
+	uint64_t hist=cell>>CTRBITS*2&HISTMASK;
+	int32_t alpha=(int32_t)(cell>>(HISTBITS+CTRBITS*2)&0xFFFF);
+	int n0e=n[0]+2;
+	int n1e=n[1]+2;
+	int sum=n0e+n1e;
+	int hwt=(((int)_mm_popcnt_u64(hist)+1)<<PROBBITS_USE)/(HISTBITS+2);
+	int32_t p1=((n1e<<PROBBITS_USE)+(sum>>1))/sum;
+	int32_t x=hwt-p1;
+	p1+=x*alpha>>16;
+#endif
 #else
-	int32_t p10a=*pp1a;
-	int32_t p1=p10a>>(PROBBITS_STORE-PROBBITS_USE);
+	int32_t p1=*pp1a>>PROBSHIFT;
+//	int32_t p10a=*pp1a;
+//	int32_t p1=p10a>>sh;
 
 	p1+=p1<(1<<PROBBITS_USE>>1);
+//	CLAMP2(p1, 1, (1<<PROBBITS_USE)-1);
+//	p1=squash(p1-(1<<PROBBITS_USE>>1));
 #endif
 #ifdef _MSC_VER
 	++ac->bitidx;
@@ -583,6 +640,7 @@ INLINE void codebit(ACState *ac, int32_t *pp1a, int32_t *bit, int sh, const int 
 			ac->range=~ac->low;
 	}
 	r2=ac->range*p1>>PROBBITS_USE;
+//	r2=(ac->range>>PROBBITS_USE)*p1;
 	mid=ac->low+r2;
 	ac->range-=r2;
 	--r2;
@@ -607,14 +665,31 @@ INLINE void codebit(ACState *ac, int32_t *pp1a, int32_t *bit, int sh, const int 
 	if(fwd)
 		zsize-=log2((double)(rbit?p1:(1<<PROBBITS_USE)-p1)/(1<<PROBBITS_USE));
 #endif
-#ifdef USE_DIV
+#ifdef USE_COUNTERS
+#if 1
+	static int ctrctr=0;
+	++ctrctr;
+	if((uint32_t)(ctrctr-4000000)<5000)
+	{
+		printf(" %d %d %04X %04X %3d %3d ", ctrctr, rbit, p1, alpha, n[0], n[1]);
+		for(int kb=HISTBITS-1;kb>=0;--kb)
+			printf("%d", (int)(hist>>kb&1));
+		if((ctrctr&3)==3)
+			printf("\n");
+	}
+#endif
+#if 1
 	++n[rbit];
-	if(n[rbit]==0xFFFF)
+	if(n[rbit]>CTRMASK)
 	{
 		n[0]>>=1;
 		n[1]>>=1;
 	}
-	*pp1a=n[1]<<16|n[0];
+	hist=(uint64_t)rbit<<(HISTBITS-1)|hist>>1;
+	alpha+=(x<<9)/(p1-(!rbit<<PROBBITS_USE));
+	CLAMP2(alpha, 1, 0xFFFF);
+	*pcell=(uint64_t)alpha<<(HISTBITS+CTRBITS*2)|(uint64_t)hist<<CTRBITS*2|(uint64_t)n[1]<<CTRBITS|n[0];
+#endif
 #else
 //	p10a+=(int32_t)((rbit<<PROBBITS_STORE)-p10a)>>sh;
 //	p10a+=(int32_t)((rbit<<PROBBITS_STORE)-p10a)>>7;
@@ -622,6 +697,8 @@ INLINE void codebit(ACState *ac, int32_t *pp1a, int32_t *bit, int sh, const int 
 #endif
 #ifdef ESTIMATE_BITSIZE
 	bitsizes[ekc][eidx]+=shannontable[rbit?p1:(1<<PROBBITS_USE)-p1];
+	if(isinf(bitsizes[ekc][eidx]))
+		printf("");
 	++bitctr[ekc][eidx][rbit];
 	winctr[ekc][eidx]+=rbit==(p1>=1<<PROBBITS_USE);
 	//if(bitsizes[ekc][eidx]>ac->bitidx/8.*1.2)
@@ -630,6 +707,7 @@ INLINE void codebit(ACState *ac, int32_t *pp1a, int32_t *bit, int sh, const int 
 #ifdef _MSC_VER
 	++ac->n[rbit];
 #endif
+	//return p1;
 }
 INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint8_t *stream, ACState *ac, int32_t *gaintable2, const int lossy, const int fwd)
 {
@@ -650,6 +728,7 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 	ptrdiff_t idx=0, usize=(ptrdiff_t)3*iw*ih;
 #endif
 	
+	//srand(10);
 	(void)memusage;
 	psize=(iw+2*XPAD)*(int)sizeof(int16_t[NCH*NROWS*NVAL]);
 	pixels=(int16_t*)malloc(psize);
@@ -661,12 +740,15 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 		return;
 	}
 	memset(pixels, 0, psize);
-#ifdef USE_DIV
-	memset(stats, 0, sizeof(stats));
+#ifdef USE_COUNTERS
+	memset(stats1, 0, sizeof(stats1));
 	memset(stats2, 0, sizeof(stats2));
 	memset(stats3, 0, sizeof(stats3));
+	//memset(hist1, 0xAA, sizeof(hist1));
+	//memset(hist2, 0xAA, sizeof(hist2));
+	//memset(hist3, 0xAA, sizeof(hist3));
 #else
-	FILLMEM_S((uint32_t*)stats, 1<<PROBBITS_STORE>>1, sizeof(stats), sizeof(int32_t));
+	FILLMEM_S((uint32_t*)stats1, 1<<PROBBITS_STORE>>1, sizeof(stats1), sizeof(int32_t));
 	FILLMEM_S((uint32_t*)stats2, 1<<PROBBITS_STORE>>1, sizeof(stats2), sizeof(int32_t));
 	FILLMEM_S((uint32_t*)stats3, 1<<PROBBITS_STORE>>1, sizeof(stats3), sizeof(int32_t));
 #endif
@@ -822,7 +904,8 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				int32_t nbypass, nbypass0;
 				int32_t nzeros=-1, grflag;
 				int32_t tidx=0;
-				int32_t *statsptr;
+				uint64_t *statsptr;
+				//uint64_t *histptr;
 				int32_t bit=0;
 				int32_t ctx;
 				ALIGN(32) int32_t preds[L1NPREDS>L1NPREDS_LOSSY?L1NPREDS:L1NPREDS_LOSSY];
@@ -965,8 +1048,116 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				(void)yNE	;
 				(void)yW	;
 #endif
-				
-#if 1
+#ifdef NEW_SYSTEM
+				int32_t p1, p1u[GRLIMIT+1];
+				int nonzeroflag=0, signflag=0, sym=0;
+				error=0;
+				(void)p1;
+				(void)p1u;
+				if(fwd)
+				{
+					error=(int8_t)(yuv[kc]-pred);
+					nonzeroflag=error!=0;
+				}
+				statsptr=stats[kc][upred2][ctx]+2;
+				p1=codebit(ac, statsptr-2, &nonzeroflag, PROBSHIFT, fwd);
+				statsptr[-2]+=(int32_t)((nonzeroflag<<PROBBITS_STORE)-statsptr[-2])>>7;
+			//	statsptr[-2]+=(int32_t)((nonzeroflag<<PROBBITS_USE)-p1);
+				if(nonzeroflag)
+				{
+					int32_t *statsptr2=0;
+
+					nzeros=0;
+					if(fwd)
+					{
+						signflag=error>>31&1;
+						sym=abs(error);
+						nzeros=sym>>nbypass;
+					}
+					p1=codebit(ac, statsptr-1, &signflag, PROBSHIFT, fwd);
+					statsptr[-1]+=(int32_t)((signflag<<PROBBITS_STORE)-statsptr[-1])>>12;
+				//	statsptr[-1]+=(int32_t)((signflag<<PROBBITS_USE)-p1);
+					for(tidx=0;;)
+					{
+						bit=tidx>=nzeros;
+						p1u[tidx]=codebit(ac, statsptr+tidx, &bit, PROBSHIFT, fwd);
+						if(bit)
+							break;
+						++tidx;
+						if(tidx>=GRLIMIT)
+							break;
+					}
+					{
+						//static const uint8_t shifttable[GRLIMIT]=
+						//{//	0	1	2	3	4	5	6	7	8	9
+						//	5,	5,	5,	5,	5,	5,	5,	5,	5,	5,
+						//	5,	5,	5,	5,	5,	5,	5,	5,	4,
+						//};
+						//static const int16_t gaintable[GRLIMIT]=//<256!
+						//{
+						//	8,	15,	20,	36,	52,	64,	72,	80,	96,	128,
+						//	192,	192,	192,	192,	192,	192,	192,	192,
+						//};
+						//int sh=shifttable[tidx];
+						for(int k=0;k<tidx+(tidx<GRLIMIT);++k)
+							statsptr[k]+=(int32_t)(((k>=tidx)<<PROBBITS_STORE)-statsptr[k])>>7;
+						//	statsptr[k]+=(int32_t)(((k>=tidx)<<PROBBITS_USE)-p1u[k])*gaintable[k]>>sh;
+						//	statsptr[k]+=(int32_t)(((k>=tidx)<<PROBBITS_STORE)-statsptr[k])*gaintable[k]>>sh;
+					}
+					nbypass0=nbypass;
+					grflag=tidx>=GRLIMIT;
+					if(grflag)
+					{
+						if(fwd)
+							sym-=(GRLIMIT-1)<<nbypass;
+						statsptr2=stats3[kc][nbypass];
+						tidx=1;
+						nbypass=8;
+					}
+					else
+					{
+						statsptr2=stats2[kc][upred2];
+						tidx=(256>>nbypass)+tidx;//bit coding:  tidx=2*tidx+bit  tidx=0b1XX
+					}
+					for(int32_t kb=nbypass-1;kb>=0;--kb)
+					{
+						bit=sym>>kb&1;
+						p1=codebit(ac, statsptr2+tidx, &bit, PROBSHIFT, fwd);
+						statsptr2[tidx]+=(int32_t)((bit<<PROBBITS_STORE)-statsptr2[tidx])>>7;
+					//	statsptr2[tidx]+=(int32_t)((bit<<PROBBITS_USE)-p1+(1<<1>>1))>>1;
+						tidx=2*tidx+bit;
+					}
+					tidx-=256;
+#ifdef _MSC_VER
+					if(fwd&&tidx!=sym)
+						CRASH("");
+#endif
+					if(!fwd)
+					{
+						if(grflag)
+							tidx+=(GRLIMIT-1)<<nbypass0;
+						error=tidx;
+						if(signflag)
+							error=-tidx;
+					}
+				}
+				if(!fwd)
+				{
+					yuv[kc]=(uint8_t)(error+pred);
+#ifdef ENABLE_GUIDE
+					{
+						uint8_t *pval=&g_image[3*(iw*ky+kx)+rct_combinations[bestrct][II_PERM_Y+kc]];
+						uint8_t val=*pval;
+						uint8_t pixel=yuv[kc];
+#ifndef UNSIGNED_PIXEL
+						pixel+=128;
+#endif
+						if(pixel!=val)
+							CRASH("guide  YXC %d %d %d", ky, kx, kc);
+					}
+#endif
+				}
+#else
 				int epred;
 #ifdef USE_TABLES
 				epred=epredptr[pred];
@@ -1055,7 +1246,8 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 //#else
 //				upred=(uint8_t)(pred+128);
 //#endif
-				statsptr=stats[kc][upred2][ctx];
+				statsptr=stats1[kc][upred2][ctx];
+				//histptr=hist1[kc][upred2][ctx];
 				tidx=0;
 #ifdef ESTIMATE_BITSIZE
 				ekc=kc;
@@ -1065,7 +1257,7 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 			//		9,	8,	8,	7,	7,	7,	7,	7,	7,	7,
 			//		7,	7,	7,	7,	7,	7,	7,	7,
 			//	};
-				int bits[GRLIMIT]={0};
+				//int bits[GRLIMIT]={0};
 				
 				//if(ky==0&&kx==1044&&kc==2)//
 				//	printf("");
@@ -1076,18 +1268,19 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 #ifdef ESTIMATE_BITSIZE
 					eidx=tidx;
 #endif
-					codebit(ac, statsptr+tidx, &bit, 7, fwd);
-					bits[tidx]=bit;
+					codebit(ac, statsptr+tidx, &bit, fwd);
+					//bits[tidx]=bit;
 #ifdef PRINTBITS
 					if(fwd&&(uint32_t)(idx-10000)<1000)printf("%c", '0'+bit);//
 #endif
-#ifdef _MSC_VER
-					++unary_count;
-#endif
+//#ifdef _MSC_VER
+//					++unary_count;
+//#endif
 					if(bit)
 						break;
 					++tidx;
 				}while(tidx<GRLIMIT);
+#ifndef USE_COUNTERS
 				{
 					static const uint8_t shifttable[GRLIMIT+1]=
 					{//	0	1	2	3	4	5	6	7	8	9
@@ -1096,7 +1289,7 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 					};
 					static const int16_t gaintable[GRLIMIT]=//<256!
 					{
-						8,	15,	20,	36,	52,	64,	72,	80,	96,	192,
+						8,	15,	20,	36,	52,	64,	72,	80,	96,	128,
 						192,	192,	192,	192,	192,	192,	192,	192,
 					};
 					int sh=shifttable[tidx];
@@ -1104,6 +1297,7 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 					//	statsptr[k]+=(int32_t)(((k>=tidx)<<PROBBITS_STORE)-statsptr[k])*gaintable[kc*(GRLIMIT+1)+k]>>sh;
 						statsptr[k]+=(int32_t)(((k>=tidx)<<PROBBITS_STORE)-statsptr[k])*gaintable[k]>>sh;
 				}
+#endif
 				//if(tidx<GRLIMIT)
 				//{
 				//	for(int k=0;k<tidx+(tidx<GRLIMIT);++k)
@@ -1132,12 +1326,14 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 				{
 					error-=(GRLIMIT-1)<<nbypass;
 					statsptr=stats3[kc][nbypass];
+					//histptr=hist3[kc][nbypass];
 					tidx=1;
 					nbypass=8;
 				}
 				else
 				{
 					statsptr=stats2[kc][upred2];
+					//histptr=hist2[kc][upred2];
 					tidx=(256>>nbypass)+tidx;//bit coding:  tidx=2*tidx+bit  tidx=0b1XX
 				}
 				{
@@ -1150,15 +1346,17 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 #ifdef ESTIMATE_BITSIZE
 						eidx=GRLIMIT+8-nbypass+kb;
 #endif
-						codebit(ac, statsptr+tidx, &bit, 6, fwd);
+						codebit(ac, statsptr+tidx, &bit, fwd);
+#ifndef USE_COUNTERS
 						statsptr[tidx]+=(int32_t)((bit<<PROBBITS_STORE)-statsptr[tidx])>>7;
+#endif
 #ifdef PRINTBITS
 						if(fwd&&(uint32_t)(idx-10000)<1000)printf("%c", '0'+bit);//
 #endif
 						tidx=2*tidx+bit;
-#ifdef _MSC_VER
-						++binary_count;
-#endif
+//#ifdef _MSC_VER
+//						++binary_count;
+//#endif
 					}
 				}
 				if(grflag)
@@ -1870,11 +2068,11 @@ int c12_codec(int argc, char **argv)
 #ifdef PRINTBITS
 		printf("\n");
 #endif
-#ifdef _MSC_VER
-		printf("%12.2lf bytes unary  %8.4lf%%\n", unary_count/8., 100.*unary_count/(unary_count+binary_count));
-		printf("%12.2lf bytes binary\n", binary_count/8.);
-		printf("%8.4lf%% GR CR\n", 100.*csize/((unary_count+binary_count)/8.));
-#endif
+//#ifdef _MSC_VER
+//		printf("%12.2lf bytes unary  %8.4lf%%\n", unary_count/8., 100.*unary_count/(unary_count+binary_count));
+//		printf("%12.2lf bytes binary\n", binary_count/8.);
+//		printf("%8.4lf%% GR CR\n", 100.*csize/((unary_count+binary_count)/8.));
+//#endif
 		//printf("%12.2lf B zeros\n%12.2lf B ones\n", ac.n[0]/8., ac.n[1]/8.);
 		//printf("%12.2lf /%12.2lf bytes GR  %12.6lf bit/sym\n", ac.bitidx/8., ac.totalbits/8., ac.bitidx/(3.*iw*ih));
 #ifdef ESTIMATE_BITSIZE
@@ -1951,7 +2149,8 @@ int c12_codec(int argc, char **argv)
 #endif
 	(void)dstsize;
 	(void)csize;
-	(void)time_sec2;
+	(void)&time_sec2;
+	(void)&squash;
 #ifdef PROFILER
 	prof_end(prof_ctx);
 #endif

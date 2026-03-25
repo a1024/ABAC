@@ -1687,7 +1687,7 @@ int c46_codec(int argc, char **argv)
 					j=0;
 					PREDLIST;
 #undef  PRED
-	#define PRED(...) wprows[0][j]=abs(curr-estim[j])-best; weights[kc][j]+=(((int64_t)wprows[0][j]<<5)-weights[kc][j]+(1<<3>>1))>>3; ++j;
+	#define PRED(...) wprows[0][j]=errors[j]-best; weights[kc][j]+=(((int64_t)wprows[0][j]<<5)-weights[kc][j]+(1<<3>>1))>>3; ++j;
 //	#define PRED(...) weights[kc][j]+=(((int64_t)abs(curr-estim[j])<<8)-weights[kc][j])>>3; ++j;
 					j=0;
 					PREDLIST;
