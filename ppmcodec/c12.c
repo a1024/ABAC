@@ -666,7 +666,7 @@ INLINE void codebit(ACState *ac, uint64_t *pcell, int32_t *bit, const int fwd)
 		zsize-=log2((double)(rbit?p1:(1<<PROBBITS_USE)-p1)/(1<<PROBBITS_USE));
 #endif
 #ifdef USE_COUNTERS
-#if 1
+#if defined _MSC_VER && 1
 	static int ctrctr=0;
 	++ctrctr;
 	if((uint32_t)(ctrctr-4000000)<5000)
@@ -697,8 +697,8 @@ INLINE void codebit(ACState *ac, uint64_t *pcell, int32_t *bit, const int fwd)
 #endif
 #ifdef ESTIMATE_BITSIZE
 	bitsizes[ekc][eidx]+=shannontable[rbit?p1:(1<<PROBBITS_USE)-p1];
-	if(isinf(bitsizes[ekc][eidx]))
-		printf("");
+	//if(isinf(bitsizes[ekc][eidx]))
+	//	printf("");
 	++bitctr[ekc][eidx][rbit];
 	winctr[ekc][eidx]+=rbit==(p1>=1<<PROBBITS_USE);
 	//if(bitsizes[ekc][eidx]>ac->bitidx/8.*1.2)
