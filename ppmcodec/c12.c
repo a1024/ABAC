@@ -140,19 +140,10 @@ enum
 
 	GRBITS=6,
 	NCTX=24,
-	GRLIMIT=18,
-	PROBBITS_STORE=15,
-	PROBBITS_USE=14,
-//	PROBBITS_STORE=17,
-//	PROBBITS_USE=12,
-	PROBSHIFT=PROBBITS_STORE-PROBBITS_USE,
-
-	XPAD=8,
-	NCH=3,
-	NROWS=4,
-	NVAL=4,
-	NVAL0=2,
+	GRLIMIT=16,
 #ifdef USE_COUNTERS
+	PROBBITS_USE=14,
+
 	CTRBITS=9,
 	CTRMASK=(1<<CTRBITS)-1,
 
@@ -162,7 +153,18 @@ enum
 //	CTRFBITS=(32-CTRBITS)>>1,
 //	CTRFBITS=4,
 //	CTRFMASK=(1<<CTRFBITS)-1,
+#else
+	PROBBITS_STORE=15,
+	PROBBITS_USE=14,
+//	PROBBITS_STORE=17,
+//	PROBBITS_USE=12,
+	PROBSHIFT=PROBBITS_STORE-PROBBITS_USE,
 #endif
+	XPAD=8,
+	NCH=3,
+	NROWS=4,
+	NVAL=4,
+	NVAL0=2,
 };
 
 
@@ -526,6 +528,7 @@ static const char *rct_names[RCT_COUNT]=
 #endif
 
 #ifdef USE_COUNTERS
+static uint64_t ctrtable[1<<CTRBITS*2];//{p1, next_0(n0, n1}, next_1(n0, n1)}
 static uint64_t stats1[3][1024][NCTX][GRLIMIT];//unary
 static uint64_t stats2[3][1024][256];//remainder
 static uint64_t stats3[3][8][256];//bypass on GRLIMIT
@@ -565,9 +568,6 @@ static uint8_t clamptable[512];
 static uint16_t errortable[512][2];
 static uint8_t ctxtable[(2<<NCTX/2)/3][2];
 #endif
-#ifdef USE_COUNTERS
-//static int32_t table;
-#endif
 //#ifdef _MSC_VER
 //static uint64_t unary_count=0, binary_count=0;
 //#endif
@@ -587,11 +587,32 @@ static int squash(int32_t d)
 }
 INLINE void codebit(ACState *ac, uint64_t *pcell, int32_t *bit, const int fwd)
 {
-	int rbit;
 	uint64_t r2, mid;
+	int rbit;
 	
 #ifdef USE_COUNTERS
 #if 1
+	uint64_t cell=*pcell;
+	uint64_t entry=ctrtable[cell&((1ULL<<CTRBITS*2)-1)];
+	//uint64_t hist=cell>>CTRBITS*2&HISTMASK;
+	//int32_t alpha=(int32_t)(cell>>(HISTBITS+CTRBITS*2)&0xFFFF);
+	//int hwt=(((int)_mm_popcnt_u64(hist)+1)<<PROBBITS_USE)/(HISTBITS+2);
+	int32_t p1=(int32_t)(entry&((1ULL<<PROBBITS_USE)-1));
+
+	//
+	//int32_t n[]={cell&CTRMASK, cell>>CTRBITS&CTRMASK};
+	//int n0e=n[0]+2;
+	//int n1e=n[1]+2;
+	//int sum=n0e+n1e;
+	//int32_t p2=((n1e<<PROBBITS_USE)+(sum>>1))/sum;
+	//if(p1!=p2)
+	//	CRASH("");
+	//
+
+	//int32_t x=hwt-p1;
+	//p1+=x*alpha>>16;
+#endif
+#if 0
 	uint64_t cell=*pcell;
 	int32_t n[]={cell&CTRMASK, cell>>CTRBITS&CTRMASK};
 	uint64_t hist=cell>>CTRBITS*2&HISTMASK;
@@ -666,7 +687,7 @@ INLINE void codebit(ACState *ac, uint64_t *pcell, int32_t *bit, const int fwd)
 		zsize-=log2((double)(rbit?p1:(1<<PROBBITS_USE)-p1)/(1<<PROBBITS_USE));
 #endif
 #ifdef USE_COUNTERS
-#if defined _MSC_VER && 1
+#if defined _MSC_VER && 0
 	static int ctrctr=0;
 	++ctrctr;
 	if((uint32_t)(ctrctr-4000000)<5000)
@@ -679,6 +700,28 @@ INLINE void codebit(ACState *ac, uint64_t *pcell, int32_t *bit, const int fwd)
 	}
 #endif
 #if 1
+	int32_t sh=PROBBITS_USE;
+	if(rbit)
+		sh=PROBBITS_USE+CTRBITS*2;
+	entry=entry>>sh&((1ULL<<CTRBITS*2)-1);
+	//hist=(uint64_t)rbit<<(HISTBITS-1)|hist>>1;
+	//alpha+=(x<<9)/(p1-(!rbit<<PROBBITS_USE));
+	//CLAMP2(alpha, 1, 0xFFFF);
+	//*pcell=(uint64_t)alpha<<(HISTBITS+CTRBITS*2)|(uint64_t)hist<<CTRBITS*2|entry;
+	*pcell=entry;
+
+	//
+	//++n[rbit];
+	//if(n[rbit]>CTRMASK)
+	//{
+	//	n[0]>>=1;
+	//	n[1]>>=1;
+	//}
+	//if(entry!=((uint64_t)n[1]<<CTRBITS|n[0]))
+	//	CRASH("");
+	//
+#endif
+#if 0
 	++n[rbit];
 	if(n[rbit]>CTRMASK)
 	{
@@ -790,6 +833,38 @@ INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint
 			ctx=NCTX-1;
 		ctxtable[k][0]=ctx;
 		ctxtable[k][1]=nbypass;
+	}
+#endif
+#ifdef USE_COUNTERS
+	for(int k=0;k<1<<CTRBITS*2;++k)//{p1, next_0(n0, n1}, next_1(n0, n1)}
+	{
+		int32_t n[]={k&CTRMASK, k>>CTRBITS&CTRMASK};
+		int n0e=n[0]+2;
+		int n1e=n[1]+2;
+		int sum=n0e+n1e;
+		int32_t p1=((n1e<<PROBBITS_USE)+(sum>>1))/sum;
+		uint64_t cell=0;
+		
+		int32_t n0[]={k&CTRMASK, k>>CTRBITS&CTRMASK};
+		int32_t n1[]={k&CTRMASK, k>>CTRBITS&CTRMASK};
+		++n0[0];
+		if(n0[0]>CTRMASK)
+		{
+			n0[0]>>=1;
+			n0[1]>>=1;
+		}
+		++n1[1];
+		if(n1[1]>CTRMASK)
+		{
+			n1[0]>>=1;
+			n1[1]>>=1;
+		}
+		cell=cell<<CTRBITS|n1[1];
+		cell=cell<<CTRBITS|n1[0];
+		cell=cell<<CTRBITS|n0[1];
+		cell=cell<<CTRBITS|n0[0];
+		cell=cell<<PROBBITS_USE|p1;
+		ctrtable[k]=cell;
 	}
 #endif
 #ifdef ESTIMATE_BITSIZE
