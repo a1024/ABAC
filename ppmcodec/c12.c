@@ -29,7 +29,7 @@
 #if defined _MSC_VER && !defined RELEASE
 	#define LOUD
 //	#define PRINT_RCT
-	#define ESTIMATE_BITSIZE
+//	#define ESTIMATE_BITSIZE
 //	#define PRINTBITS
 
 	#define ENABLE_GUIDE
@@ -147,8 +147,8 @@ enum
 	CTRBITS=9,
 	CTRMASK=(1<<CTRBITS)-1,
 
-	HISTBITS=22,// <= 64-CTRBITS*2
-	HISTMASK=(1<<HISTBITS)-1,
+//	HISTBITS=22,// <= 64-CTRBITS*2
+//	HISTMASK=(1<<HISTBITS)-1,
 
 //	CTRFBITS=(32-CTRBITS)>>1,
 //	CTRFBITS=4,
@@ -571,69 +571,33 @@ static uint8_t ctxtable[(2<<NCTX/2)/3][2];
 //#ifdef _MSC_VER
 //static uint64_t unary_count=0, binary_count=0;
 //#endif
-static int squash(int32_t d)
-{
-	static const int t[33]=
-	{
-		1,2,3,6,10,16,27,45,73,120,194,310,488,747,1101,
-		1546,2047,2549,2994,3348,3607,3785,3901,3975,4022,
-		4050,4068,4079,4085,4089,4092,4093,4094
-	};
-	if(d>2047)return 4095;
-	if(d<-2047)return 1;
-	int w=d&127;
-	d=(d>>7)+16;
-	return (t[d]*(128-w)+t[(d+1)]*w+64)>>7;
-}
+//static int squash(int32_t d)
+//{
+//	static const int t[33]=
+//	{
+//		1,2,3,6,10,16,27,45,73,120,194,310,488,747,1101,
+//		1546,2047,2549,2994,3348,3607,3785,3901,3975,4022,
+//		4050,4068,4079,4085,4089,4092,4093,4094
+//	};
+//	if(d>2047)return 4095;
+//	if(d<-2047)return 1;
+//	int w=d&127;
+//	d=(d>>7)+16;
+//	return (t[d]*(128-w)+t[(d+1)]*w+64)>>7;
+//}
+//void inflation(void)
+//{
+//#ifdef _MSC_VER
+//	CRASH("inflation");
+//#endif
+//	exit(1);
+//}
 INLINE void codebit(ACState *ac, uint64_t *pcell, int32_t *bit, const int fwd)
 {
 	uint64_t r2, mid;
-	int rbit;
-	
-#ifdef USE_COUNTERS
-#if 1
-	uint64_t cell=*pcell;
-	uint64_t entry=ctrtable[cell&((1ULL<<CTRBITS*2)-1)];
-	//uint64_t hist=cell>>CTRBITS*2&HISTMASK;
-	//int32_t alpha=(int32_t)(cell>>(HISTBITS+CTRBITS*2)&0xFFFF);
-	//int hwt=(((int)_mm_popcnt_u64(hist)+1)<<PROBBITS_USE)/(HISTBITS+2);
-	int32_t p1=(int32_t)(entry&((1ULL<<PROBBITS_USE)-1));
-
-	//
-	//int32_t n[]={cell&CTRMASK, cell>>CTRBITS&CTRMASK};
-	//int n0e=n[0]+2;
-	//int n1e=n[1]+2;
-	//int sum=n0e+n1e;
-	//int32_t p2=((n1e<<PROBBITS_USE)+(sum>>1))/sum;
-	//if(p1!=p2)
-	//	CRASH("");
-	//
-
-	//int32_t x=hwt-p1;
-	//p1+=x*alpha>>16;
-#endif
-#if 0
-	uint64_t cell=*pcell;
-	int32_t n[]={cell&CTRMASK, cell>>CTRBITS&CTRMASK};
-	uint64_t hist=cell>>CTRBITS*2&HISTMASK;
-	int32_t alpha=(int32_t)(cell>>(HISTBITS+CTRBITS*2)&0xFFFF);
-	int n0e=n[0]+2;
-	int n1e=n[1]+2;
-	int sum=n0e+n1e;
-	int hwt=(((int)_mm_popcnt_u64(hist)+1)<<PROBBITS_USE)/(HISTBITS+2);
-	int32_t p1=((n1e<<PROBBITS_USE)+(sum>>1))/sum;
-	int32_t x=hwt-p1;
-	p1+=x*alpha>>16;
-#endif
-#else
-	int32_t p1=*pp1a>>PROBSHIFT;
-//	int32_t p10a=*pp1a;
-//	int32_t p1=p10a>>sh;
-
-	p1+=p1<(1<<PROBBITS_USE>>1);
-//	CLAMP2(p1, 1, (1<<PROBBITS_USE)-1);
-//	p1=squash(p1-(1<<PROBBITS_USE>>1));
-#endif
+	int rbit, sh;
+	uint64_t entry=ctrtable[*pcell];
+	uint32_t p1=(int32_t)(entry&((1ULL<<PROBBITS_USE)-1));
 #ifdef _MSC_VER
 	++ac->bitidx;
 #endif
@@ -665,10 +629,9 @@ INLINE void codebit(ACState *ac, uint64_t *pcell, int32_t *bit, const int fwd)
 	mid=ac->low+r2;
 	ac->range-=r2;
 	--r2;
-	if(fwd)
-		rbit=*bit;
-	else
-		*bit=rbit=ac->code<mid;
+	rbit=*bit;
+	rbit=fwd?rbit:ac->code<mid;
+	*bit=rbit;
 #ifdef FIFOVAL
 	//if(p1<1||p1>(1<<PROBBITS_USE)-1)
 	//	CRASH("");
@@ -677,80 +640,19 @@ INLINE void codebit(ACState *ac, uint64_t *pcell, int32_t *bit, const int fwd)
 	else
 		fifoval_check(rbit<<PROBBITS_STORE^p1);
 #endif
-	if(rbit)
-		ac->range=r2;
-	else
-		ac->low=mid;
-
-#ifdef ZIPF_VIEW
-	if(fwd)
-		zsize-=log2((double)(rbit?p1:(1<<PROBBITS_USE)-p1)/(1<<PROBBITS_USE));
-#endif
-#ifdef USE_COUNTERS
-#if defined _MSC_VER && 0
-	static int ctrctr=0;
-	++ctrctr;
-	if((uint32_t)(ctrctr-4000000)<5000)
-	{
-		printf(" %d %d %04X %04X %3d %3d ", ctrctr, rbit, p1, alpha, n[0], n[1]);
-		for(int kb=HISTBITS-1;kb>=0;--kb)
-			printf("%d", (int)(hist>>kb&1));
-		if((ctrctr&3)==3)
-			printf("\n");
-	}
-#endif
-#if 1
-	int32_t sh=PROBBITS_USE;
-	if(rbit)
-		sh=PROBBITS_USE+CTRBITS*2;
-	entry=entry>>sh&((1ULL<<CTRBITS*2)-1);
-	//hist=(uint64_t)rbit<<(HISTBITS-1)|hist>>1;
-	//alpha+=(x<<9)/(p1-(!rbit<<PROBBITS_USE));
-	//CLAMP2(alpha, 1, 0xFFFF);
-	//*pcell=(uint64_t)alpha<<(HISTBITS+CTRBITS*2)|(uint64_t)hist<<CTRBITS*2|entry;
-	*pcell=entry;
-
-	//
-	//++n[rbit];
-	//if(n[rbit]>CTRMASK)
-	//{
-	//	n[0]>>=1;
-	//	n[1]>>=1;
-	//}
-	//if(entry!=((uint64_t)n[1]<<CTRBITS|n[0]))
-	//	CRASH("");
-	//
-#endif
-#if 0
-	++n[rbit];
-	if(n[rbit]>CTRMASK)
-	{
-		n[0]>>=1;
-		n[1]>>=1;
-	}
-	hist=(uint64_t)rbit<<(HISTBITS-1)|hist>>1;
-	alpha+=(x<<9)/(p1-(!rbit<<PROBBITS_USE));
-	CLAMP2(alpha, 1, 0xFFFF);
-	*pcell=(uint64_t)alpha<<(HISTBITS+CTRBITS*2)|(uint64_t)hist<<CTRBITS*2|(uint64_t)n[1]<<CTRBITS|n[0];
-#endif
-#else
-//	p10a+=(int32_t)((rbit<<PROBBITS_STORE)-p10a)>>sh;
-//	p10a+=(int32_t)((rbit<<PROBBITS_STORE)-p10a)>>7;
-//	*pp1a=p10a;
-#endif
+	ac->range=rbit?r2:ac->range;
+	ac->low=rbit?ac->low:mid;
+	sh=rbit?PROBBITS_USE+CTRBITS*2:PROBBITS_USE;
+	//uint64_t mask=-(uint64_t)rbit;
+	//ac->range^=(r2^ac->range)&mask;
+	//sh=(uint8_t)(PROBBITS_USE+(CTRBITS*2LL&mask));
+	//ac->low^=(mid^ac->low)&~mask;
+	*pcell=entry>>sh&((1ULL<<CTRBITS*2)-1);
 #ifdef ESTIMATE_BITSIZE
 	bitsizes[ekc][eidx]+=shannontable[rbit?p1:(1<<PROBBITS_USE)-p1];
-	//if(isinf(bitsizes[ekc][eidx]))
-	//	printf("");
 	++bitctr[ekc][eidx][rbit];
 	winctr[ekc][eidx]+=rbit==(p1>=1<<PROBBITS_USE);
-	//if(bitsizes[ekc][eidx]>ac->bitidx/8.*1.2)
-	//	CRASH("");
 #endif
-#ifdef _MSC_VER
-	++ac->n[rbit];
-#endif
-	//return p1;
 }
 INLINE void mainloop(int iw, int ih, int bestrct, int dist, uint8_t *image, uint8_t *stream, ACState *ac, int32_t *gaintable2, const int lossy, const int fwd)
 {
@@ -2225,7 +2127,7 @@ int c12_codec(int argc, char **argv)
 	(void)dstsize;
 	(void)csize;
 	(void)&time_sec2;
-	(void)&squash;
+	//(void)&squash;
 #ifdef PROFILER
 	prof_end(prof_ctx);
 #endif

@@ -66,6 +66,7 @@ int c53_codec(int argc, char **argv);//bit coding, paq0f mixer
 int c54_codec(int argc, char **argv);//low memory
 int c55_codec(int argc, char **argv);//16-bit
 int c56_codec(int argc, char **argv);//synth
+int c57_codec(int argc, char **argv);//Rice
 #endif
 
 
@@ -81,7 +82,7 @@ int c56_codec(int argc, char **argv);//synth
 //	#define CODEC_EXT c09
 //	#define CODEC_EXT c10
 //	#define CODEC_EXT c11
-	#define CODEC_EXT c12
+//	#define CODEC_EXT c12
 //	#define CODEC_EXT c13
 //	#define CODEC_EXT c14
 //	#define CODEC_EXT c15
@@ -126,6 +127,7 @@ int c56_codec(int argc, char **argv);//synth
 //	#define CODEC_EXT c54
 //	#define CODEC_EXT c55
 //	#define CODEC_EXT c56
+	#define CODEC_EXT c57
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -220,7 +222,8 @@ int main(int argc, char **argv)
 	//	"C:/dataset-HUGE-ppm/jwst.ppm"
 	//	"C:/dataset-HUGE-ppm/jwst.ppm"
 	//	"C:/dataset-HUGE-ppm/kodak.PPM"
-	//	"C:/dataset-HUGE-ppm/space_huge.ppm"
+	//	"C:/dataset-HUGE-ppm/space_huge.ppm"		//X
+	//	"C:/dataset-ic8-ppm/big_building.ppm"
 	//	"C:/dataset-ic16-ppm/big_building.ppm"		//16-bit
 		"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"

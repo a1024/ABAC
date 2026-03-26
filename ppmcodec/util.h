@@ -56,13 +56,13 @@ extern "C"
 #define ROTATE3(A, B, C, TEMP) TEMP=A, A=B, B=C, C=TEMP
 #define MINVAR(A, B) ((A)<(B)?(A):(B))
 #define MAXVAR(A, B) ((A)>(B)?(A):(B))
-#define CLAMP2(X, LO, HI)\
-	do\
-	{\
-		if((X)<(LO))X=LO;\
-		if((X)>(HI))X=HI;\
-	}while(0)
-//#define CLAMP(LO, X, HI) ((X)>(LO)?(X)<(HI)?(X):(HI):(LO))
+#define CLAMP2(X, LO, HI) X=X>LO?X:LO, X=X<HI?X:HI
+
+//clobbers A B C
+#define MEDIAN3V_CLOB(M, A, B, C)\
+	M=A, A=A<B?A:B, B=B<M?B:M,\
+	M=B, B=C<B?C:B, C=T>C?T:C,\
+	M=A, A=B<A?B:A, M=T>B?T:B
 
 //include<smmintrin.h>	SSE4.1
 #define MEDIAN3_32(DST, A, B, C)\
@@ -214,6 +214,24 @@ extern "C"
 #define G_BUF_SIZE 4096
 extern char g_buf[G_BUF_SIZE];
 
+AWM_INLINE int median3i(int a, int b, int c)
+{
+	int t;
+
+	t=a;
+	a=a>b?b:a;
+	b=t>b?t:b;
+
+	t=b;
+	b=b>c?c:b;
+	c=t>c?t:c;
+
+	t=a;
+	a=a>b?b:a;
+	b=t>b?t:b;
+
+	return b;
+}
 void memfill(void *dst, const void *src, size_t dstbytes, size_t srcbytes);
 #define FILLMEM(PTR, DATA, ASIZE, ESIZE)\
 	do\

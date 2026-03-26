@@ -88,4 +88,4 @@ add_executable(codec
 	htscodecs/utils.c
 
 	zydist_amalgamated410/Zydis.c
-)
+ "c57.c")
