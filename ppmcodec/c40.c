@@ -42,37 +42,41 @@
 	#define INTERLEAVESIMD		//2.5x faster interleave
 
 
-#define ANALYSIS_XSTRIDE 2
-#define ANALYSIS_YSTRIDE 2
+enum
+{
+	ANALYSIS_XSTRIDE=2,
+	ANALYSIS_YSTRIDE=2,
+	
+#ifdef _MSC_VER
+	DEFAULT_EFFORT_LEVEL=112,
+#else
+	DEFAULT_EFFORT_LEVEL=2,
+#endif
+	L1_NPREDS1=4,
+	L1_NPREDS2=8,
+	L1_NPREDS3=20,
+	L1_SH1=15,
+	L1_SH2=17,
+	L1_SH3=19,
 
-#define DEFAULT_EFFORT_LEVEL 2
-#define L1_NPREDS1 4
-#define L1_NPREDS2 8
-#define L1_NPREDS3 20
-#define L1_SH1 15	//L1_SH1 <= 16
-#define L1_SH2 17
-#define L1_SH3 19
+	GRBITS=3,
+	NCTX=18,	//18*3+3 = 57 total
 
-//3*17+3=54 contexts
-#define GRBITS 3
-#define NCTX 18		//18*3+3 = 57 total
+	XCODERS=4,	//xrem 1~3 cols
+	YCODERS=4,	//yrem 1~3 rows
+	NCODERS=XCODERS*YCODERS,
 
-#define XCODERS 4	//xrem 1~3 cols
-#define YCODERS 4	//yrem 1~3 rows
-
-#define NCODERS 16
-
-#define PROBBITS 12	//12 bit max	James Bonfield's CDF2sym: {freq<<20 | bias<<8 | sym}
-
-#define RANS_STATE_BITS 31
-#define RANS_RENORM_BITS 16
+	PROBBITS=12,//12 bit max	James Bonfield's CDF2sym: {freq<<20 | bias<<8 | sym}
+	RANS_STATE_BITS=31,
+	RANS_RENORM_BITS=16,
+};
 
 #ifdef _MSC_VER
 #define	ALIGN(N) __declspec(align(N))
-#define AWM_INLINE __forceinline static
+#define INLINE __forceinline static
 #else
 #define	ALIGN(N) __attribute__((aligned(N)))
-#define AWM_INLINE __attribute__((always_inline)) inline static
+#define INLINE __attribute__((always_inline)) inline static
 #ifndef _countof
 #define _countof(A) (sizeof(A)/sizeof(*(A)))
 #endif
@@ -100,7 +104,7 @@ static void crash(const char *file, int line, const char *format, ...)
 static double time_sec(void)
 {
 #if defined _WIN32 || defined WIN32
-	static long long t0=0;
+	static int64_t t0=0;
 	LARGE_INTEGER li;
 	double t;
 	QueryPerformanceCounter(&li);
@@ -118,14 +122,14 @@ static double time_sec(void)
 }
 #ifdef ENABLE_GUIDE
 static int g_iw=0, g_ih=0;
-static unsigned char *g_image=0;
+static uint8_t *g_image=0;
 static double g_sqe[3]={0};
-static void guide_save(const unsigned char *image, int iw, int ih)
+static void guide_save(const uint8_t *image, int iw, int ih)
 {
 	int size=3*iw*ih;
 	g_iw=iw;
 	g_ih=ih;
-	g_image=(unsigned char*)malloc(size);
+	g_image=(uint8_t*)malloc(size);
 	if(!g_image)
 	{
 		CRASH("Alloc error");
@@ -133,7 +137,7 @@ static void guide_save(const unsigned char *image, int iw, int ih)
 	}
 	memcpy(g_image, image, size);
 }
-static void guide_check(const unsigned char *image, int kx, int ky)
+static void guide_check(const uint8_t *image, int kx, int ky)
 {
 	int idx=3*(g_iw*ky+kx);
 	if(memcmp(image+idx, g_image+idx, 3))
@@ -148,10 +152,10 @@ static void guide_check(const unsigned char *image, int kx, int ky)
 #endif
 #ifdef PROFILE_SIZE
 #include<stdarg.h>
-static void profile_size(const unsigned char *dstbwdptr, const char *msg, ...)
+static void profile_size(const uint8_t *dstbwdptr, const char *msg, ...)
 {
 	static ptrdiff_t size=0;
-	static const unsigned char *prev=0;
+	static const uint8_t *prev=0;
 	if(prev)
 	{
 		ptrdiff_t diff=prev-dstbwdptr;
@@ -221,7 +225,7 @@ static void prof_print(ptrdiff_t usize)
 	int prev=0;
 	double csum=0;
 	//int colors[128]={0};
-	//srand((unsigned)__rdtsc());
+	//srand((uint32_t)__rdtsc());
 	//colorgen(colors, prof_count, 64, 300, 100);
 	const int scale=5;
 	printf("1 char = %d ms\n", scale);
@@ -493,7 +497,7 @@ typedef enum _RCTIndex
 #undef  RCT
 	RCT_COUNT,
 } RCTIndex;
-static const unsigned char rct_combinations[RCT_COUNT][II_COUNT]=
+static const uint8_t rct_combinations[RCT_COUNT][II_COUNT]=
 {
 #define RCT(LABEL, ...) {__VA_ARGS__},
 	RCTLIST
@@ -511,10 +515,10 @@ static const char *rct_names[RCT_COUNT]=
 #define ANS_VAL_HISTSIZE 128
 typedef struct _ANSVALHeader
 {
-	unsigned short esize, count;
-	unsigned idx;
+	uint16_t esize, count;
+	uint32_t idx;
 	struct _ANSVALHeader *above, *below;
-	unsigned char data[];
+	uint8_t data[];
 } ANSVALNode;
 static ANSVALNode *debugstack=0;
 static int ansvalidx=0, ansvalmax=0;
@@ -541,7 +545,7 @@ static void ansval_push(const void *data, int esize, int count)
 }
 static void ansval_printr(const void *data, int esize, int count, const void *xdata)//print elements in reverse because little-endian
 {
-	const unsigned char *p=(const unsigned char*)data, *p2=(const unsigned char*)xdata;
+	const uint8_t *p=(const uint8_t*)data, *p2=(const uint8_t*)xdata;
 	int size=count*esize, k;
 	for(k=0;k<size;k+=esize)
 	{
@@ -655,7 +659,10 @@ static void ansval_check(const void *data, int esize, int count)
 
 
 //LIFO Bypass Coder
-#define BITPACKERMAX 32
+enum
+{
+	BITPACKERMAX=32,
+};
 typedef struct _BitPackerLIFO//bwd enc / fwd dec
 {
 	uint64_t state;
@@ -663,7 +670,7 @@ typedef struct _BitPackerLIFO//bwd enc / fwd dec
 	uint8_t *dstbwdptr;
 	const uint8_t *srcfwdptr, *streamend;
 } BitPackerLIFO;
-AWM_INLINE void bitpacker_enc_init(BitPackerLIFO *ec, const uint8_t *bufstart, uint8_t *bufptr0_OOB)
+INLINE void bitpacker_enc_init(BitPackerLIFO *ec, const uint8_t *bufstart, uint8_t *bufptr0_OOB)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->state=1ULL<<32;
@@ -671,7 +678,7 @@ AWM_INLINE void bitpacker_enc_init(BitPackerLIFO *ec, const uint8_t *bufstart, u
 	ec->streamend=bufstart;
 	ec->dstbwdptr=bufptr0_OOB;
 }
-AWM_INLINE void bitpacker_dec_init(BitPackerLIFO *ec, const uint8_t *bufptr0_start, const uint8_t *bufend)
+INLINE void bitpacker_dec_init(BitPackerLIFO *ec, const uint8_t *bufptr0_start, const uint8_t *bufend)
 {
 	memset(ec, 0, sizeof(*ec));
 	ec->srcfwdptr=bufptr0_start+8;
@@ -679,7 +686,7 @@ AWM_INLINE void bitpacker_dec_init(BitPackerLIFO *ec, const uint8_t *bufptr0_sta
 	ec->state=*(const uint64_t*)bufptr0_start;
 	ec->dec_navailable=64-(int)_lzcnt_u64(ec->state);
 }
-AWM_INLINE void bitpacker_enc_flush(BitPackerLIFO *ec)
+INLINE void bitpacker_enc_flush(BitPackerLIFO *ec)
 {
 	ec->dstbwdptr-=8;
 #ifdef _DEBUG
@@ -688,7 +695,7 @@ AWM_INLINE void bitpacker_enc_flush(BitPackerLIFO *ec)
 #endif
 	*(uint64_t*)ec->dstbwdptr=ec->state;
 }
-AWM_INLINE void bitpacker_enc(BitPackerLIFO *ec, int inbits, int sym)
+INLINE void bitpacker_enc(BitPackerLIFO *ec, int inbits, int sym)
 {
 #ifdef _DEBUG
 	if(inbits>BITPACKERMAX)
@@ -704,7 +711,7 @@ AWM_INLINE void bitpacker_enc(BitPackerLIFO *ec, int inbits, int sym)
 		if(ec->dstbwdptr<ec->streamend)
 			CRASH("IntPacker OOB:  dstbwdptr = 0x%016zX < 0x%016zX", ec->dstbwdptr, ec->streamend);
 #endif
-		*(unsigned*)ec->dstbwdptr=(unsigned)ec->state;
+		*(uint32_t*)ec->dstbwdptr=(uint32_t)ec->state;
 		ec->state>>=32;
 #ifdef ANS_VAL
 		ansval_push(&ec->state, sizeof(ec->state), 1);
@@ -716,7 +723,7 @@ AWM_INLINE void bitpacker_enc(BitPackerLIFO *ec, int inbits, int sym)
 	ansval_push(&ec->state, sizeof(ec->state), 1);
 #endif
 }
-AWM_INLINE int bitpacker_dec(BitPackerLIFO *ec, int outbits)
+INLINE int bitpacker_dec(BitPackerLIFO *ec, int outbits)
 {
 #ifdef _DEBUG
 	if(outbits>BITPACKERMAX)
@@ -741,14 +748,14 @@ AWM_INLINE int bitpacker_dec(BitPackerLIFO *ec, int outbits)
 		if(ec->srcfwdptr>=ec->streamend)
 			CRASH("IntPacker OOB:  srcfwdptr = 0x%016zX >= 0x%016zX", ec->srcfwdptr, ec->streamend);
 #endif
-		ec->state=ec->state<<32|*(const unsigned*)ec->srcfwdptr;
+		ec->state=ec->state<<32|*(const uint32_t*)ec->srcfwdptr;
 		ec->srcfwdptr+=4;
 	}
 	return sym;
 }
 
 
-AWM_INLINE void gather32(int *dst, const int *src, const int *offsets)
+INLINE void gather32(int *dst, const int *src, const int *offsets)
 {
 #ifdef EMULATE_GATHER
 	volatile int *ptr=dst;
@@ -783,7 +790,7 @@ typedef struct _tANS_CState_t
 {
 	ptrdiff_t value;
 	const void *stateTable, *symbolTT;
-	unsigned stateLog;
+	uint32_t stateLog;
 } tANS_CState_t;
 typedef struct _tANS_DState_t
 {
@@ -795,8 +802,8 @@ typedef struct _tANS_symbolCompressionTransform
 	int32_t deltaFindState;
 	uint32_t deltaNbBits;
 } tANS_symbolCompressionTransform;
-typedef unsigned tANS_CTable;
-typedef unsigned tANS_DTable;
+typedef uint32_t tANS_CTable;
+typedef uint32_t tANS_DTable;
 typedef struct _tANS_DTableHeader
 {
 	uint16_t tableLog, fastMode;
@@ -819,7 +826,7 @@ typedef struct _tANS_decode_t
 #define tANS_DTABLE_SIZE_U32(maxTableLog)			(1+(1<<(maxTableLog)))
 #define tANS_DECODE_TYPE tANS_decode_t
 
-AWM_INLINE void tANS_initCState(tANS_CState_t *statePtr, const tANS_CTable *ct)
+INLINE void tANS_initCState(tANS_CState_t *statePtr, const tANS_CTable *ct)
 {
 	const void *ptr=ct;
 	const uint16_t *u16ptr=(const uint16_t*)ptr;
@@ -829,24 +836,21 @@ AWM_INLINE void tANS_initCState(tANS_CState_t *statePtr, const tANS_CTable *ct)
 	statePtr->symbolTT=ct+1+(tableLog?(1<<(tableLog-1)):1);
 	statePtr->stateLog=tableLog;
 }
-AWM_INLINE void tANS_encodeSymbol(BitPackerLIFO *ec, tANS_CState_t *statePtr, unsigned symbol)
+INLINE void tANS_encodeSymbol(BitPackerLIFO *ec, tANS_CState_t *statePtr, uint32_t symbol)
 {
 	tANS_symbolCompressionTransform const symbolTT=((const tANS_symbolCompressionTransform*)(statePtr->symbolTT))[symbol];
 	const uint16_t *const stateTable=(const uint16_t*)(statePtr->stateTable);
 	uint32_t const nbBitsOut=(uint32_t)((statePtr->value+symbolTT.deltaNbBits)>>16);
-	bitpacker_enc(ec, nbBitsOut, SHIFT_mask[nbBitsOut]&(int)statePtr->value);
+	bitpacker_enc(ec, nbBitsOut, (uint32_t)statePtr->value&SHIFT_mask[nbBitsOut]);
 	//BIT_addBits(bitC, statePtr->value, nbBitsOut);
 	statePtr->value=stateTable[(statePtr->value>>nbBitsOut)+symbolTT.deltaFindState];
 }
-AWM_INLINE void tANS_flushCState(BitPackerLIFO *ec, const tANS_CState_t *statePtr)
+INLINE void tANS_flushCState(BitPackerLIFO *ec, const tANS_CState_t *statePtr)
 {
 	bitpacker_enc(ec, statePtr->stateLog, SHIFT_mask[statePtr->stateLog]&(int)statePtr->value);
-	//BIT_addBits(bitC, statePtr->value, statePtr->stateLog);
-	//bitpacker_enc_flush(ec);
-	//BIT_flushBits(bitC);
 }
 
-AWM_INLINE void tANS_initDState(tANS_DState_t *DStatePtr, BitPackerLIFO *ec, const tANS_DTable *dt)
+INLINE void tANS_initDState(tANS_DState_t *DStatePtr, BitPackerLIFO *ec, const tANS_DTable *dt)
 {
 	const void *ptr=dt;
 	const tANS_DTableHeader *const DTableH=(const tANS_DTableHeader*)ptr;
@@ -855,7 +859,7 @@ AWM_INLINE void tANS_initDState(tANS_DState_t *DStatePtr, BitPackerLIFO *ec, con
 	//BIT_reloadDStream(bitD);
 	DStatePtr->table=dt+1;
 }
-AWM_INLINE uint8_t tANS_decodeSymbol(tANS_DState_t *DStatePtr, BitPackerLIFO *ec)
+INLINE uint8_t tANS_decodeSymbol(tANS_DState_t *DStatePtr, BitPackerLIFO *ec)
 {
 	tANS_decode_t const DInfo=((const tANS_decode_t*)(DStatePtr->table))[DStatePtr->state];
 	uint32_t const nbBits=DInfo.nbBits;
@@ -876,7 +880,7 @@ static void normalizehist(const uint32_t *hist, uint16_t *nhist)
 		hsum+=freq;
 		nusedlevels+=freq!=0;
 	}
-	long long rsum=(((1LL<<PROBBITS)-nusedlevels)<<24)/hsum;//adaptive: allow all symbols
+	int64_t rsum=(((1LL<<PROBBITS)-nusedlevels)<<24)/hsum;//adaptive: allow all symbols
 	uint16_t CDF[257]={0};
 	for(int ks=0, c=0, c2=0;ks<256;++ks)
 	{
@@ -889,7 +893,7 @@ static void normalizehist(const uint32_t *hist, uint16_t *nhist)
 	for(int ks=0;ks<256;++ks)
 		nhist[ks]=CDF[ks+1]-CDF[ks];
 }
-static tANS_CTable *tANS_createCTable(unsigned maxSymbolValue, unsigned tableLog)
+static tANS_CTable *tANS_createCTable(uint32_t maxSymbolValue, uint32_t tableLog)
 {
 	size_t size;
 	if(tableLog>tANS_TABLELOG_ABSOLUTE_MAX)
@@ -897,7 +901,7 @@ static tANS_CTable *tANS_createCTable(unsigned maxSymbolValue, unsigned tableLog
 	size=tANS_CTABLE_SIZE_U32(tableLog, maxSymbolValue)*sizeof(uint32_t);
 	return (tANS_CTable*)malloc(size);
 }
-static tANS_DTable *tANS_createDTable(unsigned tableLog)
+static tANS_DTable *tANS_createDTable(uint32_t tableLog)
 {
 	if(tableLog>tANS_TABLELOG_ABSOLUTE_MAX)
 		tableLog=tANS_TABLELOG_ABSOLUTE_MAX;
@@ -907,7 +911,7 @@ static tANS_DTable *tANS_createDTable(unsigned tableLog)
 //Same as tANS_buildCTable(), but using an externally allocated scratch buffer (`workSpace`).
 //wkspSize should be sized to handle worst case situation, which is `1<<max_tableLog*sizeof(tANS_FUNCTION_TYPE)`
 //workSpace must also be properly aligned with tANS_FUNCTION_TYPE requirements
-static size_t tANS_buildCTable_wksp(tANS_CTable *ct, const short *normalizedCounter, unsigned maxSymbolValue, unsigned tableLog, void *workSpace, size_t wkspSize)
+static size_t tANS_buildCTable_wksp(tANS_CTable *ct, const int16_t *normalizedCounter, uint32_t maxSymbolValue, uint32_t tableLog, void *workSpace, size_t wkspSize)
 {
 	uint32_t const tableSize=1<<tableLog;
 	uint32_t const tableMask=tableSize-1;
@@ -992,7 +996,7 @@ static size_t tANS_buildCTable_wksp(tANS_CTable *ct, const short *normalizedCoun
 
 	//Build Symbol Transformation Table
 	{
-		unsigned total=0, s;
+		uint32_t total=0, s;
 		for(s=0;s<=maxSymbolValue;++s)
 		{
 			switch(normalizedCounter[s])
@@ -1040,14 +1044,14 @@ static size_t tANS_buildCTable_wksp(tANS_CTable *ct, const short *normalizedCoun
 #endif
 	return 0;
 }
-static size_t tANS_buildCTable(tANS_CTable *ct, const short *normalizedCounter, unsigned maxSymbolValue, unsigned tableLog)
+static size_t tANS_buildCTable(tANS_CTable *ct, const int16_t *normalizedCounter, uint32_t maxSymbolValue, uint32_t tableLog)
 {
 	uint8_t tableSymbol[1<<14>>2];//memset() is not necessary, even if static analyzer complains about it
 	return tANS_buildCTable_wksp(ct, normalizedCounter, maxSymbolValue, tableLog, tableSymbol, sizeof(tableSymbol));
 }
-static size_t tANS_buildDTable(tANS_DTable *dt, const short *normalizedCounter, unsigned maxSymbolValue, unsigned tableLog)
+static size_t tANS_buildDTable(tANS_DTable *dt, const int16_t *normalizedCounter, uint32_t maxSymbolValue, uint32_t tableLog)
 {
-	void *const tdPtr=dt+1;//because *dt is unsigned, 32-bits aligned on 32-bits
+	void *const tdPtr=dt+1;//because *dt is uint32_t, 32-bits aligned on 32-bits
 	tANS_DECODE_TYPE *const tableDecode=(tANS_DECODE_TYPE*)tdPtr;
 	uint16_t symbolNext[tANS_MAX_SYMBOL_VALUE+1];
 
@@ -1163,16 +1167,16 @@ static size_t tANS_buildDTable_rle(tANS_DTable *dt, uint8_t symbolValue)
 	cell->nbBits=0;
 	return 0;
 }
-static size_t tANS_buildCTable_raw(tANS_CTable *ct, unsigned nbBits)
+static size_t tANS_buildCTable_raw(tANS_CTable *ct, uint32_t nbBits)
 {
-	const unsigned tableSize=1<<nbBits;
-	const unsigned tableMask=tableSize-1;
-	const unsigned maxSymbolValue=tableMask;
+	const uint32_t tableSize=1<<nbBits;
+	const uint32_t tableMask=tableSize-1;
+	const uint32_t maxSymbolValue=tableMask;
 	void *const ptr=ct;
 	uint16_t *const tableU16=(uint16_t*)ptr+2;
 	void *const FSCT=(uint32_t*)ptr+1/*header*/+(tableSize>>1);//assumption: tableLog >= 1
 	tANS_symbolCompressionTransform *const symbolTT = (tANS_symbolCompressionTransform*) (FSCT);
-	unsigned s;
+	uint32_t s;
 
 	//Sanity checks
 	if(nbBits<1)
@@ -1200,16 +1204,16 @@ static size_t tANS_buildCTable_raw(tANS_CTable *ct, unsigned nbBits)
 	}
 	return 0;
 }
-static size_t tANS_buildDTable_raw(tANS_DTable *dt, unsigned nbBits)
+static size_t tANS_buildDTable_raw(tANS_DTable *dt, uint32_t nbBits)
 {
 	void *ptr=dt;
 	tANS_DTableHeader *const DTableH=(tANS_DTableHeader*)ptr;
 	void *dPtr=dt+1;
 	tANS_decode_t *const dinfo=(tANS_decode_t*)dPtr;
-	const unsigned tableSize=1<<nbBits;
-	const unsigned tableMask=tableSize-1;
-	const unsigned maxSV1=tableMask+1;
-	unsigned s;
+	const uint32_t tableSize=1<<nbBits;
+	const uint32_t tableMask=tableSize-1;
+	const uint32_t maxSV1=tableMask+1;
+	uint32_t s;
 
 	//Sanity checks
 	if(nbBits<1)//min size
@@ -1411,11 +1415,11 @@ static void enc_hist2stats(int *hist, rANS_SIMD_SymInfo *syminfo, uint64_t *bypa
 		{
 			info->sh=31-(int)_lzcnt_u32(freq);//eg: x/2 = x*0x80000000>>32>>0
 			uint64_t inv=((0x100000000ULL<<info->sh)+freq-1)/freq;
-			info->invf=(unsigned)inv;
+			info->invf=(uint32_t)inv;
 			if(inv>0xFFFFFFFF)
 			{
 				--info->sh;
-				info->invf=(unsigned)(inv>>1);
+				info->invf=(uint32_t)(inv>>1);
 			}
 		}
 	}
@@ -1433,7 +1437,7 @@ static void enc_packhist(BitPackerLIFO *ec, const int *hist, uint64_t bypassmask
 	}
 	else//16-bit hist
 		memcpy(hist2, hist, sizeof(hist2));
-	unsigned short CDF[257];
+	uint16_t CDF[257];
 	for(int ks=0;ks<256;++ks)//integrage to zigzag CDF to be packed backwards
 	{
 		int sym=((ks>>1^-(ks&1))+128)&255;
@@ -1491,7 +1495,7 @@ static void dec_unpackhist(BitPackerLIFO *ec, uint64_t bypassmask, int ctxidx, u
 	}
 	else
 	{
-		unsigned short CDF[257]={0};
+		uint16_t CDF[257]={0};
 		int CDFlevels=1<<PROBBITS;
 		CDF[0]=0;
 		for(int ks=0;ks<256;++ks)//decode GR
@@ -1553,7 +1557,7 @@ static void dec_unpackhist(BitPackerLIFO *ec, uint64_t bypassmask, int ctxidx, u
 	//		CDF2sym[ks2]=val;
 	//}
 }
-static void dec_hist2CDF2sym(const uint16_t *hist, unsigned *CDF2sym)
+static void dec_hist2CDF2sym(const uint16_t *hist, uint32_t *CDF2sym)
 {
 	int cdf=0;
 	for(int ks=0;ks<256;++ks)//CDF2sym contains {freq, (state&0xFFF)-cdf, sym}
@@ -1566,9 +1570,9 @@ static void dec_hist2CDF2sym(const uint16_t *hist, unsigned *CDF2sym)
 	}
 }
 
-AWM_INLINE void dec_yuv(__m256i *mstate, int kc, const __m256i *ctx0, const int *CDF2syms, const int *ans_permute, unsigned char **pstreamptr, const unsigned char *streamend, __m256i *syms)
+INLINE void dec_yuv(__m256i *mstate, int kc, const __m256i *ctx0, const int *CDF2syms, const int *ans_permute, uint8_t **pstreamptr, const uint8_t *streamend, __m256i *syms)
 {
-	const unsigned char *streamptr=*pstreamptr;
+	const uint8_t *streamptr=*pstreamptr;
 	__m256i decctx[2];
 	{
 		decctx[1]=_mm256_cvtepi16_epi32(_mm256_extracti128_si256(*ctx0, 1));
@@ -1604,9 +1608,9 @@ AWM_INLINE void dec_yuv(__m256i *mstate, int kc, const __m256i *ctx0, const int 
 		__m256i mdebugfreq[1];
 		mdebugfreq[0]=_mm256_packus_epi32(mfreq0, mfreq1);
 		mdebugfreq[0]=_mm256_permute4x64_epi64(mdebugfreq[0], _MM_SHUFFLE(3, 1, 2, 0));
-		ALIGN(32) unsigned short freqs[NCODERS];
+		ALIGN(32) uint16_t freqs[NCODERS];
 		memcpy(freqs, mdebugfreq, sizeof(freqs));
-		ansval_check(freqs, sizeof(short), NCODERS);
+		ansval_check(freqs, sizeof(int16_t), NCODERS);
 #endif
 		mstate[0]=_mm256_srli_epi32(mstate[0], PROBBITS);
 		mstate[1]=_mm256_srli_epi32(mstate[1], PROBBITS);
@@ -1647,14 +1651,14 @@ AWM_INLINE void dec_yuv(__m256i *mstate, int kc, const __m256i *ctx0, const int 
 		mask1=_mm_popcnt_u32(mask1);
 		__m256i renorm0=_mm256_slli_epi32(mstate[0], 16);
 		__m256i renorm1=_mm256_slli_epi32(mstate[1], 16);
-		streamptr+=mask0*sizeof(short);
+		streamptr+=mask0*sizeof(int16_t);
 		lo0=_mm256_permutevar8x32_epi32(lo0, idx0);
 #ifdef _DEBUG
 		if(streamptr>streamend)
 			CRASH("OOB ptr %016zX >= %016zX", streamptr, streamend);
 #endif
 		__m256i lo1=_mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i*)streamptr));
-		streamptr+=mask1*sizeof(short);
+		streamptr+=mask1*sizeof(int16_t);
 		lo1=_mm256_permutevar8x32_epi32(lo1, idx1);
 		renorm0=_mm256_or_si256(renorm0, lo0);
 		renorm1=_mm256_or_si256(renorm1, lo1);
@@ -1662,9 +1666,9 @@ AWM_INLINE void dec_yuv(__m256i *mstate, int kc, const __m256i *ctx0, const int 
 		mstate[0]=_mm256_blendv_epi8(mstate[0], renorm0, cond0);
 		mstate[1]=_mm256_blendv_epi8(mstate[1], renorm1, cond1);
 	}
-	*pstreamptr=(unsigned char*)(size_t)streamptr;
+	*pstreamptr=(uint8_t*)(size_t)streamptr;
 }
-AWM_INLINE void transpose16(__m128i *data)
+INLINE void transpose16(__m128i *data)
 {
 #if 1
 	__m128i a[16], b[16];
@@ -1827,7 +1831,7 @@ AWM_INLINE void transpose16(__m128i *data)
 #undef  TRANSPOSE4
 #endif
 }
-static void interleave_blocks_fwd(const unsigned char *original, int iw, int ih, unsigned char *interleaved)
+static void interleave_blocks_fwd(const uint8_t *original, int iw, int ih, uint8_t *interleaved)
 {
 	//original[ih][iw][3]
 	//interleaved[ih/YCODERS][iw/XCODERS][3][NCODERS]	contiguous & aligned
@@ -1843,8 +1847,8 @@ static void interleave_blocks_fwd(const unsigned char *original, int iw, int ih,
 	int SIMDxcount=blockxbytes&~((int)sizeof(__m128i[NCODERS])-1);
 	__m256i slowinc=_mm256_set1_epi64x(sizeof(__m128i));
 #endif
-	unsigned char *fastptr=interleaved;
-	ALIGN(32) const unsigned char *slowptrs[NCODERS]={0}, *slowptrs0[NCODERS]={0};
+	uint8_t *fastptr=interleaved;
+	ALIGN(32) const uint8_t *slowptrs[NCODERS]={0}, *slowptrs0[NCODERS]={0};
 	for(int ky=0;ky<YCODERS;++ky)//spread slow pointers
 	{
 		for(int kx=0;kx<XCODERS;++kx)
@@ -1976,7 +1980,7 @@ static void interleave_blocks_fwd(const unsigned char *original, int iw, int ih,
 			slowptrs0[k]+=rowstride;
 	}
 }
-static void interleave_blocks_inv(const unsigned char *interleaved, int iw, int ih, unsigned char *original)
+static void interleave_blocks_inv(const uint8_t *interleaved, int iw, int ih, uint8_t *original)
 {
 	//original[ih][iw][3]
 	//interleaved[ih/YCODERS][iw/XCODERS][3][NCODERS]	contiguous & aligned
@@ -1992,8 +1996,8 @@ static void interleave_blocks_inv(const unsigned char *interleaved, int iw, int 
 	int SIMDxcount=blockxbytes&~((int)sizeof(__m128i[NCODERS])-1);
 	__m256i slowinc=_mm256_set1_epi64x(sizeof(__m128i));
 #endif
-	const unsigned char *fastptr=interleaved;
-	ALIGN(32) unsigned char *slowptrs[NCODERS]={0}, *slowptrs0[NCODERS]={0};
+	const uint8_t *fastptr=interleaved;
+	ALIGN(32) uint8_t *slowptrs[NCODERS]={0}, *slowptrs0[NCODERS]={0};
 	for(int ky=0;ky<YCODERS;++ky)//spread slow pointers
 	{
 		for(int kx=0;kx<XCODERS;++kx)
@@ -2125,7 +2129,7 @@ static void interleave_blocks_inv(const unsigned char *interleaved, int iw, int 
 			slowptrs0[k]+=rowstride;
 	}
 }
-static void save_ppm(const char *fn, const unsigned char *image, int iw, int ih)
+static void save_ppm(const char *fn, const uint8_t *image, int iw, int ih)
 {
 	FILE *fdst=fopen(fn, "wb");
 	if(!fdst)
@@ -2137,9 +2141,9 @@ static void save_ppm(const char *fn, const unsigned char *image, int iw, int ih)
 	fwrite(image, 1, (ptrdiff_t)3*iw*ih, fdst);
 	fclose(fdst);
 }
-static void decorr1d(unsigned char *data, int count, int bytestride, int bestrct, int *rhist)
+static void decorr1d(uint8_t *data, int count, int bytestride, int bestrct, int *rhist)
 {
-	const unsigned char *combination=rct_combinations[bestrct];
+	const uint8_t *combination=rct_combinations[bestrct];
 	int yidx=combination[II_PERM_Y];
 	int uidx=combination[II_PERM_U];
 	int vidx=combination[II_PERM_V];
@@ -2147,7 +2151,7 @@ static void decorr1d(unsigned char *data, int count, int bytestride, int bestrct
 	int vc0=combination[II_COEFF_V_SUB_Y];
 	int vc1=combination[II_COEFF_V_SUB_U];
 
-	unsigned char *ptr=data;
+	uint8_t *ptr=data;
 	int prevy=0, prevu=0, prevv=0, offset=0;
 	for(int k=0;k<count;++k)
 	{
@@ -2155,31 +2159,31 @@ static void decorr1d(unsigned char *data, int count, int bytestride, int bestrct
 		int u=ptr[uidx]-128;
 		int v=ptr[vidx]-128;
 		int sym;
-		ptr[0]=sym=(unsigned char)(y-prevy+128);
+		ptr[0]=sym=(uint8_t)(y-prevy+128);
 		++rhist[256*0+sym];
 		prevy=y;
 
 		offset=y&ufromy;
 		prevu+=offset;
 		CLAMP2(prevu, -128, 127);
-		ptr[1]=sym=(unsigned char)(u-prevu+128);
+		ptr[1]=sym=(uint8_t)(u-prevu+128);
 		++rhist[256*1+sym];
 		prevu=u-offset;
 
 		offset=vc0*y+vc1*u;
 		int vpred=(prevv+offset)>>2;
 		CLAMP2(vpred, -128, 127);
-		ptr[2]=sym=(unsigned char)(v-vpred+128);
+		ptr[2]=sym=(uint8_t)(v-vpred+128);
 		++rhist[256*2+sym];
 		prevv=4*v-offset;
 		ptr+=bytestride;
 	}
 }
-static void encode1d(unsigned char *data, int count, int bytestride, unsigned *pstate, unsigned char **pstreamptr, const unsigned char *streamend, const rANS_SIMD_SymInfo *rsyminfo)
+static void encode1d(uint8_t *data, int count, int bytestride, uint32_t *pstate, uint8_t **pstreamptr, const uint8_t *streamend, const rANS_SIMD_SymInfo *rsyminfo)
 {
-	unsigned char *streamptr=*pstreamptr;
-	unsigned state=*pstate;
-	unsigned char *ptr=data+(count-(ptrdiff_t)1)*bytestride;
+	uint8_t *streamptr=*pstreamptr;
+	uint32_t state=*pstate;
+	uint8_t *ptr=data+(count-(ptrdiff_t)1)*bytestride;
 	const rANS_SIMD_SymInfo *info=0;
 	for(int k=0;k<count;++k)
 	{
@@ -2191,7 +2195,7 @@ static void encode1d(unsigned char *data, int count, int bytestride, unsigned *p
 			if(streamptr<=streamend)//"streamend" is buffer start
 				CRASH("OOB ptr %016zX <= %016zX", streamptr, streamend);
 #endif
-			*(unsigned short*)streamptr=(unsigned short)state;
+			*(uint16_t*)streamptr=(uint16_t)state;
 			state>>=RANS_RENORM_BITS;
 		}
 		state+=((uint64_t)state*info->invf>>32>>info->sh)*info->negf+info->cdf;
@@ -2207,7 +2211,7 @@ static void encode1d(unsigned char *data, int count, int bytestride, unsigned *p
 			if(streamptr<=streamend)
 				CRASH("OOB ptr %016zX <= %016zX", streamptr, streamend);
 #endif
-			*(unsigned short*)streamptr=(unsigned short)state;
+			*(uint16_t*)streamptr=(uint16_t)state;
 			state>>=RANS_RENORM_BITS;
 		}
 		state+=((uint64_t)state*info->invf>>32>>info->sh)*info->negf+info->cdf;
@@ -2223,7 +2227,7 @@ static void encode1d(unsigned char *data, int count, int bytestride, unsigned *p
 			if(streamptr<=streamend)
 				CRASH("OOB ptr %016zX <= %016zX", streamptr, streamend);
 #endif
-			*(unsigned short*)streamptr=(unsigned short)state;
+			*(uint16_t*)streamptr=(uint16_t)state;
 			state>>=RANS_RENORM_BITS;
 		}
 		state+=((uint64_t)state*info->invf>>32>>info->sh)*info->negf+info->cdf;
@@ -2235,9 +2239,9 @@ static void encode1d(unsigned char *data, int count, int bytestride, unsigned *p
 	*pstreamptr=streamptr;
 	*pstate=state;
 }
-static void decode1d(unsigned char *data, int count, int bytestride, int bestrct, unsigned *pstate, const unsigned char **pstreamptr, const unsigned char *streamend, unsigned *rCDF2syms)
+static void decode1d(uint8_t *data, int count, int bytestride, int bestrct, uint32_t *pstate, const uint8_t **pstreamptr, const uint8_t *streamend, uint32_t *rCDF2syms)
 {
-	const unsigned char *combination=rct_combinations[bestrct];
+	const uint8_t *combination=rct_combinations[bestrct];
 	int yidx=combination[II_PERM_Y];
 	int uidx=combination[II_PERM_U];
 	int vidx=combination[II_PERM_V];
@@ -2245,14 +2249,14 @@ static void decode1d(unsigned char *data, int count, int bytestride, int bestrct
 	int vc0=combination[II_COEFF_V_SUB_Y];
 	int vc1=combination[II_COEFF_V_SUB_U];
 
-	const unsigned char *streamptr=*pstreamptr;
-	unsigned state=*pstate;
-	unsigned char *ptr=data;
+	const uint8_t *streamptr=*pstreamptr;
+	uint32_t state=*pstate;
+	uint8_t *ptr=data;
 	int prevy=0, prevu=0, prevv=0, offset=0;
 	int y=0, u=0, v=0;
 	for(int k=0;k<count;++k)
 	{
-		unsigned info;
+		uint32_t info;
 
 		//yuv = (char)(error+N-128)
 		info=rCDF2syms[0<<PROBBITS|(state&((1<<PROBBITS)-1))];
@@ -2268,7 +2272,7 @@ static void decode1d(unsigned char *data, int count, int bytestride, int bestrct
 			if(streamptr>streamend)
 				CRASH("OOB ptr %016zX >= %016zX", streamptr, streamend);
 #endif
-			state=state<<16|*(unsigned short*)streamptr;
+			state=state<<16|*(uint16_t*)streamptr;
 			streamptr+=2;
 		}
 
@@ -2288,7 +2292,7 @@ static void decode1d(unsigned char *data, int count, int bytestride, int bestrct
 			if(streamptr>streamend)
 				CRASH("OOB ptr %016zX >= %016zX", streamptr, streamend);
 #endif
-			state=state<<16|*(unsigned short*)streamptr;
+			state=state<<16|*(uint16_t*)streamptr;
 			streamptr+=2;
 		}
 
@@ -2308,7 +2312,7 @@ static void decode1d(unsigned char *data, int count, int bytestride, int bestrct
 			if(streamptr>streamend)
 				CRASH("OOB ptr %016zX >= %016zX", streamptr, streamend);
 #endif
-			state=state<<16|*(unsigned short*)streamptr;
+			state=state<<16|*(uint16_t*)streamptr;
 			streamptr+=2;
 		}
 		ptr[yidx]=y+128;
@@ -2319,9 +2323,9 @@ static void decode1d(unsigned char *data, int count, int bytestride, int bestrct
 	*pstreamptr=streamptr;
 	*pstate=state;
 }
-static void encode1d_fse(unsigned char *data, int count, int bytestride, BitPackerLIFO *ec, tANS_CState_t *states)
+static void encode1d_fse(uint8_t *data, int count, int bytestride, BitPackerLIFO *ec, tANS_CState_t *states)
 {
-	unsigned char *ptr=data+(count-(ptrdiff_t)1)*bytestride;
+	uint8_t *ptr=data+(count-(ptrdiff_t)1)*bytestride;
 	for(int k=0;k<count;++k)
 	{
 		ansval_push(ptr+2, 1, 1); tANS_encodeSymbol(ec, states+2, ptr[2]);
@@ -2330,9 +2334,9 @@ static void encode1d_fse(unsigned char *data, int count, int bytestride, BitPack
 		ptr-=bytestride;
 	}
 }
-static void decode1d_fse(unsigned char *data, int count, int bytestride, int bestrct, BitPackerLIFO *ec, tANS_DState_t *states)
+static void decode1d_fse(uint8_t *data, int count, int bytestride, int bestrct, BitPackerLIFO *ec, tANS_DState_t *states)
 {
-	const unsigned char *combination=rct_combinations[bestrct];
+	const uint8_t *combination=rct_combinations[bestrct];
 	int yidx=combination[II_PERM_Y];
 	int uidx=combination[II_PERM_U];
 	int vidx=combination[II_PERM_V];
@@ -2340,7 +2344,7 @@ static void decode1d_fse(unsigned char *data, int count, int bytestride, int bes
 	int vc0=combination[II_COEFF_V_SUB_Y];
 	int vc1=combination[II_COEFF_V_SUB_U];
 
-	unsigned char *ptr=data;
+	uint8_t *ptr=data;
 	int prevy=0, prevu=0, prevv=0, offset1=0, offset2=0;
 	int y=0, u=0, v=0;
 	for(int k=0;k<count;++k)
@@ -2410,9 +2414,9 @@ int c40_codec(int argc, char **argv)
 	}
 	int fwd=0, iw=0, ih=0, rowstride=0;
 	ptrdiff_t usize=0, cap=0;
-	unsigned char *image=0, *imptr=0, *streamptr=0, *streamstart=0, *streamend=0;
+	uint8_t *image=0, *imptr=0, *streamptr=0, *streamstart=0, *streamend=0;
 	int psize=0;
-	short *pixels=0;
+	int16_t *pixels=0;
 	ptrdiff_t cheadersize=0, csize=0;
 	uint64_t degenmask=0;
 	uint64_t bypassmask=0;//0: rare context (bypass)  1: emit stats		3*NCTX+3 = 57 flags
@@ -2503,8 +2507,8 @@ int c40_codec(int argc, char **argv)
 		rowstride=3*iw;
 		usize=(ptrdiff_t)3*iw*ih;
 		cap=(ptrdiff_t)4*iw*ih;
-	//	image=(unsigned char*)_mm_malloc(cap+sizeof(__m256i), 0x1000);
-		image=(unsigned char*)malloc(cap+sizeof(__m256i));
+	//	image=(uint8_t*)_mm_malloc(cap+sizeof(__m256i), 0x1000);
+		image=(uint8_t*)malloc(cap+sizeof(__m256i));
 		if(!image)
 		{
 			CRASH("Alloc error");
@@ -2540,7 +2544,7 @@ int c40_codec(int argc, char **argv)
 	int nctx=3*NCTX+3*(xremw||yremh);
 	ptrdiff_t isize=(ptrdiff_t)ixbytes*blockh;
 	ptrdiff_t interleavedsize=isize<<fwd;//fwd ? interleave residuals & context : pack residuals
-	unsigned char *interleaved=(unsigned char*)_mm_malloc(interleavedsize, sizeof(__m256i));
+	uint8_t *interleaved=(uint8_t*)_mm_malloc(interleavedsize, sizeof(__m256i));
 	if(!interleaved)
 	{
 		CRASH("Alloc error");
@@ -2553,14 +2557,14 @@ int c40_codec(int argc, char **argv)
 	int CDF2syms_size=nctx*(int)sizeof(int[1<<PROBBITS]);
 	if(fwd)//DIV-free rANS encoder reuses this as SIMD symbol info
 		CDF2syms_size=nctx*(int)sizeof(rANS_SIMD_SymInfo[256]);
-	unsigned *CDF2syms=userans?(unsigned*)_mm_malloc(CDF2syms_size, sizeof(__m256i)):0;
+	uint32_t *CDF2syms=userans?(uint32_t*)_mm_malloc(CDF2syms_size, sizeof(__m256i)):0;
 	
 	__m256i mstate[2];
 	int ans_permute_size=sizeof(__m256i[256]);
 	int *ans_permute=userans?(int*)_mm_malloc(ans_permute_size, sizeof(__m256i)):0;
 
-	psize=(int)sizeof(short[4*6*NCODERS])*(blockw+16);//4 padded rows  *  {Y*NCODERS, U*NCODERS, V*NCODERS,  eY*NCODERS, eU*NCODERS, eV*NCODERS} = 2*3*32 = 192 channels  ~48*iw bytes
-	pixels=(short*)_mm_malloc(psize, sizeof(__m256i));//~188 KB for 4K/12MP
+	psize=(int)sizeof(int16_t[4*6*NCODERS])*(blockw+16);//4 padded rows  *  {Y*NCODERS, U*NCODERS, V*NCODERS,  eY*NCODERS, eU*NCODERS, eV*NCODERS} = 2*3*32 = 192 channels  ~48*iw bytes
+	pixels=(int16_t*)_mm_malloc(psize, sizeof(__m256i));//~188 KB for 4K/12MP
 	if((fwd&&!hists)||(userans&&(!CDF2syms||!ans_permute))||!pixels)
 	{
 		CRASH("Alloc error");
@@ -2603,7 +2607,7 @@ int c40_codec(int argc, char **argv)
 		prof_checkpoint(usize, "interleave");
 
 		//analysis
-		ALIGN(32) long long counters[OCH_COUNT]={0};
+		ALIGN(32) int64_t counters[OCH_COUNT]={0};
 		__m256i mcounters[OCH_COUNT];//64-bit
 		__m128i half8=_mm_set1_epi8(-128);
 		__m256i wordmask=_mm256_set1_epi64x(0xFFFF);
@@ -2671,15 +2675,15 @@ int c40_codec(int argc, char **argv)
 		}
 		for(int k=0;k<OCH_COUNT;++k)
 		{
-			ALIGN(32) long long temp[4]={0};
+			ALIGN(32) int64_t temp[4]={0};
 			_mm256_store_si256((__m256i*)temp, mcounters[k]);
 			counters[k]=temp[0]+temp[1]+temp[2]+temp[3];
 		}
-		long long minerr=0;
+		int64_t minerr=0;
 		for(int kt=0;kt<RCT_COUNT;++kt)
 		{
-			const unsigned char *rct=rct_combinations[kt];
-			long long currerr=
+			const uint8_t *rct=rct_combinations[kt];
+			int64_t currerr=
 				+counters[rct[0]]
 				+counters[rct[1]]
 				+counters[rct[2]]
@@ -2732,7 +2736,7 @@ int c40_codec(int argc, char **argv)
 				dec_unpackhist(&ec, bypassmask, kc, hist);
 				dec_hist2CDF2sym(hist, CDF2syms+((ptrdiff_t)kc<<PROBBITS));
 			}
-			streamptr=(unsigned char*)(size_t)ec.srcfwdptr;
+			streamptr=(uint8_t*)(size_t)ec.srcfwdptr;
 			prof_checkpoint((ptrdiff_t)CDF2syms_size, "unpack histograms");
 
 			//generate decode permutations		eg: mask = MSB 0b11000101 LSB  ->  LO {0, x, 1, x, x, x, 2, 3} HI
@@ -2786,7 +2790,7 @@ int c40_codec(int argc, char **argv)
 					uint32_t vmax=255, probbits=PROBBITS;
 					dec_unpackhist(&ec, bypassmask, kc, nhist);
 					
-					fseerror=tANS_buildDTable(fsetables[kc], (short*)nhist, vmax, probbits);
+					fseerror=tANS_buildDTable(fsetables[kc], (int16_t*)nhist, vmax, probbits);
 					if(fseerror)
 					{
 						CRASH("FSE Error");
@@ -2889,7 +2893,7 @@ int c40_codec(int argc, char **argv)
 	int cmin=0, cmax=0;
 	int bmin=0, bmax=0;
 #endif
-	const unsigned char *combination=rct_combinations[bestrct];
+	const uint8_t *combination=rct_combinations[bestrct];
 	int
 		yidx=combination[II_PERM_Y]*NCODERS,
 		uidx=combination[II_PERM_U]*NCODERS,
@@ -2910,10 +2914,10 @@ int c40_codec(int argc, char **argv)
 	__m256i myuv[3];
 	__m256i dist_rcp=_mm256_set1_epi16(0x7FFF), mdist=_mm256_set1_epi16(1);
 #ifdef SAVE_RESIDUALS
-	unsigned char *residuals=0;
+	uint8_t *residuals=0;
 	if(fwd)
 	{
-		residuals=(unsigned char*)malloc(isize);
+		residuals=(uint8_t*)malloc(isize);
 		if(!residuals)
 		{
 			CRASH("Alloc error");
@@ -2924,11 +2928,11 @@ int c40_codec(int argc, char **argv)
 #endif
 	if(dist>1)
 	{
-		dist_rcp=_mm256_set1_epi16(((1<<16)+dist-1)/dist);//x/dist  ->  {x*=inv; x=(x>>16)+((unsigned)x>>31);}
+		dist_rcp=_mm256_set1_epi16(((1<<16)+dist-1)/dist);//x/dist  ->  {x*=inv; x=(x>>16)+((uint32_t)x>>31);}
 		mdist=_mm256_set1_epi16(dist);
 	}
 	memset(myuv, 0, sizeof(myuv));
-	unsigned char *ctxptr=interleaved;
+	uint8_t *ctxptr=interleaved;
 	imptr=interleaved+(fwd?isize:0);
 	__m256i *L1preds=effort?(__m256i*)L1state:0;
 	int *L1weights=effort?(int*)(L1state+1*(ptrdiff_t)NCODERS*3*(L1_NPREDS3+1)):0;
@@ -2939,14 +2943,14 @@ int c40_codec(int argc, char **argv)
 	}
 	for(int ky=0;ky<blockh;++ky)//main coding loop
 	{
-		ALIGN(32) short *rows[]=
+		ALIGN(32) int16_t *rows[]=
 		{
 			pixels+(paddedwidth*((ky-0LL)&3)+8LL)*6*NCODERS,
 			pixels+(paddedwidth*((ky-1LL)&3)+8LL)*6*NCODERS,
 			pixels+(paddedwidth*((ky-2LL)&3)+8LL)*6*NCODERS,
 			pixels+(paddedwidth*((ky-3LL)&3)+8LL)*6*NCODERS,
 		};
-		ALIGN(32) unsigned short syms[3*NCODERS]={0};
+		ALIGN(32) uint16_t syms[3*NCODERS]={0};
 		__m256i NW[3], N[3], W[3];
 		__m256i eW[3], ecurr[3], eNEE[3], eNEEE[3];
 		memset(NW, 0, sizeof(NW));
@@ -3027,8 +3031,8 @@ int c40_codec(int argc, char **argv)
 				const int borderN=3;
 				const int borderE=3;
 				int cond_cg=
-					(unsigned)(kx-borderW)>=(unsigned)(blockw-(borderW+borderE))||
-					(unsigned)(ky-borderN)>=(unsigned)(blockh-borderN);
+					(uint32_t)(kx-borderW)>=(uint32_t)(blockw-(borderW+borderE))||
+					(uint32_t)(ky-borderN)>=(uint32_t)(blockh-borderN);
 				__m256i mcg[3];
 				__m256i ymin=_mm256_min_epi16(N[0], W[0]);
 				__m256i ymax=_mm256_max_epi16(N[0], W[0]);
@@ -3785,10 +3789,10 @@ int c40_codec(int argc, char **argv)
 #ifdef SAVE_RESIDUALS
 				{
 					ptrdiff_t idx=imptr-interleaved-isize+(ptrdiff_t)0*NCODERS;
-					short syms2[16];
+					int16_t syms2[16];
 					_mm256_storeu_si256((__m256i*)syms2, msyms);
 					for(int k=0;k<16;++k)
-						residuals[idx+k]=(unsigned char)(syms2[k]+128);
+						residuals[idx+k]=(uint8_t)(syms2[k]+128);
 				}
 #endif
 				ecurr[0]=_mm256_xor_si256(_mm256_slli_epi16(msyms, 1), _mm256_srai_epi16(msyms, 15));//ecurr = pack_sign(yuv-pred)
@@ -3823,10 +3827,10 @@ int c40_codec(int argc, char **argv)
 #ifdef SAVE_RESIDUALS
 				{
 					ptrdiff_t idx=imptr-interleaved-isize+(ptrdiff_t)1*NCODERS;
-					short syms2[16];
+					int16_t syms2[16];
 					_mm256_storeu_si256((__m256i*)syms2, msyms);
 					for(int k=0;k<16;++k)
-						residuals[idx+k]=(unsigned char)(syms2[k]+128);
+						residuals[idx+k]=(uint8_t)(syms2[k]+128);
 				}
 #endif
 				ecurr[1]=_mm256_xor_si256(_mm256_slli_epi16(msyms, 1), _mm256_srai_epi16(msyms, 15));
@@ -3866,10 +3870,10 @@ int c40_codec(int argc, char **argv)
 #ifdef SAVE_RESIDUALS
 				{
 					ptrdiff_t idx=imptr-interleaved-isize+(ptrdiff_t)2*NCODERS;
-					short syms2[16];
+					int16_t syms2[16];
 					_mm256_storeu_si256((__m256i*)syms2, msyms);
 					for(int k=0;k<16;++k)
-						residuals[idx+k]=(unsigned char)(syms2[k]+128);
+						residuals[idx+k]=(uint8_t)(syms2[k]+128);
 				}
 #endif
 				ecurr[2]=_mm256_xor_si256(_mm256_slli_epi16(msyms, 1), _mm256_srai_epi16(msyms, 15));
@@ -3950,7 +3954,7 @@ int c40_codec(int argc, char **argv)
 				++hists[syms[1*16+0xF]];
 				++hists[syms[2*16+0xF]];
 #endif
-				ctxptr+=sizeof(short[3][NCODERS]);
+				ctxptr+=sizeof(int16_t[3][NCODERS]);
 			}
 			else
 			{
@@ -3972,7 +3976,30 @@ int c40_codec(int argc, char **argv)
 					_mm256_store_si256((__m256i*)ctx+0, ctxY);
 					_mm256_store_si256((__m256i*)ctx+1, ctxU);
 					_mm256_store_si256((__m256i*)ctx+2, ctxV);
-
+#if 1
+					for(int k=0;k<16;++k)
+					{
+						tANS_DState_t *DStatePtr0=fsedstates+ctx[k+0*NCODERS];
+						tANS_DState_t *DStatePtr1=fsedstates+ctx[k+1*NCODERS];
+						tANS_DState_t *DStatePtr2=fsedstates+ctx[k+2*NCODERS];
+						tANS_decode_t const DInfo0=((const tANS_decode_t*)(DStatePtr0->table))[DStatePtr0->state];
+						tANS_decode_t const DInfo1=((const tANS_decode_t*)(DStatePtr1->table))[DStatePtr1->state];
+						tANS_decode_t const DInfo2=((const tANS_decode_t*)(DStatePtr2->table))[DStatePtr2->state];
+						uint32_t const nbBits0=DInfo0.nbBits;
+						uint32_t const nbBits1=DInfo1.nbBits;
+						uint32_t const nbBits2=DInfo2.nbBits;
+						yuv[k+0*NCODERS]=DInfo0.symbol;
+						yuv[k+1*NCODERS]=DInfo1.symbol;
+						yuv[k+2*NCODERS]=DInfo2.symbol;
+						size_t const lowBits0=bitpacker_dec(&ec, nbBits0);
+						size_t const lowBits1=bitpacker_dec(&ec, nbBits1);
+						size_t const lowBits2=bitpacker_dec(&ec, nbBits2);
+						DStatePtr0->state=DInfo0.newState+lowBits0;
+						DStatePtr1->state=DInfo1.newState+lowBits1;
+						DStatePtr2->state=DInfo2.newState+lowBits2;
+					}
+#endif
+#if 0
 					yuv[0x00]=tANS_decodeSymbol(fsedstates+ctx[0x00], &ec);
 					yuv[0x01]=tANS_decodeSymbol(fsedstates+ctx[0x01], &ec);
 					yuv[0x02]=tANS_decodeSymbol(fsedstates+ctx[0x02], &ec);
@@ -4021,14 +4048,14 @@ int c40_codec(int argc, char **argv)
 					yuv[0x2D]=tANS_decodeSymbol(fsedstates+ctx[0x2D], &ec);
 					yuv[0x2E]=tANS_decodeSymbol(fsedstates+ctx[0x2E], &ec);
 					yuv[0x2F]=tANS_decodeSymbol(fsedstates+ctx[0x2F], &ec);
-
+#endif
 					myuv[0]=_mm256_load_si256((__m256i*)yuv+0);
 					myuv[1]=_mm256_load_si256((__m256i*)yuv+1);
 					myuv[2]=_mm256_load_si256((__m256i*)yuv+2);
 				}
 
 //#ifdef ANS_VAL
-//				ALIGN(32) unsigned char debugvals[6*NCODERS];
+//				ALIGN(32) uint8_t debugvals[6*NCODERS];
 //				msyms8=_mm256_packus_epi16(ctxY0, ctxY1);
 //				msyms8=_mm256_permute4x64_epi64(msyms8, _MM_SHUFFLE(3, 1, 2, 0));
 //				_mm256_store_si256((__m256i*)debugvals+0, msyms8);
@@ -4039,7 +4066,7 @@ int c40_codec(int argc, char **argv)
 //				ansval_check(debugvals+1*NCODERS, 1, NCODERS);//residuals
 //#endif
 
-				//yuv = (char)(sym+pred-128)	= (unsigned char)(sym+pred)-128
+				//yuv = (char)(sym+pred-128)	= (uint8_t)(sym+pred)-128
 				if(dist>1)
 				{
 					msyms=_mm256_add_epi16(myuv[0], amin);
@@ -4073,7 +4100,7 @@ int c40_codec(int argc, char **argv)
 				}
 #endif
 //#ifdef ANS_VAL
-//				ALIGN(32) unsigned char actx[3*NCODERS];
+//				ALIGN(32) uint8_t actx[3*NCODERS];
 //				msyms8=_mm256_packus_epi16(ctxY0, ctxY1);
 //				msyms8=_mm256_permute4x64_epi64(msyms8, _MM_SHUFFLE(3, 1, 2, 0));
 //				_mm256_storeu_si256((__m256i*)actx+0, msyms8);
@@ -4527,14 +4554,14 @@ int c40_codec(int argc, char **argv)
 				{
 					normalizehist(hcurr, (uint16_t*)currnhist);
 					probbits[kc]=PROBBITS;
-					//fseerror=tANS_normalizeCount((short*)currnhist, PROBBITS, hcurr, sum, 255);
+					//fseerror=tANS_normalizeCount((int16_t*)currnhist, PROBBITS, hcurr, sum, 255);
 					//if(fseerror)
 					//{
 					//	CRASH("Normalize failed");
 					//	return 1;
 					//}
 					//probbits[kc]=(uint8_t)fseerror;
-					fseerror=tANS_buildCTable(fsetables[kc], (short*)currnhist, 255, probbits[kc]);
+					fseerror=tANS_buildCTable(fsetables[kc], (int16_t*)currnhist, 255, probbits[kc]);
 					if(fseerror)
 					{
 						CRASH("FSE Error");
@@ -4590,7 +4617,7 @@ int c40_codec(int argc, char **argv)
 			{
 				rANS_SIMD_SymInfo *rsyminfo=(rANS_SIMD_SymInfo*)CDF2syms+3*NCTX*256;
 
-				unsigned state=1<<(RANS_STATE_BITS-RANS_RENORM_BITS);
+				uint32_t state=1<<(RANS_STATE_BITS-RANS_RENORM_BITS);
 				for(int kx=xremw-1;kx>=0;--kx)
 					encode1d(image+qxbytes+3*kx, blockh*YCODERS, rowstride, &state, &streamptr, image, rsyminfo);
 				for(int ky=yremh-1;ky>=0;--ky)
@@ -4601,7 +4628,7 @@ int c40_codec(int argc, char **argv)
 				if(streamptr<=image)
 					CRASH("OOB ptr %016zX <= %016zX", streamptr, image);
 #endif
-				*(unsigned*)streamptr=state;
+				*(uint32_t*)streamptr=state;
 			}
 			else
 			{
@@ -4616,7 +4643,7 @@ int c40_codec(int argc, char **argv)
 		}
 
 		//encode main
-		unsigned short *ctxptr2=(unsigned short*)(interleaved+(isize<<1));
+		uint16_t *ctxptr2=(uint16_t*)(interleaved+(isize<<1));
 		if(userans)
 		{
 			mstate[1]=mstate[0]=_mm256_set1_epi32(1<<(RANS_STATE_BITS-RANS_RENORM_BITS));
@@ -4677,7 +4704,7 @@ int c40_codec(int argc, char **argv)
 						for(int k=0;k<NCODERS;++k)
 						{
 							int freq=(1<<PROBBITS)-(anegf[k]&0xFFFF);
-							if((unsigned)(freq-1)>=(unsigned)((1<<PROBBITS)-1))
+							if((uint32_t)(freq-1)>=(uint32_t)((1<<PROBBITS)-1))
 								CRASH("freq = %d", freq);
 							esize[kc*NCODERS+k]-=log2(freq*norm)*0.125;
 						}
@@ -4708,8 +4735,8 @@ int c40_codec(int argc, char **argv)
 					if(streamptr-(2*((ptrdiff_t)mask0+mask1)+sizeof(__m128i))<=image)
 						CRASH("OOB ptr %016zX <= %016zX", streamptr, image);
 #endif
-					_mm_storeu_si128((__m128i*)streamptr-1, e1); streamptr-=mask1*sizeof(short);
-					_mm_storeu_si128((__m128i*)streamptr-1, e0); streamptr-=mask0*sizeof(short);
+					_mm_storeu_si128((__m128i*)streamptr-1, e1); streamptr-=mask1*sizeof(int16_t);
+					_mm_storeu_si128((__m128i*)streamptr-1, e0); streamptr-=mask0*sizeof(int16_t);
 					{
 						__m256i state0=_mm256_srli_epi32(mstate[0], 16);
 						__m256i state1=_mm256_srli_epi32(mstate[1], 16);
@@ -4748,9 +4775,9 @@ int c40_codec(int argc, char **argv)
 						negf1=_mm256_sub_epi16(mM, negf1);
 						negf0=_mm256_packus_epi32(negf0, negf1);
 						negf0=_mm256_permute4x64_epi64(negf0, _MM_SHUFFLE(3, 1, 2, 0));
-						ALIGN(32) unsigned short freqs[NCODERS];
+						ALIGN(32) uint16_t freqs[NCODERS];
 						_mm256_store_si256((__m256i*)freqs, negf0);
-						ansval_push(freqs, sizeof(short), NCODERS);
+						ansval_push(freqs, sizeof(int16_t), NCODERS);
 #endif
 					}
 					mstate[0]=_mm256_add_epi32(mstate[0], minvf[0]);
@@ -4771,9 +4798,58 @@ int c40_codec(int argc, char **argv)
 		}
 		else
 		{
+#if defined _DEBUG && 1
 			int ctr=0;
+#endif
 			while((ptrdiff_t)ctxptr2>(ptrdiff_t)interleaved)
 			{
+#if 1
+				ctxptr2-=3*NCODERS;
+				for(int k=15;k>=0;--k)
+				{
+					int sym2=ctxptr2[k+2*NCODERS];
+					int sym1=ctxptr2[k+1*NCODERS];
+					int sym0=ctxptr2[k+0*NCODERS];
+					tANS_CState_t *statePtr2=fsecstates+(sym2>>8);
+					tANS_CState_t *statePtr1=fsecstates+(sym1>>8);
+					tANS_CState_t *statePtr0=fsecstates+(sym0>>8);
+#ifdef _DEBUG
+					if((sym0>>8)==(sym1>>8)||(sym0>>8)==(sym2>>8)||(sym1>>8)==(sym2>>8))
+						CRASH("");
+#endif
+					const tANS_symbolCompressionTransform symbolTT2=((const tANS_symbolCompressionTransform*)(statePtr2->symbolTT))[(uint8_t)sym2];
+					const tANS_symbolCompressionTransform symbolTT1=((const tANS_symbolCompressionTransform*)(statePtr1->symbolTT))[(uint8_t)sym1];
+					const tANS_symbolCompressionTransform symbolTT0=((const tANS_symbolCompressionTransform*)(statePtr0->symbolTT))[(uint8_t)sym0];
+					const uint16_t *const stateTable2=(const uint16_t*)(statePtr2->stateTable);
+					const uint16_t *const stateTable1=(const uint16_t*)(statePtr1->stateTable);
+					const uint16_t *const stateTable0=(const uint16_t*)(statePtr0->stateTable);
+					const uint32_t nbBitsOut2=(uint32_t)((statePtr2->value+symbolTT2.deltaNbBits)>>16);
+					const uint32_t nbBitsOut1=(uint32_t)((statePtr1->value+symbolTT1.deltaNbBits)>>16);
+					const uint32_t nbBitsOut0=(uint32_t)((statePtr0->value+symbolTT0.deltaNbBits)>>16);
+					bitpacker_enc(&ec, nbBitsOut2, (uint32_t)statePtr2->value&SHIFT_mask[nbBitsOut2]);
+					bitpacker_enc(&ec, nbBitsOut1, (uint32_t)statePtr1->value&SHIFT_mask[nbBitsOut1]);
+					bitpacker_enc(&ec, nbBitsOut0, (uint32_t)statePtr0->value&SHIFT_mask[nbBitsOut0]);
+					statePtr2->value=stateTable2[(statePtr2->value>>nbBitsOut2)+symbolTT2.deltaFindState];
+					statePtr1->value=stateTable1[(statePtr1->value>>nbBitsOut1)+symbolTT1.deltaFindState];
+					statePtr0->value=stateTable0[(statePtr0->value>>nbBitsOut0)+symbolTT0.deltaFindState];
+				}
+#if defined _DEBUG && 1
+				++ctr;
+#endif
+#endif
+#if 0
+				for(int k=0;k<48;++k)
+				{
+					int sym=*--ctxptr2;
+					tANS_CState_t *statePtr=fsecstates+(sym>>8);
+					tANS_symbolCompressionTransform const symbolTT=((const tANS_symbolCompressionTransform*)(statePtr->symbolTT))[(uint8_t)sym];
+					const uint16_t *const stateTable=(const uint16_t*)(statePtr->stateTable);
+					uint32_t const nbBitsOut=(uint32_t)((statePtr->value+symbolTT.deltaNbBits)>>16);
+					bitpacker_enc(&ec, nbBitsOut, (uint32_t)statePtr->value&SHIFT_mask[nbBitsOut]);
+					statePtr->value=stateTable[(statePtr->value>>nbBitsOut)+symbolTT.deltaFindState];
+				}
+#endif
+#if 0
 				int sym;
 
 				sym=*--ctxptr2; tANS_encodeSymbol(&ec, fsecstates+(sym>>8), (uint8_t)sym);
@@ -4826,12 +4902,15 @@ int c40_codec(int argc, char **argv)
 #if defined _DEBUG && 0
 				if(ctr==blockw*blockh-1)//
 					printf("");
+				++ctr;
 #endif
 				sym=*--ctxptr2; tANS_encodeSymbol(&ec, fsecstates+(sym>>8), (uint8_t)sym);
-				++ctr;
+#endif
 			}
+#if defined _DEBUG && 0
 			if(ctr!=blockw*blockh)
 				CRASH("");
+#endif
 			for(int kc=nctx-1;kc>=0;--kc)
 			{
 #if defined _DEBUG && 0
@@ -4874,7 +4953,7 @@ int c40_codec(int argc, char **argv)
 				else if(!(bypassmask>>kc&1))//ordinary distribution
 					enc_packhist(&ec, (int*)currnhist, bypassmask, kc, userans);
 				//{
-				//	fseerror=tANS_writeNCount(streamptr, streamend-streamptr, (short*)currnhist, 255, probbits[kc]);
+				//	fseerror=tANS_writeNCount(streamptr, streamend-streamptr, (int16_t*)currnhist, 255, probbits[kc]);
 				//	if(fseerror)
 				//	{
 				//		CRASH("FSE Error");
@@ -4944,7 +5023,7 @@ int c40_codec(int argc, char **argv)
 		free(hists);
 #ifdef SAVE_RESIDUALS
 		{
-			unsigned char *result=(unsigned char*)malloc(usize);
+			uint8_t *result=(uint8_t*)malloc(usize);
 			if(!result)
 			{
 				CRASH("Alloc error");
@@ -4984,12 +5063,12 @@ int c40_codec(int argc, char **argv)
 			if(userans)
 			{
 				uint32_t *rCDF2syms=CDF2syms+(3*NCTX<<PROBBITS);
-				unsigned state=*(unsigned*)streamptr;
+				uint32_t state=*(uint32_t*)streamptr;
 				streamptr+=4;
 				for(int ky=0;ky<yremh;++ky)
-					decode1d(image+rowstride*(blockh*YCODERS+ky), iw, 3, bestrct, &state, (const unsigned char**)&streamptr, streamend, rCDF2syms);
+					decode1d(image+rowstride*(blockh*YCODERS+ky), iw, 3, bestrct, &state, (const uint8_t**)&streamptr, streamend, rCDF2syms);
 				for(int kx=0;kx<xremw;++kx)
-					decode1d(image+qxbytes+3*kx, blockh*YCODERS, rowstride, bestrct, &state, (const unsigned char**)&streamptr, streamend, rCDF2syms);
+					decode1d(image+qxbytes+3*kx, blockh*YCODERS, rowstride, bestrct, &state, (const uint8_t**)&streamptr, streamend, rCDF2syms);
 			}
 			else
 			{

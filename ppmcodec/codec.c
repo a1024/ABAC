@@ -110,7 +110,7 @@ int c57_codec(int argc, char **argv);//fast Rice
 //	#define CODEC_EXT c37
 //	#define CODEC_EXT c38
 //	#define CODEC_EXT c39
-//	#define CODEC_EXT c40
+	#define CODEC_EXT c40
 //	#define CODEC_EXT c41
 //	#define CODEC_EXT c42
 //	#define CODEC_EXT c43
@@ -127,7 +127,7 @@ int c57_codec(int argc, char **argv);//fast Rice
 //	#define CODEC_EXT c54
 //	#define CODEC_EXT c55
 //	#define CODEC_EXT c56
-	#define CODEC_EXT c57
+//	#define CODEC_EXT c57
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)

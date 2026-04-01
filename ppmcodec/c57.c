@@ -29,6 +29,7 @@
 	#define LOUD
 //	#define PROFILE_SIZE
 //	#define RICE_OPT
+	#define ANALYSIS2
 
 	#define ENABLE_GUIDE
 //	#define FIFOVAL
@@ -37,6 +38,9 @@
 
 enum
 {
+	BLOCKX=300,
+	BLOCKY=300,
+
 	GRBITS=1,
 
 	XPAD=8,
@@ -45,6 +49,10 @@ enum
 	NVAL=2,
 
 	BUFSIZE=512*1024,
+
+	R3DEPTH=8,
+	R3LIMIT=10,
+	R3CODEMAX=R3LIMIT+R3DEPTH,//CODEMAX*3 <= 64-8
 };
 
 //runtime
@@ -99,7 +107,7 @@ INLINE int floor_log2_32(uint32_t n)
 	(sizeof(X)==8?floor_log2_64(X):floor_log2_32((uint32_t)(X)))
 #endif
 #endif
-#if 0
+#if 1
 INLINE int median3i(int a, int b, int c)
 {
 	int t;
@@ -136,7 +144,7 @@ static void crash(const char *file, int line, const char *format, ...)
 static double time_sec2(void)
 {
 #ifdef _WIN32
-	static long long t0=0;
+	static int64_t t0=0;
 	LARGE_INTEGER li;
 	double t;
 	QueryPerformanceCounter(&li);
@@ -504,7 +512,7 @@ static const char *rct_names[RCT_COUNT]=
 #endif
 static int crct_analysis(uint8_t *image, int iw, int ih)
 {
-	long long counters[OCH_COUNT]={0};
+	int64_t counters[OCH_COUNT]={0};
 	int prev[OCH_COUNT]={0};
 	int rowstride=3*iw;
 	uint8_t *ptr=image+rowstride, *end=image+(ptrdiff_t)rowstride*ih;
@@ -561,11 +569,11 @@ static int crct_analysis(uint8_t *image, int iw, int ih)
 #endif
 	}
 	int bestrct=0;
-	long long minerr=0;
+	int64_t minerr=0;
 	for(int kt=0;kt<RCT_COUNT;++kt)
 	{
 		const uint8_t *rct=rct_combinations[kt];
-		long long currerr=
+		int64_t currerr=
 			+counters[rct[0]]
 			+counters[rct[1]]
 			+counters[rct[2]]
@@ -579,13 +587,144 @@ static int crct_analysis(uint8_t *image, int iw, int ih)
 	return bestrct;
 }
 
-
-enum
+#ifdef ANALYSIS2
+static void analysis2(uint8_t *image, int iw, int ih)
 {
-	R3DEPTH=8,
-	R3LIMIT=10,
-	R3CODEMAX=R3LIMIT+R3DEPTH,//CODEMAX*3 <= 64-8
-};
+	enum
+	{
+		A2_NCH=OCH_COUNT,
+		A2_NROWS=2,
+		A2_NVAL=2,
+	};
+	int xblocks=iw/BLOCKX, yblocks=ih/BLOCKY;
+	if(xblocks<1)xblocks=1;
+	if(yblocks<1)yblocks=1;
+	int nblocks=xblocks*yblocks;
+	int cssize=nblocks*sizeof(uint32_t[OCH_COUNT]);
+	uint32_t *csizes=(uint32_t*)malloc(cssize);
+	int psize=(2*BLOCKX+2*XPAD)*(int)sizeof(int16_t[A2_NCH*A2_NROWS*A2_NVAL]);
+	int16_t *pixels=(int16_t*)malloc(psize);
+	if(!csizes||!pixels)
+	{
+		CRASH("Alloc error");
+		return;
+	}
+	memset(csizes, 0, cssize);
+	memset(pixels, 0, psize);
+	for(int by=0, y1=0;by<yblocks;++by)
+	{
+		int y2=y1+BLOCKY;
+		if(by==yblocks-1)
+			y2=ih;
+		int dy=y2-y1;
+		for(int bx=0, x1=0;bx<xblocks;++bx)
+		{
+			int x2=x1+BLOCKX;
+			if(bx==xblocks-1)
+				x2=iw;
+			int dx=x2-x1;
+			int bidx=xblocks*by+bx;
+			for(int ky=0;ky<dy;++ky)
+			{
+				int16_t *rptr0=pixels+(XPAD*A2_NCH*A2_NROWS+(ky+0LL+A2_NROWS)%A2_NROWS)*A2_NVAL;
+				int16_t *rptr1=pixels+(XPAD*A2_NCH*A2_NROWS+(ky-1LL+A2_NROWS)%A2_NROWS)*A2_NVAL;
+				uint8_t *imptr=image+3*(iw*(y1+ky)+x1);
+				for(int kx=0;kx<dx;++kx, imptr+=3)
+				{
+					int r=imptr[0];
+					int g=imptr[1];
+					int b=imptr[2];
+					int rg=r-g;
+					int gb=g-b;
+					int br=b-r;
+					int16_t curr[OCH_COUNT]=
+					{
+						r,
+						g,
+						b,
+						rg,
+						gb,
+						br,
+						rg+(gb>>2),//r-(3*g+b)/4 = r-g-(b-g)/4
+						rg+(br>>2),//g-(3*r+b)/4 = g-r-(b-r)/4
+						br+(rg>>2),//b-(3*r+g)/4 = b-r-(g-r)/4
+						br+(gb>>2),//r-(g+3*b)/4 = r-b-(g-b)/4
+						gb+(br>>2),//g-(r+3*b)/4 = g-b-(r-b)/4
+						gb+(rg>>2),//b-(r+3*g)/4 = b-g-(r-g)/4
+						(rg-br)>>1,//r-(g+b)/2 = (r-g + r-b)/2
+						(gb-rg)>>1,//g-(r+b)/2 = (g-r + g-b)/2
+						(br-gb)>>1,//b-(r+g)/2 = (b-r + b-g)/2
+					};
+					for(int kc=0;kc<OCH_COUNT;++kc)
+					{
+						int16_t
+							NW	=rptr1[0-1*A2_NCH*A2_NROWS*A2_NVAL],
+							N	=rptr1[0+0*A2_NCH*A2_NROWS*A2_NVAL],
+							W	=rptr0[0-1*A2_NCH*A2_NROWS*A2_NVAL],
+							eNEE	=rptr1[1+2*A2_NCH*A2_NROWS*A2_NVAL],
+							eW	=rptr0[1-1*A2_NCH*A2_NROWS*A2_NVAL];
+						int nbypass=FLOOR_LOG2((eW>>GRBITS)+1);
+						int pred=median3i(N, W, N+W-NW);
+						int sym=(int8_t)(curr[kc]-pred);
+						sym=sym<<1^sym>>31;
+						int nzeros=sym>>nbypass;
+						int stopbit=nzeros<R3LIMIT;
+						int nbypass2=stopbit?nbypass:R3DEPTH;
+						csizes[OCH_COUNT*bidx+kc]+=nzeros+stopbit+nbypass2;
+
+						rptr0[0+0*A2_NCH*A2_NROWS*A2_NVAL]=curr[kc];
+						rptr0[1+0*A2_NCH*A2_NROWS*A2_NVAL]=(2*eW+(sym<<GRBITS)+eNEE)>>2;
+						rptr0+=A2_NROWS*A2_NVAL;
+						rptr1+=A2_NROWS*A2_NVAL;
+					}
+				}
+			}
+			x1=x2;
+		}
+		y1=y2;
+	}
+	int rsize=nblocks*(int)sizeof(uint32_t[2]);
+	uint32_t *results=(int*)malloc(rsize);
+	if(!results)
+	{
+		CRASH("Alloc error");
+		return;
+	}
+	memset(results, 0, rsize);
+	uint32_t total=0;
+	for(int kb=0;kb<nblocks;++kb)
+	{
+		int x1=kb%xblocks*BLOCKX, y1=kb/xblocks*BLOCKY;
+		uint32_t *csizes2=csizes+OCH_COUNT*kb;
+		int bestrct=0;
+		uint32_t bestsize=0;
+		for(int kt=0;kt<RCT_COUNT;++kt)
+		{
+			const uint8_t *rct=rct_combinations[kt];
+			uint32_t currsize=
+				+csizes2[rct[0]]
+				+csizes2[rct[1]]
+				+csizes2[rct[2]]
+			;
+			if(!kt||bestsize>currsize)
+			{
+				bestsize=currsize;
+				bestrct=kt;
+			}
+		}
+		printf("%3d  (%5d, %5d)  %12.2lf  %2d %s\n", kb, x1, y1, bestsize/8., bestrct, rct_names[bestrct]);
+		total+=bestsize+1;
+		results[2*kb+0]=bestsize;
+		results[2*kb+1]=bestrct;
+	}
+	printf("%12.2lf  Total\n", total/8.);
+	free(csizes);
+	free(pixels);
+	free(results);//
+}
+#endif
+
+
 #ifdef RICE_OPT
 enum
 {
@@ -738,6 +877,9 @@ int c57_codec(int argc, char **argv)
 		fread(image, 1, usize, fsrc);
 		guide_save(image, iw, ih);
 		bestrct=crct_analysis(image, iw, ih);
+#ifdef ANALYSIS2
+		analysis2(image, iw, ih);
+#endif
 	}
 	fdst=fopen(dstfn, "wb");
 	if(!fdst)
@@ -757,8 +899,6 @@ int c57_codec(int argc, char **argv)
 	{
 		usize+=fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
 	}
-	//fclose(fsrc);
-	
 	yidx=rct_combinations[bestrct][II_PERM_Y];
 	uidx=rct_combinations[bestrct][II_PERM_U];
 	vidx=rct_combinations[bestrct][II_PERM_V];
