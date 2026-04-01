@@ -27,7 +27,9 @@
 
 #ifdef _MSC_VER
 	#define LOUD
-//	#define ESTIMATE_SIZES
+//	#define PROFILE_SIZE
+//	#define RICE_OPT
+
 	#define ENABLE_GUIDE
 //	#define FIFOVAL
 #endif
@@ -35,20 +37,12 @@
 
 enum
 {
-
-	SBUFSIZE=512*1024,
-	PBUFSIZE=SBUFSIZE/3*3,
-
-	GRBITS=3,
-	
-	NCTX=18,
+	GRBITS=1,
 
 	XPAD=8,
 	NCH=3,
 	NROWS=1,
 	NVAL=2,
-
-	GRPREC=3,
 
 	BUFSIZE=512*1024,
 };
@@ -586,320 +580,20 @@ static int crct_analysis(uint8_t *image, int iw, int ih)
 }
 
 
-#ifdef ESTIMATE_SIZES
-#define BSIZELIST\
-	BSIZE(UNARY)\
-	BSIZE(BYPASS)\
-	BSIZE(TRUNC)\
-	BSIZE(BITS)\
-
-enum
-{
-#define BSIZE(X) SIZE_##X,
-	BSIZELIST
-#undef  BSIZE
-	SIZE_COUNT,
-};
-static const char *bsize_labels[]=
-{
-#define BSIZE(X) #X,
-	BSIZELIST
-#undef  BSIZE
-};
-static int g_kc=0;
-static int64_t bsizes[3][SIZE_COUNT]={0};
-#endif
-typedef struct _RiceCoder
-{
-	uint64_t cache;
-	int64_t nbits;
-	uint8_t *ptr, *end;
-} RiceCoder;
-INLINE void rice_init(RiceCoder *ec, uint8_t *start, uint8_t *end, int fwd)
-{
-	ec->cache=0;
-	ec->nbits=64;
-	ec->ptr=start;
-	ec->end=end;
-	if(!fwd)
-	{
-		ec->cache=*(uint64_t*)ec->ptr;
-		ec->ptr+=8;
-		ec->nbits=0;
-	}
-}
-INLINE void rice_flush(RiceCoder *ec)
-{
-	*(uint64_t*)ec->ptr=ec->cache;
-	ec->ptr+=8;
-}
-INLINE void rice_enc(RiceCoder *ec, int nbypass, int sym)
-{
-	//buffer: {c,c,c,b,b,a,a,a, f,f,f,e,e,e,d,c}, cache: MSB gg[hhh]000 LSB	nbits is number of ASSIGNED bits
-	//written 64-bit words are byte-reversed because the CPU is little-endian
-
-	int nzeros=sym>>nbypass;
-	int bypass=sym&0x7FFFFFFF>>(31-nbypass);
-//	int bypass=sym&((1<<nbypass)-1);
-#ifdef ESTIMATE_SIZES
-	bsizes[g_kc][SIZE_UNARY]+=nzeros+1LL;
-	bsizes[g_kc][SIZE_BYPASS]+=nbypass;
-#endif
-	if(nzeros>=ec->nbits)//fill the rest of cache with zeros, and flush
-	{
-		nzeros-=(int)ec->nbits;
-		*(uint64_t*)ec->ptr=ec->cache;
-		ec->ptr+=8;
-		ec->cache=0;
-		while(nzeros>=64)//just flush zeros
-		{
-			nzeros-=64;
-			*(uint64_t*)ec->ptr=0;
-			ec->ptr+=8;
-		}
-		ec->nbits=64;
-	}
-	//now there is room for zeros:  0 <= nzeros < nbits <= 64
-	ec->nbits-=nzeros;//emit remaining zeros to cache
-
-	bypass|=1<<nbypass;//append 1 stop bit
-	++nbypass;
-	if(nbypass>=ec->nbits)//cache would overflow:  fill, flush, and repeat
-	{
-		nbypass-=(int)ec->nbits;
-		ec->cache|=(uint64_t)bypass>>nbypass;
-		bypass&=0x7FFFFFFF>>(31-nbypass);
-	//	bypass&=(1<<nbypass)-1;
-		*(uint64_t*)ec->ptr=ec->cache;
-		ec->ptr+=8;
-		ec->cache=0;
-		ec->nbits=64;
-	}
-	//now there is room for bypass:  0 <= nbypass < nbits <= 64
-	if(nbypass)
-	{
-		ec->nbits-=nbypass;//emit remaining bypass to cache
-		ec->cache|=(uint64_t)bypass<<ec->nbits;
-	}
-}
-INLINE int  rice_dec(RiceCoder *ec, int nbypass)
-{
-	//cache: MSB 00[hhh]ijj LSB	nbits is number of CLEARED bits (past codes must be cleared from cache)
-	
-	int sym;
-
-	sym=-(int)ec->nbits;
-	while(!ec->cache)
-	{
-		sym+=64;
-		ec->cache=*(uint64_t*)ec->ptr;
-		ec->ptr+=8;
-	}
-	ec->nbits=_lzcnt_u64(ec->cache);
-	sym+=(int)ec->nbits;
-
-	sym<<=nbypass;
-	ec->cache&=0x7FFFFFFFFFFFFFFF>>ec->nbits;//remove stop bit
-	ec->nbits+=(uint64_t)nbypass+1;
-	if(ec->nbits>=64)//nbits = nbits0+nbypass > N
-	{
-		//example: 000000[11 1]1010010	nbits=6, nbypass=3	6+3-8 = 1
-		ec->nbits-=64;
-		sym|=(int)(ec->cache<<ec->nbits);
-		ec->cache=*(uint64_t*)ec->ptr;
-		ec->ptr+=8;
-		nbypass=(int)ec->nbits;
-	}
-	if(nbypass)
-	{
-		sym|=(int)(ec->cache>>(64-ec->nbits));
-		ec->cache&=0xFFFFFFFFFFFFFFFF>>ec->nbits;//nbits=61 -> cache&=7;
-
-		//ec->cache&=(1ULL<<sh)-1;//sh=3 -> cache&=7;
-	}
-	return sym;
-}
-INLINE void bit_pack(RiceCoder *ec, int bit)
-{
-#ifdef ESTIMATE_SIZES
-	++bsizes[g_kc][SIZE_BITS];
-#endif
-	--ec->nbits;
-	ec->cache|=(uint64_t)bit<<ec->nbits;
-	if(ec->nbits<=0)
-	{
-		*(uint64_t*)ec->ptr=ec->cache;
-		ec->ptr+=8;
-		ec->cache=0;
-		ec->nbits=64;
-	}
-}
-INLINE int  bit_unpack(RiceCoder *ec)
-{
-	int bit;
-
-	++ec->nbits;
-	bit=(int)(ec->cache>>(64-ec->nbits));
-	ec->cache&=0xFFFFFFFFFFFFFFFF>>ec->nbits;
-	if(ec->nbits>=64)
-	{
-		ec->nbits-=64;
-		ec->cache=*(uint64_t*)ec->ptr;
-		ec->ptr+=8;
-	}
-	return bit;
-}
-INLINE void truncbin_enc(RiceCoder *ec, int nlevels, int val)
-{
-	/*
-	truncaed binary code:	nlevels>=2
-	nlevels	6	5	4	3	2
-
-	0	00	00	00	0	0
-	1	01	01	01	10	1
-	2	100	10	10	11
-	3	101	110	11
-	4	110	111
-	5	111
-	*/
-	int k=FLOOR_LOG2(nlevels);
-	int nunused=(1<<(k+1))-nlevels;
-	int bypass, nbypass;
-	if(val<nunused)
-		bypass=val, nbypass=k;
-	else
-		bypass=val+nunused, nbypass=k+1;
-#ifdef ESTIMATE_SIZES
-	bsizes[g_kc][SIZE_TRUNC]+=bypass;
-#endif
-	
-	if(nbypass>=ec->nbits)
-	{
-		nbypass-=(int)ec->nbits;
-		ec->cache|=(uint64_t)bypass>>nbypass;
-		bypass&=0x7FFFFFFF>>(31-nbypass);
-		*(uint64_t*)ec->ptr=ec->cache;
-		ec->ptr+=8;
-		ec->cache=0;
-		ec->nbits=64;
-	}
-	if(nbypass)
-	{
-		ec->nbits-=nbypass;
-		ec->cache|=(uint64_t)bypass<<ec->nbits;
-	}
-}
-INLINE int  truncbin_dec(RiceCoder *ec, int nlevels)
-{
-	int k=FLOOR_LOG2(nlevels);
-	int nunused=(1<<(k+1))-nlevels;
-	int val=0;
-	
-	ec->nbits+=k;
-	if(ec->nbits>=64)
-	{
-		ec->nbits-=64;
-		val|=(int)(ec->cache<<ec->nbits);
-		ec->cache=*(uint64_t*)ec->ptr;
-		ec->ptr+=8;
-		k=(int)ec->nbits;
-	}
-	if(k)
-	{
-		val|=(int)(ec->cache>>(64-ec->nbits));
-		ec->cache&=0xFFFFFFFFFFFFFFFF>>ec->nbits;
-	}
-	if(val>=nunused)
-	{
-		++ec->nbits;
-		val<<=1;
-		val|=(int)(ec->cache>>(64-ec->nbits));
-		ec->cache&=0xFFFFFFFFFFFFFFFF>>ec->nbits;
-		val-=nunused;
-		if(ec->nbits>=64)
-		{
-			ec->nbits-=64;
-			ec->cache=*(uint64_t*)ec->ptr;
-			ec->ptr+=8;
-		}
-	}
-	return val;
-}
-
-enum
-{
-	GRDEPTH=8,
-	GRLIMIT=64-GRDEPTH,
-//	GRLIMIT=8,//X
-};
-INLINE void r2_init(RiceCoder *ec, uint8_t *start, uint8_t *end, int fwd)
-{
-	ec->cache=0;
-	ec->nbits=0;//bitidx
-	ec->ptr=start;
-	ec->end=end;
-	if(fwd)
-		memset(start, 0, end-start);
-}
-INLINE void r2_flush(RiceCoder *ec)
-{
-	ec->ptr+=8;
-}
-INLINE void r2_enc(RiceCoder *ec, int nbypass, int sym)
-{
-	int nzeros, stopbit, codelen, remaining;
-	uint64_t code;
-
-	nzeros=sym>>nbypass;
-	stopbit=nzeros<GRLIMIT;
-	if(!stopbit)
-	{
-		nbypass=GRDEPTH;
-		nzeros=GRLIMIT;
-	}
-	codelen=nzeros+stopbit+nbypass;
-	code=((uint64_t)stopbit<<nbypass|(sym&((1ULL<<nbypass)-1)))<<(64-codelen);
-	remaining=64-(int)ec->nbits;
-	*(uint64_t*)ec->ptr|=code>>ec->nbits;
-	ec->nbits+=codelen;
-	ec->ptr+=(ec->nbits>>6)*sizeof(uint64_t);
-	if(ec->nbits>64)
-		*(uint64_t*)ec->ptr|=code<<remaining;
-	ec->nbits&=63;
-}
-INLINE int  r2_dec(RiceCoder *ec, int nbypass)
-{
-	uint8_t *p;
-	uint64_t code;
-	int nzeros, sym;
-
-	p=ec->ptr;
-	code=*(uint64_t*)ec->ptr<<ec->nbits;
-	if(ec->nbits)
-		code|=((uint64_t*)ec->ptr)[1]>>(64-ec->nbits);
-	nzeros=(int)_lzcnt_u64(code);
-	sym=(int)code;//bitidx stays the same
-	ec->ptr+=sizeof(uint64_t);
-	if(nzeros<GRLIMIT)
-	{
-		int codelen=nzeros+1ULL+nbypass;
-		code>>=64-codelen;
-		sym=((nzeros-1)<<nbypass)+(uint32_t)code;
-		ec->nbits+=codelen;
-		ec->ptr=p+(ec->nbits>>6)*sizeof(uint64_t);
-		ec->nbits&=63;
-	}
-	return sym;
-}
-
 enum
 {
 	R3DEPTH=8,
 	R3LIMIT=10,
 	R3CODEMAX=R3LIMIT+R3DEPTH,//CODEMAX*3 <= 64-8
 };
-
-uint8_t clamptable[1024];
+#ifdef RICE_OPT
+enum
+{
+	OPT_QSIZE=256,
+};
+static int8_t ropt_queue[3][OPT_QSIZE];
+#endif
+static uint8_t clamptable[1024];
 int c57_codec(int argc, char **argv)
 {
 	const uint16_t tag='5'|'7'<<8;
@@ -909,11 +603,9 @@ int c57_codec(int argc, char **argv)
 	uint64_t c=0;
 	int fwd=0, iw=0, ih=0, bestrct=0;
 	int64_t usize=0, csize=0;
-	//int64_t ccap=0;
 	int psize=0;
 	int16_t *pixels=0;
 	uint8_t *image=0, *imptr=0;
-	//uint8_t *stream=0;
 	int yidx=0, uidx=0, vidx=0, uc0=0, vc0=0, vc1=0;
 	int ysh=0, ush=0, vsh=0;
 	uint8_t *rdptr=rdbuf+BUFSIZE, *wtptr=wtbuf;
@@ -931,18 +623,6 @@ int c57_codec(int argc, char **argv)
 	(void)&time_sec2;
 	(void)och_names;
 	(void)rct_names;
-	(void)&rice_init;
-	(void)&rice_flush;
-	(void)&rice_enc;
-	(void)&rice_dec;
-	(void)&bit_pack;
-	(void)&bit_unpack;
-	(void)&truncbin_enc;
-	(void)&truncbin_dec;
-	(void)&r2_init;
-	(void)&r2_flush;
-	(void)&r2_enc;
-	(void)&r2_dec;
 	if(argc!=3)
 	{
 		printf(
@@ -1025,7 +705,6 @@ int c57_codec(int argc, char **argv)
 			CRASH("Unsupported PPM file");
 			return 1;
 		}
-		//ccap=(int64_t)6*iw*ih;
 	}
 	else
 	{
@@ -1034,12 +713,6 @@ int c57_codec(int argc, char **argv)
 		fread(&iw, 1, 3, fsrc);
 		fread(&ih, 1, 3, fsrc);
 		fread(&bestrct, 1, 1, fsrc);
-		//{
-		//	struct stat info={0};
-		//
-		//	stat(srcfn, &info);
-		//	ccap=(int64_t)info.st_size-ftell(fsrc);
-		//}
 	}
 	if(iw<1||ih<1)
 	{
@@ -1047,7 +720,6 @@ int c57_codec(int argc, char **argv)
 		return 1;
 	}
 	usize=(int64_t)3*iw*ih;
-	//stream=(uint8_t*)malloc(ccap+sizeof(uint64_t));
 	psize=(iw+2*XPAD)*(int)sizeof(int16_t[NCH*NROWS*NVAL]);
 	pixels=(int16_t*)malloc(psize);
 	if(!pixels)
@@ -1067,11 +739,6 @@ int c57_codec(int argc, char **argv)
 		guide_save(image, iw, ih);
 		bestrct=crct_analysis(image, iw, ih);
 	}
-	//else
-	//{
-	//	memset(stream+ccap, 0, sizeof(uint64_t));
-	//	fread(stream, 1, ccap, fsrc);
-	//}
 	fdst=fopen(dstfn, "wb");
 	if(!fdst)
 	{
@@ -1107,6 +774,14 @@ int c57_codec(int argc, char **argv)
 	memset(pixels, 0, psize);
 	if(fwd)
 	{
+#ifdef PROFILE_SIZE
+		int symcount=0;
+		int unarysize=0, binarysize=0;
+#endif
+#ifdef RICE_OPT
+		int qlen=0;
+		int roptusize=0, roptbsize=0;
+#endif
 		imptr=image;
 		for(int ky=0;ky<ih;++ky)
 		{
@@ -1173,12 +848,6 @@ int c57_codec(int argc, char **argv)
 					uint64_t code;
 					int len;
 
-					//if(ky==4283&&kx==792)//
-					//if(ky==4206&&kx==4671)//
-					//if(ky==0&&kx==3567)//
-					//if(ky==2855&&kx==2581)//
-					//	printf("");
-
 					int s0=x0, s1=x1, s2=x2;
 					int nzeros0=x0>>nbypass0;
 					int nzeros1=x1>>nbypass1;
@@ -1211,6 +880,38 @@ int c57_codec(int argc, char **argv)
 					code=code<<stopbit0|stopbit0;	len+=stopbit0;
 					code<<=nzeros0;			len+=nzeros0;
 
+#ifdef PROFILE_SIZE
+					symcount+=3;
+					unarysize+=nzeros0+stopbit0+nzeros1+stopbit1+nzeros2+stopbit2;
+					binarysize+=nbypass0+nbypass1+nbypass2;
+#endif
+#ifdef RICE_OPT
+					ropt_queue[0][qlen]=x0;
+					ropt_queue[1][qlen]=x1;
+					ropt_queue[2][qlen]=x2;
+					++qlen;
+					if(qlen>=OPT_QSIZE)
+					{
+						qlen=0;
+						for(int kc=0;kc<3;++kc)
+						{
+							int ricek=0;
+							for(int k=0;k<OPT_QSIZE;++k)
+								ricek+=ropt_queue[kc][k];
+							ricek/=OPT_QSIZE;
+							ricek=FLOOR_LOG2(ricek+1);
+							for(int k=0;k<OPT_QSIZE;++k)
+							{
+								int val=ropt_queue[kc][k];
+								int nzeros=val>>ricek;
+								roptusize+=nzeros+1;
+								roptbsize+=ricek;
+							}
+						}
+						roptbsize+=3;
+					}
+#endif
+
 					cache|=code<<nbits;
 					nbits+=len;
 					int spill=nbits>=64;
@@ -1222,9 +923,9 @@ int c57_codec(int argc, char **argv)
 					nbits=spill?rem:nbits;
 				}
 
-				rptr[1+(0+0*NCH)*NROWS*NVAL]=eW0=(2*eW0+(x0<<GRBITS)+rptr[1+(0+3*NCH)*NROWS*NVAL])>>2;
-				rptr[1+(1+0*NCH)*NROWS*NVAL]=eW1=(2*eW1+(x1<<GRBITS)+rptr[1+(1+3*NCH)*NROWS*NVAL])>>2;
-				rptr[1+(2+0*NCH)*NROWS*NVAL]=eW2=(2*eW2+(x2<<GRBITS)+rptr[1+(2+3*NCH)*NROWS*NVAL])>>2;
+				rptr[1+(0+0*NCH)*NROWS*NVAL]=eW0=(2*eW0+(x0<<GRBITS)+rptr[1+(0+2*NCH)*NROWS*NVAL])>>2;
+				rptr[1+(1+0*NCH)*NROWS*NVAL]=eW1=(2*eW1+(x1<<GRBITS)+rptr[1+(1+2*NCH)*NROWS*NVAL])>>2;
+				rptr[1+(2+0*NCH)*NROWS*NVAL]=eW2=(2*eW2+(x2<<GRBITS)+rptr[1+(2+2*NCH)*NROWS*NVAL])>>2;
 
 				imptr+=3;
 				rptr+=NCH*NROWS*NVAL;
@@ -1237,6 +938,15 @@ int c57_codec(int argc, char **argv)
 			}
 		}
 		acme_write(&wtptr, 8, fdst, cache);
+#ifdef PROFILE_SIZE
+		printf("%12.2lf bytes  %12.4lf BPD  unary\n", (double)unarysize/8, (double)unarysize/symcount);
+		printf("%12.2lf bytes  %12.4lf BPD  binary\n", (double)binarysize/8, (double)binarysize/symcount);
+		printf("%12.2lf bytes  %12.4lf BPD  Rice\n", (double)(unarysize+binarysize)/8, (double)(unarysize+binarysize)/symcount);
+
+		printf("%12.2lf bytes  %12.4lf BPD  ropt_unary\n", (double)roptusize/8, (double)roptusize/symcount);
+		printf("%12.2lf bytes  %12.4lf BPD  ropt_binary\n", (double)roptbsize/8, (double)roptbsize/symcount);
+		printf("%12.2lf bytes  %12.4lf BPD  ropt_total\n", (double)(roptusize+roptbsize)/8, (double)(roptusize+roptbsize)/symcount);
+#endif
 	}
 	else//dec
 	{
@@ -1246,11 +956,9 @@ int c57_codec(int argc, char **argv)
 		acme_read(&rdptr, 8, fsrc);
 		cache=((volatile uint64_t*)rdptr)[-1];
 		nbits=0;//64&7
-		//imptr=image;
 		for(int ky=0;ky<ih;++ky)
 		{
 			int16_t *rptr=pixels+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NVAL;
-			//uint8_t *end=imptr+3*iw-2;
 			int
 				NW0=0, W0=0, eW0=4<<GRBITS,
 				NW1=0, W1=0, eW1=4<<GRBITS,
@@ -1286,13 +994,6 @@ int c57_codec(int argc, char **argv)
 				{
 					int nzeros, stopbit;
 					uint64_t code=cache>>nbits;
-					//uint64_t code=*(uint64_t*)ec.ptr>>ec.nbits;
-
-					//if(ky==4283&&kx==792)//
-					//if(ky==4206&&kx==4671)//
-					//if(ky==0&&kx==3567)//
-					//if(ky==2855&&kx==2581)//
-					//	printf("");
 
 					nzeros=(int)_tzcnt_u64(code);
 					stopbit=nzeros<R3LIMIT;
@@ -1323,18 +1024,12 @@ int c57_codec(int argc, char **argv)
 #ifdef FIFOVAL
 					fifoval_check(s2<<16^s1<<8^s0);
 #endif
-					//ec.ptr+=ec.nbits>>3;
-					//ec.nbits&=7;
 					int nbytes=nbits>>3;
 					if(nbytes)
 					{
 						int sh=nbytes<<3;
 						cache=(acme_read(&rdptr, nbytes, fsrc)&((1LL<<sh)-1))<<(64-sh)|cache>>sh;
 						nbits&=7;
-						//int newbits=64-nbits;
-						//uint64_t next=acme_read(&rdptr, newbits>>3, fsrc);
-						//cache>>=newbits;
-						//cache|=next;
 					}
 				}
 #else
@@ -1357,17 +1052,13 @@ int c57_codec(int argc, char **argv)
 				pred2=clampptr[pred2];
 				x2=(uint8_t)(x2+pred2);
 				acme_write(&wtptr, 3, fdst, (uint64_t)x2<<vsh|(uint64_t)x1<<ush|(uint64_t)x0<<ysh);
-				//imptr[yidx]=x0;
-				//imptr[uidx]=x1;
-				//imptr[vidx]=x2;
 				rptr[0+(0+0*NCH)*NROWS*NVAL]=W0=x0;
 				rptr[0+(1+0*NCH)*NROWS*NVAL]=W1=x1-uoffset;
 				rptr[0+(2+0*NCH)*NROWS*NVAL]=W2=x2-voffset;
 				
-				rptr[1+(0+0*NCH)*NROWS*NVAL]=eW0=(2*eW0+(s0<<GRBITS)+rptr[1+(0+3*NCH)*NROWS*NVAL])>>2;
-				rptr[1+(1+0*NCH)*NROWS*NVAL]=eW1=(2*eW1+(s1<<GRBITS)+rptr[1+(1+3*NCH)*NROWS*NVAL])>>2;
-				rptr[1+(2+0*NCH)*NROWS*NVAL]=eW2=(2*eW2+(s2<<GRBITS)+rptr[1+(2+3*NCH)*NROWS*NVAL])>>2;
-				//imptr+=3;
+				rptr[1+(0+0*NCH)*NROWS*NVAL]=eW0=(2*eW0+(s0<<GRBITS)+rptr[1+(0+2*NCH)*NROWS*NVAL])>>2;
+				rptr[1+(1+0*NCH)*NROWS*NVAL]=eW1=(2*eW1+(s1<<GRBITS)+rptr[1+(1+2*NCH)*NROWS*NVAL])>>2;
+				rptr[1+(2+0*NCH)*NROWS*NVAL]=eW2=(2*eW2+(s2<<GRBITS)+rptr[1+(2+2*NCH)*NROWS*NVAL])>>2;
 				rptr+=NCH*NROWS*NVAL;
 				NW0=N0;
 				NW1=N1;
@@ -1381,37 +1072,8 @@ int c57_codec(int argc, char **argv)
 	fclose(fsrc);
 	fclose(fdst);
 	free(pixels);
-#if 0
-	{
-		FILE *fdst=fopen(dstfn, "wb");
-		if(!fdst)
-		{
-			CRASH("Cannot open \"%s\" for writing", dstfn);
-			return 1;
-		}
-		if(fwd)
-		{
-			r2_flush(&ec);
-
-			csize=0;
-			csize+=fwrite(&tag, 1, 2, fdst);
-			csize+=fwrite(&iw, 1, 3, fdst);
-			csize+=fwrite(&ih, 1, 3, fdst);
-			csize+=fwrite(&bestrct, 1, 1, fdst);
-			csize+=fwrite(stream, 1, ec.ptr-stream, fdst);
-		}
-		else
-		{
-			int headersize=fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
-			fwrite(image, 1, usize, fdst);
-			usize+=headersize;
-		}
-		fclose(fdst);
-	}
-#endif
 	if(fwd)
 		free(image);
-	//free(stream);
 #ifdef LOUD
 	t=time_sec2()-t;
 	if(fwd)
@@ -1419,21 +1081,6 @@ int c57_codec(int argc, char **argv)
 		struct stat info={0};
 		stat(dstfn, &info);
 		csize=info.st_size;
-#ifdef ESTIMATE_SIZES
-		int64_t btotal=0;
-		for(int k=0;k<SIZE_COUNT;++k)
-			btotal+=bsizes[0][k]+bsizes[1][k]+bsizes[2][k];
-		for(int k=0;k<SIZE_COUNT;++k)
-			printf("%12.2lf %12.2lf %12.2lf    %9.5lf%% %9.5lf%% %9.5lf%%  %s\n"
-				, (double)bsizes[0][k]/8.
-				, (double)bsizes[1][k]/8.
-				, (double)bsizes[2][k]/8.
-				, 100.*bsizes[0][k]/btotal
-				, 100.*bsizes[1][k]/btotal
-				, 100.*bsizes[2][k]/btotal
-				, bsize_labels[k]
-			);
-#endif
 		printf("CWH=3*%d*%d  RCT %2d %s  \"%s\"\n", iw, ih, bestrct, rct_names[bestrct], srcfn);
 		printf("%10td->%10td  %8.4lf%%  %12.6lf:1  BPD %12.6lf\n"
 			, usize

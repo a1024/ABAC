@@ -31,6 +31,7 @@
 //	#define PRINT_RCT
 //	#define ESTIMATE_BITSIZE
 //	#define PRINTBITS
+//	#define EXPERIMENT
 
 	#define ENABLE_GUIDE
 //	#define FIFOVAL
@@ -184,12 +185,7 @@ enum
 #define	ALIGN(N) __attribute__((aligned(N)))
 #endif
 #endif
-#define CLAMP2(X, LO, HI)\
-	do\
-	{\
-		if((X)<(LO))X=LO;\
-		if((X)>(HI))X=HI;\
-	}while(0)
+#define CLAMP2(X, LO, HI) X=X>LO?X:LO, X=X<HI?X:HI
 #define CVTFP32_I32(X) _mm_cvt_ss2si(_mm_set_ss(X))
 #define CVTTFP32_I32(X) _mm_cvtt_ss2si(_mm_set_ss(X))
 #define CVTFP64_I64(X) _mm_cvtsd_si64(_mm_set_sd(X))
@@ -571,20 +567,20 @@ static uint8_t ctxtable[(2<<NCTX/2)/3][2];
 //#ifdef _MSC_VER
 //static uint64_t unary_count=0, binary_count=0;
 //#endif
-//static int squash(int32_t d)
-//{
-//	static const int t[33]=
-//	{
-//		1,2,3,6,10,16,27,45,73,120,194,310,488,747,1101,
-//		1546,2047,2549,2994,3348,3607,3785,3901,3975,4022,
-//		4050,4068,4079,4085,4089,4092,4093,4094
-//	};
-//	if(d>2047)return 4095;
-//	if(d<-2047)return 1;
-//	int w=d&127;
-//	d=(d>>7)+16;
-//	return (t[d]*(128-w)+t[(d+1)]*w+64)>>7;
-//}
+static int squash(int32_t d)
+{
+	static const int t[33]=
+	{
+		1,2,3,6,10,16,27,45,73,120,194,310,488,747,1101,
+		1546,2047,2549,2994,3348,3607,3785,3901,3975,4022,
+		4050,4068,4079,4085,4089,4092,4093,4094
+	};
+	if(d>2047)return 4095;
+	if(d<-2047)return 1;
+	int w=d&127;
+	d=(d>>7)+16;
+	return (t[d]*(128-w)+t[(d+1)]*w+64)>>7;
+}
 //void inflation(void)
 //{
 //#ifdef _MSC_VER
@@ -592,6 +588,328 @@ static uint8_t ctxtable[(2<<NCTX/2)/3][2];
 //#endif
 //	exit(1);
 //}
+#ifdef EXPERIMENT
+static uint16_t ehists[3][NCTX][257];
+static uint32_t estats[3][NCTX][256];
+static uint32_t erice[3][NCTX][GRLIMIT];
+static uint32_t ectr[3][NCTX][GRLIMIT];
+static uint16_t er2[3][NCTX][GRLIMIT+2];
+static uint64_t ehistory[3][NCTX][GRLIMIT*4];
+static void experiment(uint8_t *image, int iw, int ih, int rct)
+{
+	enum
+	{
+		EPROBBITS_STORE=24,
+		EPROBBITS_USE=12,
+		EPROBSHIFT=EPROBBITS_STORE-EPROBBITS_USE,
+	};
+	int psize;
+	int16_t *pixels;
+	uint8_t *imptr=image;
+	int yidx=rct_combinations[rct][II_PERM_Y];
+	int uidx=rct_combinations[rct][II_PERM_U];
+	int vidx=rct_combinations[rct][II_PERM_V];
+	int cu0=rct_combinations[rct][II_COEFF_U_SUB_Y];
+	int cv0=rct_combinations[rct][II_COEFF_V_SUB_Y];
+	int cv1=rct_combinations[rct][II_COEFF_V_SUB_U];
+	int32_t coeffs[3][L1NPREDS], bias[3];
+	double hsize=0, ssize=0, rsize=0, csize=0, r2size=0;
+	
+	memset(ehists, 0, sizeof(ehists));
+	memset(estats, 0, sizeof(estats));
+	memset(erice, 0, sizeof(erice));
+	memset(ectr, 0, sizeof(ectr));
+//	FILLMEM_S((uint32_t*)ectr, 0x00800080, sizeof(ectr), sizeof(uint32_t));
+	memset(er2, 0, sizeof(er2));
+	memset(ehistory, 0, sizeof(ehistory));
+
+	FILLMEM_S((int32_t*)coeffs, (1<<L1SH)/L1NPREDS, sizeof(coeffs), sizeof(int32_t));
+	bias[0]=1<<L1SH>>1;
+	bias[1]=1<<L1SH>>1;
+	bias[2]=1<<L1SH>>1;
+	psize=(iw+2*XPAD)*(int)sizeof(int16_t[NCH*NROWS*NVAL]);
+	pixels=(int16_t*)malloc(psize);
+	if(!pixels)
+	{
+		CRASH("Alloc error\n");
+		return;
+	}
+	memset(pixels, 0, psize);
+	for(int ky=0;ky<ih;++ky)
+	{
+		int16_t *rows[]=
+		{
+			pixels+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
+		};
+		for(int kx=0;kx<iw;++kx, imptr+=3)
+		{
+			int yuv[]=
+			{
+				imptr[yidx],
+				imptr[uidx],
+				imptr[vidx],
+			};
+			int offset=0;
+			for(int kc=0;kc<3;++kc)
+			{
+				int32_t
+					NNNN	=rows[0][0+0*NCH*NROWS*NVAL],
+					NNN	=rows[3][0+0*NCH*NROWS*NVAL],
+					NN	=rows[2][0+0*NCH*NROWS*NVAL],
+					NW	=rows[1][0-1*NCH*NROWS*NVAL],
+					N	=rows[1][0+0*NCH*NROWS*NVAL],
+					NE	=rows[1][0+1*NCH*NROWS*NVAL],
+					NEE	=rows[1][0+2*NCH*NROWS*NVAL],
+					NEEE	=rows[1][0+3*NCH*NROWS*NVAL],
+					NEEEE	=rows[1][0+4*NCH*NROWS*NVAL],
+					WWWW	=rows[0][0-4*NCH*NROWS*NVAL],
+					WWW	=rows[0][0-3*NCH*NROWS*NVAL],
+					WW	=rows[0][0-2*NCH*NROWS*NVAL],
+					W	=rows[0][0-1*NCH*NROWS*NVAL],
+					xNW	=rows[1][1-1*NCH*NROWS*NVAL],
+					xNE	=rows[1][1+1*NCH*NROWS*NVAL],
+					xNEE	=rows[1][1+2*NCH*NROWS*NVAL],
+					xNEEE	=rows[1][1+3*NCH*NROWS*NVAL],
+					xWW	=rows[0][1-2*NCH*NROWS*NVAL],
+					xW	=rows[0][1-1*NCH*NROWS*NVAL],
+					yNN	=rows[2][2+0*NCH*NROWS*NVAL],
+					yNW	=rows[1][2-1*NCH*NROWS*NVAL],
+					yN	=rows[1][2+0*NCH*NROWS*NVAL],
+					yNE	=rows[1][2+1*NCH*NROWS*NVAL],
+					yW	=rows[0][2-1*NCH*NROWS*NVAL],
+					eNE	=rows[1][3+1*NCH*NROWS*NVAL],
+					eNEE	=rows[1][3+2*NCH*NROWS*NVAL],
+					eNEEE	=rows[1][3+3*NCH*NROWS*NVAL],
+					eW	=rows[0][3-1*NCH*NROWS*NVAL];
+				ALIGN(32) int32_t estim[L1NPREDS];
+
+				int32_t pred=0;
+				int j, vmax, vmin, e, pred0, curr, error;
+				int ctx=31-_lzcnt_u32(eW*eW+1);
+
+				if(ctx>NCTX-1)
+					ctx=NCTX-1;
+				{
+					pred=bias[kc];
+#define PRED(EXPR) estim[j++]=EXPR;
+					j=0;
+					PREDLIST;
+#undef  PRED
+					__m256i mc0=_mm256_load_si256((__m256i*)coeffs[kc]+0);
+					__m256i mc1=_mm256_load_si256((__m256i*)coeffs[kc]+1);
+					__m256i mp0=_mm256_load_si256((__m256i*)estim+0);
+					__m256i mp1=_mm256_load_si256((__m256i*)estim+1);
+
+					__m256i lo0=_mm256_mul_epi32(mc0, mp0);
+					__m256i lo1=_mm256_mul_epi32(mc1, mp1);
+					__m256i hi0=_mm256_mul_epi32(_mm256_srli_epi64(mc0, 32), _mm256_srli_epi64(mp0, 32));
+					__m256i hi1=_mm256_mul_epi32(_mm256_srli_epi64(mc1, 32), _mm256_srli_epi64(mp1, 32));
+					mc0=_mm256_add_epi64(lo0, lo1);
+					mc0=_mm256_add_epi64(mc0, hi0);
+					mc0=_mm256_add_epi64(mc0, hi1);
+					__m128i xc0=_mm_add_epi64(_mm256_extracti128_si256(mc0, 1), _mm256_castsi256_si128(mc0));
+					xc0=_mm_add_epi64(xc0, _mm_shuffle_epi32(xc0, _MM_SHUFFLE(1, 0, 3, 2)));
+					pred+=_mm_extract_epi32(xc0, 0);
+				}
+				pred>>=L1SH;
+				pred0=pred;
+				vmax=N, vmin=W;
+				if(N<W)vmin=N, vmax=W;
+				if(vmin>NE)vmin=NE;
+				if(vmax<NE)vmax=NE;
+				if(vmin>NEEE)vmin=NEEE;
+				if(vmax<NEEE)vmax=NEEE;
+				CLAMP2(pred, vmin, vmax);
+				pred+=offset;
+				CLAMP2(pred, 0, 255);
+
+				curr=yuv[kc];
+
+				error=(int8_t)(curr-pred);
+
+				uint16_t *currhist=ehists[kc][ctx];
+				int32_t *currstats=estats[kc][ctx];
+				int32_t *currrice=erice[kc][ctx];
+				int32_t *currctr=ectr[kc][ctx];
+				uint16_t *currr2=er2[kc][ctx];
+				uint64_t *currhistory=ehistory[kc][ctx];
+				
+				int den=currhist[256]+256;
+				int sym=error<<1^error>>31;
+				hsize-=log2((double)(currhist[sym]+1)/den);//estimate doesn't need cdf
+				++currhist[sym];
+				++currhist[256];
+				if(currhist[256]>=0xFFFF-256)
+				{
+					den=0;
+					for(int k=0;k<256;++k)
+						den+=currhist[k]>>=1;
+					currhist[256]=den;
+				}
+				int nbypass=(ctx>>2)-GRBITS;
+				CLAMP2(nbypass, 0, 7);
+				int nzeros=sym>>nbypass;
+				if(nzeros>GRLIMIT)
+					nzeros=GRLIMIT;
+				int den2=currr2[GRLIMIT+1]+GRLIMIT+1;
+				//if(ky==ih/2&&kx==iw/2)//
+				//	printf("");
+				for(int k=0;k<=nzeros&&k<GRLIMIT;++k)
+				{
+					int recent=(int)(currhistory[k]>>60);
+					//int change=currhistory[k]>>60;
+					//change=change==0x5||change==0xA;
+					//int change=((currhistory[k]>>63)^(currhistory[k]>>62&1))&&((currhistory[k]>>62&1)^(currhistory[k]>>61&1));
+					int bit=k>=nzeros&&k<GRLIMIT;
+					int p0=currrice[k]>>EPROBSHIFT;
+					p0+=p0<0;
+					p0+=1<<EPROBBITS_USE>>1;
+					//if(recent==15)
+					//	p0+=((0<<EPROBBITS_USE)-p0+(1<<4>>1))>>4;
+					//else if(recent==0)
+					//	p0+=((1<<EPROBBITS_USE)-p0+(1<<4>>1))>>4;
+					//if(change)
+					//	p0=(1<<EPROBBITS_USE)-p0;
+					//p0=squash(p0-2048);
+					//double bitsize=-log2((double)(bit?(1<<EPROBBITS_USE)-p0:p0)*(1./(1<<EPROBBITS_USE)));
+					//if(isinf(bitsize))
+					//	CRASH("");
+					rsize-=log2((double)(bit?(1<<EPROBBITS_USE)-p0:p0)*(1./(1<<EPROBBITS_USE)));
+					{
+						uint16_t *pcell=(uint16_t*)(currctr+k);
+						int sum=pcell[0]+pcell[1]+2;
+						int p0c=(((pcell[0]+1)<<EPROBBITS_USE)+(sum>>1))/sum;
+						//if(change)
+						//	p0=(1<<EPROBBITS_USE)-p0;
+						csize-=log2((double)(bit?(1<<EPROBBITS_USE)-p0c:p0c)*(1./(1<<EPROBBITS_USE)));
+						++pcell[bit];
+						if(pcell[bit]>=511)
+						{
+							pcell[0]>>=1;
+							pcell[1]>>=1;
+						}
+					}
+					{
+						int p1d=((currr2[k]+1)<<EPROBBITS_USE)/den2;
+						//p1d=squash(p1d-2058);
+						CLAMP2(p1d, 1, (1<<EPROBBITS_USE)-1);
+						r2size-=log2((double)(bit?p1d:(1<<EPROBBITS_USE)-p1d)*(1./(1<<EPROBBITS_USE)));
+						//r2size-=log2((double)(1<<EPROBBITS_USE>>1)*(1./(1<<EPROBBITS_USE)));
+						//currr2[k]+=!bit;
+						//currr2[GRLIMIT]+=!bit;
+						//if(currr2[GRLIMIT]>=0xFFFF-GRLIMIT)
+						//{
+						//	den2=0;
+						//	for(int k=0;k<GRLIMIT;++k)
+						//		den2+=currr2[k]>>=1;
+						//	currr2[GRLIMIT]=den2;
+						//}
+					}
+					{
+						currhistory[4*k+0]=(currhistory[4*k+1]&1)<<63|currhistory[4*k+0]>>1;
+						currhistory[4*k+1]=(currhistory[4*k+2]&1)<<63|currhistory[4*k+1]>>1;
+						currhistory[4*k+2]=(currhistory[4*k+3]&1)<<63|currhistory[4*k+2]>>1;
+						currhistory[4*k+3]=(uint64_t)bit<<63|currhistory[4*k+3]>>1;
+					}
+					currrice[k]+=((!bit<<EPROBBITS_STORE)-(1<<EPROBBITS_STORE>>1)-currrice[k])>>8;
+				}
+#if 1
+				if(ky==ih/2&&kx==iw/2)//
+				{
+					for(int k=0;k<GRLIMIT;++k)
+					{
+						for(int kb=64*4-1;kb>=0;--kb)
+							printf("%d", (int)(currhistory[4*k+(kb>>6)]>>(kb&63)&1));
+						printf("\n");
+					}
+					printf("\n");
+				}
+#endif
+#if 0
+				if(ky==ih/2&&kx==iw/2)//
+				{
+					//double hist[GRLIMIT+1];
+					//for(int k=0;k<GRLIMIT+1;++k)
+					//	hist[k]=1;
+					//memset(hist, 0, sizeof(hist));
+					double pc=1;
+					for(int k=0;k<GRLIMIT+1;++k)
+					{
+						uint16_t *pcell=(uint16_t*)(currctr+k);
+						double p0=(double)(pcell[0]+1)/(pcell[0]+pcell[1]+2);
+						//hist[k]=p0*pc;
+						printf("%3d  %12.6lf  %4d %4d  %12.6lf\n", k, p0*pc, pcell[0], pcell[1], p0);
+						pc*=1-p0;
+					}
+				}
+#endif
+				//for(int ks=nzeros;ks<=GRLIMIT;++ks)
+				//{
+				//	++currr2[ks];
+				//	++currr2[GRLIMIT+1];
+				//	if(currr2[GRLIMIT+1]>=0xFFFF-GRLIMIT)
+				//	{
+				//		den2=0;
+				//		for(int k=0;k<=GRLIMIT;++k)
+				//			den2+=currr2[k]>>=1;
+				//		currr2[GRLIMIT+1]=den2;
+				//	}
+				//}
+				++currr2[nzeros];
+				++currr2[GRLIMIT+1];
+				if(currr2[GRLIMIT+1]>=0xFFFF-GRLIMIT)
+				{
+					den2=0;
+					for(int k=0;k<=GRLIMIT;++k)
+						den2+=currr2[k]>>=1;
+					currr2[GRLIMIT+1]=den2;
+				}
+				//if(ky==ih/2&&kx==iw/2)//
+				//	printf("");
+				rsize+=nzeros>=GRLIMIT?8:nbypass;
+				for(int kb=7, tidx=1;kb>=0;--kb)
+				{
+					int bit=error>>kb&1;
+					int p0=currstats[tidx]>>EPROBSHIFT;
+					p0+=p0<0;
+					p0+=1<<EPROBBITS_USE>>1;
+					ssize-=log2((double)(bit?(1<<EPROBBITS_USE)-p0:p0)*(1./(1<<EPROBBITS_USE)));
+					currstats[tidx]+=((!bit<<EPROBBITS_STORE)-(1<<EPROBBITS_STORE>>1)-currstats[tidx])>>8;
+					tidx=2*tidx+bit;
+				}
+				
+				e=curr-pred;
+				rows[0][3+0*NCH*NROWS*NVAL]=(2*eW+((e<<1^e>>31)<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
+				curr-=offset;
+				e=(curr>pred0)-(curr<pred0);
+				bias[kc]+=e<<8;
+#define PRED(EXPR) coeffs[kc][j]+=e*estim[j]; ++j;
+				j=0;
+				PREDLIST;
+#undef  PRED
+				rows[0][0+0*NCH*NROWS*NVAL]=curr;
+				rows[0][1+0*NCH*NROWS*NVAL]=curr-W;
+				rows[0][2+0*NCH*NROWS*NVAL]=curr-N;
+				offset=(kc ? cv0*yuv[0]+cv1*yuv[1] : cu0*yuv[0])>>2;
+				rows[0]+=NROWS*NVAL;
+				rows[1]+=NROWS*NVAL;
+				rows[2]+=NROWS*NVAL;
+				rows[3]+=NROWS*NVAL;
+			}
+		}
+	}
+	free(pixels);
+	int64_t usize=(int64_t)3*iw*ih;
+	printf("%12.2lf bytes %12.6lf BPD hists\n"	, hsize/8, hsize/usize);
+	printf("%12.2lf bytes %12.6lf BPD stats\n"	, ssize/8, ssize/usize);
+	printf("%12.2lf bytes %12.6lf BPD Rice\n"	, rsize/8, rsize/usize);
+	printf("%12.2lf bytes %12.6lf BPD Rice ctr\n"	, csize/8, csize/usize);
+	printf("%12.2lf bytes %12.6lf BPD Rice ctr2\n"	, r2size/8, r2size/usize);
+}
+#endif
 INLINE void codebit(ACState *ac, uint64_t *pcell, int32_t *bit, const int fwd)
 {
 	uint64_t r2, mid;
@@ -1953,6 +2271,9 @@ int c12_codec(int argc, char **argv)
 #else
 			(void)och_names;
 			(void)rct_names;
+#endif
+#ifdef EXPERIMENT
+			experiment(image, iw, ih, bestrct);
 #endif
 		}
 		streamptr=stream;

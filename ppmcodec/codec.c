@@ -66,7 +66,7 @@ int c53_codec(int argc, char **argv);//bit coding, paq0f mixer
 int c54_codec(int argc, char **argv);//low memory
 int c55_codec(int argc, char **argv);//16-bit
 int c56_codec(int argc, char **argv);//synth
-int c57_codec(int argc, char **argv);//Rice
+int c57_codec(int argc, char **argv);//fast Rice
 #endif
 
 
@@ -235,6 +235,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-LPCB-ppm/PIA13912.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13914.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13915.ppm"	//false color terrain
+	//	"C:/dataset-LPCB-ppm/sony_a55_11.ppm"	//noisy
 	//	"C:/dataset-LPCB-ppm/STA13843.ppm"	//space clouds
 	//	"C:/dataset-LPCB-ppm/STA13844.ppm"	//space clouds
 	//	"C:/dataset-LPCB-ppm/STA13845.ppm"
