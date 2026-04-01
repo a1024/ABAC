@@ -885,6 +885,7 @@ void prep_BWT_y(Image **psrc, int fwd);
 void filt_deint422(Image *src);
 void filt_deint420(Image *src);
 void packsign(Image *src, int fwd);
+void pred_signbit(Image *image, int fwd);
 void pred_cg_crct(Image *image, int fwd, int enable_ma);
 void pred_clampgrad(Image *image, int fwd, int enable_ma);
 void pred_cleartype(Image *src, int fwd);

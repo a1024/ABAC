@@ -2920,6 +2920,35 @@ void pred_MTF(Image *src, int fwd)
 	}
 	free(dict);
 }
+void pred_signbit(Image *image, int fwd)
+{
+	if(fwd)
+	{
+		for(int kc=0;kc<4;++kc)
+		{
+			if(!image->depth[kc])
+				continue;
+			for(int k=0, res=image->iw*image->ih;k<res;++k)
+			{
+				int val=image->data[k<<2|kc];
+				image->data[k<<2|kc]=val<0?-128:val>0?127:0;
+			}
+		}
+	}
+	else
+	{
+		for(int kc=0;kc<4;++kc)
+		{
+			if(!image->depth[kc])
+				continue;
+			for(int k=0, res=image->iw*image->ih;k<res;++k)
+			{
+				int val=image->data[k<<2|kc];
+				image->data[k<<2|kc]=abs(val)-128;
+			}
+		}
+	}
+}
 
 //clamped gradient / LOCO-I / Median Edge Detector (MED) predictor from JPEG-LS
 void pred_clampgrad(Image *src, int fwd, int enable_ma)

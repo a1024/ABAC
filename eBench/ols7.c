@@ -724,12 +724,12 @@ void pred_mixN(Image *src, int fwd)
 	};
 	ALIGN(16) int32_t coeffs[4][MIXPREDS]={0}, bias[4]={1<<SHIFT>>1}, estims[MIXPREDS]={0};
 
-	int32_t mixnum[4][MIXPREDS]={0}, mixden[4]={0};
-	mixden[3]=mixden[2]=mixden[1]=mixden[0]=4;
-	mixnum[0][3]=mixnum[0][2]=mixnum[0][1]=mixnum[0][0]=1;
-	memcpy(mixnum[1], mixnum[0], sizeof(int32_t[MIXPREDS]));
-	memcpy(mixnum[2], mixnum[0], sizeof(int32_t[MIXPREDS]));
-	memcpy(mixnum[3], mixnum[0], sizeof(int32_t[MIXPREDS]));
+	//int32_t mixnum[4][MIXPREDS]={0}, mixden[4]={0};
+	//mixden[3]=mixden[2]=mixden[1]=mixden[0]=4;
+	//mixnum[0][3]=mixnum[0][2]=mixnum[0][1]=mixnum[0][0]=1;
+	//memcpy(mixnum[1], mixnum[0], sizeof(int32_t[MIXPREDS]));
+	//memcpy(mixnum[2], mixnum[0], sizeof(int32_t[MIXPREDS]));
+	//memcpy(mixnum[3], mixnum[0], sizeof(int32_t[MIXPREDS]));
 #if 0
 	static const int32_t mixtable[]=
 	{
@@ -898,19 +898,19 @@ void pred_mixN(Image *src, int fwd)
 
 			//	int p2=(int)(((int64_t)c2[kc][0]*N+(int64_t)c2[kc][1]*W)/c2[kc][2]);
 
-				int p1=(
-					+mixnum[kc][0]*estims[0]
-					+mixnum[kc][1]*estims[1]
-					+mixnum[kc][2]*estims[2]
-					+mixnum[kc][3]*estims[3]
-				)/mixden[kc];
+				//int p1=(
+				//	+mixnum[kc][0]*estims[0]
+				//	+mixnum[kc][1]*estims[1]
+				//	+mixnum[kc][2]*estims[2]
+				//	+mixnum[kc][3]*estims[3]
+				//)/mixden[kc];
 
-			//	int p1=(int)((bias[kc]
-			//		+(int64_t)coeffs[kc][0]*estims[0]
-			//		+(int64_t)coeffs[kc][1]*estims[1]
-			//		+(int64_t)coeffs[kc][2]*estims[2]
-			//		+(int64_t)coeffs[kc][3]*estims[3]
-			//	)>>SHIFT);
+				int p1=(int)((bias[kc]
+					+(int64_t)coeffs[kc][0]*estims[0]
+					+(int64_t)coeffs[kc][1]*estims[1]
+					+(int64_t)coeffs[kc][2]*estims[2]
+					+(int64_t)coeffs[kc][3]*estims[3]
+				)>>SHIFT);
 				int pred=p1;
 				
 				int vmax=N, vmin=W;

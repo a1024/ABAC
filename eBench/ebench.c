@@ -231,12 +231,14 @@ typedef enum TransformTypeEnum
 	ST_FWD_L1BCRCT,		ST_INV_L1BCRCT,
 	ST_FWD_OLS8,		ST_INV_OLS8,
 	ST_FWD_OLS9,		ST_INV_OLS9,
-	ST_FWD_LPC,		ST_INV_LPC,
+	ST_FWD_PACKSIGN,	ST_INV_PACKSIGN,
+	ST_FWD_SIGNBIT,		ST_FWD_MAGNITUDE,
+//	ST_FWD_LPC,		ST_INV_LPC,
 	ST_FWD_CGCRCT,		ST_INV_CGCRCT,
-	ST_FWD_SUB,		ST_INV_SUB,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
 	ST_FWD_SELECT,		ST_INV_SELECT,
 	ST_FWD_AV2,		ST_INV_AV2,
+	ST_FWD_SUB,		ST_INV_SUB,
 	ST_FWD_CALIC,		ST_INV_CALIC,
 	ST_CONVTEST,		ST_CONVTEST2,
 	ST_DIFF,		ST_SSIM,
@@ -244,7 +246,6 @@ typedef enum TransformTypeEnum
 	ST_FILT_DEINT422,	ST_FILT_DEINT420,
 	ST_FWD_QUANT,		ST_INV_QUANT,
 
-	ST_FWD_PACKSIGN,	ST_INV_PACKSIGN,
 	ST_FWD_PALETTE,		ST_INV_PALETTE,
 	ST_FWD_BWTX,		ST_INV_BWTX,
 	ST_FWD_BWTY,		ST_INV_BWTY,
@@ -2935,8 +2936,10 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_PU:			a="CS Inv PU";			break;
 	case ST_FWD_CG3D:		a="CS Fwd CG3D";		break;
 	case ST_INV_CG3D:		a="CS Inv CG3D";		break;
-	case ST_FWD_LPC:		a=" S Fwd LPC";			break;
-	case ST_INV_LPC:		a=" S Inv LPC";			break;
+//	case ST_FWD_LPC:		a=" S Fwd LPC";			break;
+//	case ST_INV_LPC:		a=" S Inv LPC";			break;
+	case ST_FWD_SIGNBIT:		a=" S Fwd Sign Bit";		break;
+	case ST_FWD_MAGNITUDE:		a=" S Fwd Magnitude";		break;
 	case ST_FWD_CGCRCT:		a=" S Fwd CG cRCT";		break;
 	case ST_INV_CGCRCT:		a=" S Inv CG cRCT";		break;
 	case ST_FWD_OLS9:		a=" S Fwd OLS9";		break;
@@ -4220,8 +4223,10 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_PU:			pred_PU(image, 0);					break;
 	case ST_FWD_CG3D:		pred_CG3D(image, 1, pred_ma_enabled);			break;
 	case ST_INV_CG3D:		pred_CG3D(image, 0, pred_ma_enabled);			break;
-	case ST_FWD_LPC:		pred_lpc(image, 1);					break;
-	case ST_INV_LPC:		pred_lpc(image, 0);					break;
+//	case ST_FWD_LPC:		pred_lpc(image, 1);					break;
+//	case ST_INV_LPC:		pred_lpc(image, 0);					break;
+	case ST_FWD_SIGNBIT:		pred_signbit(image, 1);					break;
+	case ST_FWD_MAGNITUDE:		pred_signbit(image, 0);					break;
 	case ST_FWD_CGCRCT:		pred_cg_crct(image, 1, pred_ma_enabled);		break;
 	case ST_INV_CGCRCT:		pred_cg_crct(image, 0, pred_ma_enabled);		break;
 	case ST_FWD_OLS9:		pred_ols9(image, 1);					break;
