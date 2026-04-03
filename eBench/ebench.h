@@ -1146,6 +1146,7 @@ typedef enum EContextEnum
 	ECTX_ARGMIN_N_W_NW_NE,
 	ECTX_ABAC0,
 	ECTX_ABAC1,
+	ECTX_C2,
 	ECTX_GRCTX,	//#1  the best by far
 	ECTX_GR,
 	ECTX_STATIC_O0,
@@ -1156,7 +1157,7 @@ typedef enum EContextEnum
 	ECTX_YUV420,
 	ECTX_ZERO,
 
-	ECTX_COUNT,
+	ECTX_COUNT,//check  calc_csize_ec, ec_method_label
 } EContext;
 const char* ec_method_label(EContext ec_method);
 void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits, int msb, int lsb, double *entropy);

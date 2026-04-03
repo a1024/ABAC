@@ -488,7 +488,186 @@ static void zoom_at(int xs, int ys, double factor)
 
 void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 {
-	if(ec_method==ECTX_GRCTX)
+	if(ec_method==ECTX_C2)
+	{
+		enum
+		{
+			C2_NCTX=24,
+
+			XPAD=8,
+			NROWS=4,
+			NCH=4,
+			NVAL=1,
+		};
+		uint8_t sh[]=
+		{
+			32-image->depth[0],
+			32-image->depth[1],
+			32-image->depth[2],
+			32-image->depth[3],
+		};
+		int halfs[]=
+		{
+			1<<image->depth[0]>>1,
+			1<<image->depth[1]>>1,
+			1<<image->depth[2]>>1,
+			1<<image->depth[3]>>1,
+		};
+		int masks[]=
+		{
+			(1<<image->depth[0])-1,
+			(1<<image->depth[1])-1,
+			(1<<image->depth[2])-1,
+			(1<<image->depth[3])-1,
+		};
+		int psize=(image->iw+2*XPAD)*(int)sizeof(int32_t[NROWS*NCH*NVAL]);
+		int32_t *pixels=(int32_t*)_mm_malloc(psize, sizeof(__m128i));
+		int nch=(image->depth[0]!=0)+(image->depth[1]!=0)+(image->depth[2]!=0)+(image->depth[3]!=0);
+		int maxdepth=image->depth[0];
+		if(maxdepth<image->depth[1])maxdepth=image->depth[1];
+		if(maxdepth<image->depth[2])maxdepth=image->depth[2];
+		if(maxdepth<image->depth[3])maxdepth=image->depth[3];
+		int nlevels=1<<maxdepth;
+		int hsize=(int)sizeof(uint32_t[C2_NCTX])*nch<<maxdepth;
+		uint32_t *hists=(uint32_t*)malloc(hsize);
+		if(!hists||!pixels)
+		{
+			LOG_ERROR("Alloc error");
+			return;
+		}
+		memset(hists, 0, hsize);
+		memset(pixels, 0, psize);
+		for(int ky=0, idx=0;ky<image->ih;++ky)
+		{
+			int32_t *rows[]=
+			{
+				pixels+(XPAD*NCH*NROWS-NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,
+				pixels+(XPAD*NCH*NROWS-NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
+				pixels+(XPAD*NCH*NROWS-NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
+				pixels+(XPAD*NCH*NROWS-NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
+			};
+			int32_t xnoise[4]={0};
+			for(int kx=0;kx<image->iw;++kx)
+			{
+				for(int kc=0;kc<4;++kc, ++idx)
+				{
+					rows[0]+=NROWS*NVAL;
+					rows[1]+=NROWS*NVAL;
+					rows[2]+=NROWS*NVAL;
+					rows[3]+=NROWS*NVAL;
+					if(!image->depth[kc])
+						continue;
+					int32_t
+						eNW	=rows[1][0-1*NCH*NROWS*NVAL],
+						eN	=rows[1][0+0*NCH*NROWS*NVAL],
+						eNEE	=rows[1][0+2*NCH*NROWS*NVAL],
+						eNEEE	=rows[1][0+3*NCH*NROWS*NVAL],
+						eW	=rows[0][0-1*NCH*NROWS*NVAL];
+
+					int ctx=eN<xnoise[kc]?eN:xnoise[kc];
+					ctx=FLOOR_LOG2(ctx*ctx+1);
+					if(ctx>C2_NCTX/2-1)
+						ctx=C2_NCTX/2-1;
+					ctx+=C2_NCTX/2*(eN<xnoise[kc]);
+
+					//int ctx=FLOOR_LOG2(eW*eW+1);
+					//if(ctx>C2_NCTX-1)
+					//	ctx=C2_NCTX-1;
+
+					int sym=image->data[idx];
+					sym<<=sh[kc];
+					sym>>=sh[kc];
+					++hists[(kc*C2_NCTX+ctx)<<maxdepth|((sym+halfs[kc])&masks[kc])];
+					sym=sym<<1^sym>>31;
+					xnoise[kc]+=((sym<<MODELPREC)-xnoise[kc])>>3;
+					rows[0][0]=eN+(((sym<<MODELPREC)-eN)>>3);
+				//	rows[0][0]=(2*eW+(sym<<MODELPREC)+MAXVAR(eNEE, eNEEE))>>2;
+				}
+			}
+		}
+		_mm_free(pixels);
+		double ctxsizes[4]={0};
+		for(int kc=0;kc<nch;++kc)
+		{
+			double chsize=0;
+			for(int kctx=0;kctx<C2_NCTX;++kctx)
+			{
+				int ctx=kc*C2_NCTX+kctx;
+				int *curr_hist=hists+((ptrdiff_t)ctx<<maxdepth);
+				int sum=0;
+				for(int ks=0;ks<nlevels;++ks)
+					sum+=curr_hist[ks];
+				if(!sum)
+					continue;
+				double e=0;
+				if(maxdepth>8)//exact estimate
+				{
+					double norm=1./sum;
+					for(int ks=0;ks<nlevels;++ks)
+					{
+						int freq=curr_hist[ks];
+						if(freq)
+							e-=freq*log2(freq*norm);
+					}
+					chsize+=e/8;
+				}
+				else
+				{
+					//simulate bin tracking guard
+					int count=0;
+					for(int ks=0;ks<nlevels;++ks)
+						count+=curr_hist[ks]!=0;
+					for(int ks=0;ks<nlevels;++ks)
+					{
+						int freq=curr_hist[ks];
+						if(freq)
+						{
+							int prob=(int)((long long)freq*(0x1000LL-count)/sum)+1;
+							e-=freq*log2(prob*(1./0x1000));
+							//if(!kc&&!kctx)console_log("%3d %7d\n", ks, freq);
+						}
+					}
+					e/=8;
+					if(e<0||e!=e)
+						LOG_ERROR("C%d ctx%d e %lf bytes", kc, kctx, e);
+					chsize+=e;
+					double hsize=0;
+					int cdfW=0;
+					int sum2=0;
+					const int probbits=12;
+					int codelen=probbits+1, CDFlevels=1<<probbits;
+					int nlevels2=1<<image->depth[kc], half2=nlevels2>>1, mask2=nlevels2-1;
+					for(int ks=0, ks2=0;ks<nlevels2;++ks)//calc model stat overhead
+					{
+						int sym=((ks>>1^-(ks&1))+half2)&mask2;
+						int freq=curr_hist[sym];
+						int cdf=sum2*((1ULL<<probbits)-count)/sum+ks2;
+						ks2+=freq!=0;
+						int csym=cdf-cdfW;
+						if(ks&&CDFlevels)//CDF[0] is always zero
+						{
+							//GR
+							int nbypass=FLOOR_LOG2(CDFlevels);
+							if(ks>1)
+								nbypass-=7;
+							if(nbypass<0)
+								nbypass=0;
+							hsize+=(csym>>nbypass)+1+nbypass;
+						}
+						CDFlevels-=csym;
+						cdfW=cdf;
+						sum2+=freq;
+					}
+					chsize+=hsize/8;
+					ctxsizes[kc]+=hsize/8;
+				}
+			}
+			entropy[kc]=image->src_depth[kc]?chsize*8/((double)image->iw*image->ih*image->src_depth[kc]):0;
+		}
+		(void)ctxsizes;
+		free(hists);
+	}
+	else if(ec_method==ECTX_GRCTX)
 	{
 		enum
 		{
@@ -506,7 +685,7 @@ void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 		const int nctx=MODELNCTX;
 	//	int nctx=(maxdepth+MODELPREC)<<1;
 	//	int nctx=1<<MODELCTXBITS;//X
-		int nlevels=1<<maxdepth, half=nlevels>>1, mask=nlevels-1;
+		int nlevels=1<<maxdepth;
 		int hsize=(int)sizeof(int)*nch*nctx<<maxdepth;
 		int *hists=(int*)malloc(hsize);
 		int psize=(image->iw+2*XPAD)*(int)sizeof(int32_t[NROWS*NCH*NVAL]);
@@ -9933,6 +10112,17 @@ void io_render(void)
 					//}
 					double msizes=0;
 					double esizes[4]={0};
+					int smax=0;
+					int nlevels=1<<modeldepth;
+					for(int kh=0;kh<nhist;++kh)
+					{
+						int *curr_hist=modelhist+((ptrdiff_t)kh<<modeldepth);
+						int hsum=0;
+						for(int ks=0;ks<nlevels;++ks)
+							hsum+=curr_hist[ks];
+						if(!kh||smax<hsum)
+							smax=hsum;
+					}
 					for(int kh=0;kh<nhist;++kh)
 					{
 						int hx=kh/yhist, hy=kh%yhist;
@@ -9941,16 +10131,24 @@ void io_render(void)
 						int ystart=hy*wndh2/yhist, yend=(hy+1)*wndh2/yhist;
 						int kc=kh/modelnctx;
 						int *curr_hist=modelhist+((ptrdiff_t)kh<<modeldepth);
-						int nlevels=1<<modeldepth;
-						int fmax=0;
+						int fmax=0, hsum=0;
 						for(int ks=0;ks<nlevels;++ks)//FIXME
 						{
 							int freq=curr_hist[ks];
 							if(fmax<freq)
 								fmax=freq;
+							hsum+=freq;
 						}
 						if(fmax)
 						{
+							//uint32_t weight=(uint32_t)((uint64_t)384*hsum/smax);
+							//int c0, c1;
+							//if(weight>=256)
+							//	c0=255, c1=weight-256;
+							//else
+							//	c0=weight, c1=0;
+							//int color=0x80000000|(uint32_t)(((uint64_t)c1<<32|(uint64_t)c1<<24|(uint64_t)c0<<16|(uint64_t)c1<<8|c1)>>8*(2-kc)&0xFFFFFF);
+							draw_rect((float)xstart, xstart+(((float)xend-xstart)*hsum*0.9f/smax), ystart+(yend-ystart)*0.25f, ystart+(yend-ystart)*0.75f, 0x80000000|128<<kc*8);
 							for(int ks=0;ks<nlevels;++ks)
 							{
 								int freq=curr_hist[ks];
@@ -9958,6 +10156,7 @@ void io_render(void)
 								int x2=xstart+(xend-xstart)*(ks+1)/nlevels;
 								int y1=yend-(yend-ystart)*freq/fmax;
 								int y2=yend;
+							//	draw_rect((float)x1, (float)x2, (float)y1, (float)y2, color);
 								draw_rect((float)x1, (float)x2, (float)y1, (float)y2, modeltheme[YUV<<2|kc]);
 							}
 						}

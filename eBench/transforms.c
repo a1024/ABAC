@@ -16868,6 +16868,7 @@ const char* ec_method_label(EContext ec_method)
 	CASE(ECTX_ARGMIN_N_W_NW_NE)
 	CASE(ECTX_ABAC0)
 	CASE(ECTX_ABAC1)
+	CASE(ECTX_C2)
 	CASE(ECTX_GRCTX)
 	CASE(ECTX_GR)
 	CASE(ECTX_STATIC_O0)
@@ -16980,6 +16981,7 @@ void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits,
 		getctx_max_QN_QW,
 		getctx_min_N_W_NW_NE,
 		getctx_argmin_N_W_NW_NE,
+		getctx_zero,//unused
 		getctx_zero,//unused
 		getctx_zero,//unused
 		getctx_zero,//unused
