@@ -27,7 +27,8 @@ int wndw=0, wndh=0,
 HWND ghWnd=0;
 HDC ghDC=0;
 HGLRC hRC=0;
-char keyboard[256]={0}, timer=0;
+char keyboard[256]={0};
+int timer=0;
 int g_repaint=0;
 RECT R={0};
 wchar_t g_wbuf[G_BUF_SIZE]={0};
@@ -884,13 +885,13 @@ static void update_main_key_states(void)
 
 void timer_start(int ms, int id)
 {
-	if(!timer)
-		SetTimer(ghWnd, id, ms, 0), timer=1;
+	if(!(timer>>id&1))
+		SetTimer(ghWnd, id, ms, 0), timer|=1<<id;
 }
 void timer_stop(int id)
 {
-	if(timer&&!g_repaint)
-		KillTimer(ghWnd, id), timer=0;
+	if(timer>>id&1&&!g_repaint)
+		KillTimer(ghWnd, id), timer&=~(1<<id);
 }
 
 void set_mouse(int x, int y)

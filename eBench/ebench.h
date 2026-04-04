@@ -28,7 +28,8 @@ extern int wndw, wndh, mx, my, mouse_bypass;
 extern HWND ghWnd;
 extern HDC ghDC;
 extern HGLRC hRC;
-extern char keyboard[256], timer;
+extern char keyboard[256];
+extern int timer;
 extern int g_repaint;//set to 1 to paint again
 extern RECT R;
 extern wchar_t g_wbuf[G_BUF_SIZE];

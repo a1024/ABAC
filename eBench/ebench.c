@@ -11518,7 +11518,7 @@ void io_render(void)
 	//	case VIS_DWT_BLOCK:		mode_str="DWT Block";		break;
 		case VIS_IMAGE_TRICOLOR:	mode_str="Tricolor";		break;
 		}
-		GUIPrint(0, 0, tdy, 1, "timer %d, fps%11lf, [%2d/%2d] %s  dist=%d  BPD %6.4lf"
+		GUIPrint(0, 0, tdy, 1, "timer 0x%04X, fps%11lf, [%2d/%2d] %s  dist=%d  BPD %6.4lf"
 			, timer, 1000./(t2-t), mode+1, VIS_COUNT, mode_str, g_dist, usize?8*csize/usize:0
 		);
 		if(mode==VIS_IMAGE||mode==VIS_ZIPF)
