@@ -822,6 +822,8 @@ void pred_mixN(Image *src, int fwd)
 
 				//mix 2
 #if 0
+				estims[j++]=W;
+				estims[j++]=N;
 				estims[j++]=(N+W)>>1;
 				estims[j++]=N+W-NW;
 #endif
@@ -1069,6 +1071,17 @@ void pred_mixN(Image *src, int fwd)
 				coeffs[kc][2]+=(int16_t)((int16_t)e*(int16_t)estims[2]);
 				coeffs[kc][3]+=(int16_t)((int16_t)e*(int16_t)estims[3]);
 #endif
+#if 0
+				int abest=0, ebest=0;
+				for(int alpha=0;alpha<256;++alpha)
+				{
+					int pred=(estims[0]*alpha+estims[1]*(255-alpha))/255;
+					int e=curr-pred;
+					if(!alpha||ebest>=e)
+						ebest=e, abest=alpha;
+				}
+				src->data[idx]=abest-128;
+#endif
 
 #if 0
 				//if(ky>10&&kx>10&&!kc)//
@@ -1130,6 +1143,791 @@ void pred_mixN(Image *src, int fwd)
 					else if(c2[kc][1]<3)
 						++c2[kc][1], ++c2[kc][2];
 				}
+#endif
+			}
+		}
+	}
+	_mm_free(pixels);
+}
+
+#if 1
+static void bestN_analysis3(Image *src, uint8_t *masks)
+{
+	int fwd=1;//
+	
+	enum
+	{
+		NITER=10,
+
+		MIXPREDS=4,
+
+		SHIFT=18+6,
+
+		XPAD=8,
+		NROWS=4,
+		NCH=4,
+		NVAL=1,
+	};
+	int amin[]=
+	{
+		-(1<<src->depth[0]>>1),
+		-(1<<src->depth[1]>>1),
+		-(1<<src->depth[2]>>1),
+		-(1<<src->depth[3]>>1),
+	};
+	int amax[]=
+	{
+		(1<<src->depth[0]>>1)-1,
+		(1<<src->depth[1]>>1)-1,
+		(1<<src->depth[2]>>1)-1,
+		(1<<src->depth[3]>>1)-1,
+	};
+	int rmin[]=
+	{
+		amin[0]/g_dist,
+		amin[1]/g_dist,
+		amin[2]/g_dist,
+		amin[3]/g_dist,
+	};
+	int rmax[]=
+	{
+		amax[0]/g_dist,
+		amax[1]/g_dist,
+		amax[2]/g_dist,
+		amax[3]/g_dist,
+	};
+	int invdist=((1<<16)+g_dist-1)/g_dist;
+	ALIGN(16) int32_t coeffs[4][MIXPREDS]={0}, bias[4]={1<<SHIFT>>1}, estims[MIXPREDS]={0};
+	/*
+	cache-friendly layout:
+	...
+	A(NNN NN N C)WW
+
+	Y(NNN NN N C)W
+	U(NNN NN N C)W
+	V(NNN NN N C)W
+	A(NNN NN N C)W
+
+	Y(NNN NN N C)curr
+	...
+	*/
+	int psize=(src->iw+2*XPAD)*(int)sizeof(int32_t[NROWS*NCH*NVAL]);
+	int32_t *pixels=(int32_t*)_mm_malloc(psize, sizeof(__m128i));
+
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	FILLMEM((int32_t*)coeffs, (1<<SHIFT)/MIXPREDS, sizeof(coeffs), sizeof(int32_t));
+	bias[3]=bias[2]=bias[1]=bias[0];
+	memset(pixels, 0, psize);
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		int32_t *rows[]=
+		{
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,//sub 1 channel for pre-increment
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
+		};
+		int idx2=idx;
+		for(int it=0;it<NITER;++it)
+		{
+			int32_t *r2[4];
+			memcpy(r2, rows, sizeof(r2));
+			idx=idx2;
+			for(int kx=0;kx<src->iw;++kx)
+			{
+				for(int kc=0;kc<4;++kc, ++idx)
+				{
+					r2[0]+=NROWS*NVAL;
+					r2[1]+=NROWS*NVAL;
+					r2[2]+=NROWS*NVAL;
+					r2[3]+=NROWS*NVAL;
+					if(!src->depth[kc])
+						continue;
+					int32_t
+						NNN	=r2[3][0+0*NCH*NROWS*NVAL],
+						NNWW	=r2[2][0-2*NCH*NROWS*NVAL],
+						NNW	=r2[2][0-1*NCH*NROWS*NVAL],
+						NN	=r2[2][0+0*NCH*NROWS*NVAL],
+						NNE	=r2[2][0+1*NCH*NROWS*NVAL],
+						NNEE	=r2[2][0+2*NCH*NROWS*NVAL],
+						NWW	=r2[1][0-2*NCH*NROWS*NVAL],
+						NW	=r2[1][0-1*NCH*NROWS*NVAL],
+						N	=r2[1][0+0*NCH*NROWS*NVAL],
+						NE	=r2[1][0+1*NCH*NROWS*NVAL],
+						NEE	=r2[1][0+2*NCH*NROWS*NVAL],
+						NEEE	=r2[1][0+3*NCH*NROWS*NVAL],
+						NEEEE	=r2[1][0+4*NCH*NROWS*NVAL],
+						WWWW	=r2[0][0-4*NCH*NROWS*NVAL],
+						WWW	=r2[0][0-3*NCH*NROWS*NVAL],
+						WW	=r2[0][0-2*NCH*NROWS*NVAL],
+						W	=r2[0][0-1*NCH*NROWS*NVAL];
+					int curr=src->data[idx];
+					int j=0;
+					//		NN
+					//	NW	N	NE
+					//	W	?		216 MB/s  4.49 ms/MB  i7-13700KF
+
+					estims[j++]=W;
+					estims[j++]=NE;
+					estims[j++]=2*N-NN;
+					estims[j++]=N+W-NW;
+					int p1=(int)((bias[kc]
+						+(int64_t)coeffs[kc][0]*estims[0]
+						+(int64_t)coeffs[kc][1]*estims[1]
+						+(int64_t)coeffs[kc][2]*estims[2]
+						+(int64_t)coeffs[kc][3]*estims[3]
+					)>>SHIFT);
+					int pred=p1;
+				
+					int vmax=N, vmin=W;
+					if(N<W)vmin=N, vmax=W;
+					if(vmin>NE)vmin=NE;
+					if(vmax<NE)vmax=NE;
+					if(vmin>NEEE)vmin=NEEE;
+					if(vmax<NEEE)vmax=NEEE;
+					CLAMP2(pred, vmin, vmax);
+					if(it>=NITER-1)
+					{
+						if(g_dist>1)
+						{
+							if(fwd)
+							{
+								curr-=(int)pred;
+								curr=(curr*invdist>>16)-(curr>>31);
+								CLAMP2(curr, rmin[kc], rmax[kc]);
+								src->data[idx]=curr;
+							}
+							curr=g_dist*curr+(int)pred;
+							CLAMP2(curr, amin[kc], amax[kc]);
+							if(!fwd)
+								src->data[idx]=curr;
+						}
+						else
+						{
+							if(fwd)
+							{
+								int error=curr-pred;
+								error<<=32-src->depth[kc];
+								error>>=32-src->depth[kc];
+								src->data[idx]=error;
+							}
+							else
+							{
+								curr+=pred;
+								curr<<=32-src->depth[kc];
+								curr>>=32-src->depth[kc];
+								src->data[idx]=curr;
+							}
+						}
+					}
+					r2[0][0]=curr;
+					int e=(curr>p1)-(curr<p1);//L1
+					bias[kc]+=e;
+					coeffs[kc][0]+=(int16_t)((int16_t)e*(int16_t)estims[0]);//casts prevent pmulld
+					coeffs[kc][1]+=(int16_t)((int16_t)e*(int16_t)estims[1]);
+					coeffs[kc][2]+=(int16_t)((int16_t)e*(int16_t)estims[2]);
+					coeffs[kc][3]+=(int16_t)((int16_t)e*(int16_t)estims[3]);
+				}
+			}
+		}
+	}
+	_mm_free(pixels);
+}
+#endif
+#if 0
+static void bestN_analysis2(Image *src, uint8_t *masks)
+{
+	enum
+	{
+		BESTNDX=64,
+		BESTNDY=64,
+
+		MIXPREDS=4,
+
+		SHIFT=30,
+
+		//XPAD=8,
+		//NROWS=4,
+		//NCH=4,
+		//NVAL=1,
+	};
+	int amin[]=
+	{
+		-(1<<src->depth[0]>>1),
+		-(1<<src->depth[1]>>1),
+		-(1<<src->depth[2]>>1),
+		-(1<<src->depth[3]>>1),
+	};
+	int amask[]=
+	{
+		(1<<src->depth[0])-1,
+		(1<<src->depth[1])-1,
+		(1<<src->depth[2])-1,
+		(1<<src->depth[3])-1,
+	};
+	int64_t coeffs[4][4]={0};
+	//int psize=(src->iw+2*XPAD)*(int)sizeof(int32_t[NROWS*NCH*NVAL]);
+	//int32_t *pixels=(int32_t*)_mm_malloc(psize, sizeof(__m128i));
+	int maxdepth=MAXVAR(src->depth[0], src->depth[1]);
+	maxdepth=MAXVAR(maxdepth, src->depth[2]);
+	maxdepth=MAXVAR(maxdepth, src->depth[3]);
+	int hsize=(int)sizeof(int32_t)<<maxdepth;
+	int32_t *hist=(int32_t*)malloc(hsize);
+	if(!hist)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	for(int k=0;k<4*4;++k)
+		((int64_t*)coeffs)[k]=(1LL<<SHIFT)/MIXPREDS;
+	int rowstride=4*src->iw;
+	double ctotal=0;
+	int km=0;
+	char str[8192]={0};
+	int nprinted=0;
+	for(int y1=2, y2=BESTNDY;y1<src->ih;y1=y2)
+	{
+		y2=y1+BESTNDY;
+		if(y2+BESTNDY>src->ih)
+			y2=src->ih;
+		int dy=y2-y1;
+		for(int x1=1, x2=BESTNDY;x1<src->iw-1;x1=x2)
+		{
+			x2=x1+BESTNDX;
+			if(x2+BESTNDX>src->iw-1)
+				x2=src->iw-1;
+			int dx=x2-x1;
+			for(int kc=0;kc<4;++kc)
+			{
+				if(!src->depth[kc])
+					continue;
+				double bestsize=0;
+				int bestsh=0;
+				int64_t coeffs3[4][4]={0};
+				for(int sh=0;sh<21;++sh)
+				{
+					int64_t coeffs2[4][4]={0};
+					memcpy(coeffs2, coeffs, sizeof(coeffs2));
+				//	for(int k=0;k<4*4;++k)//
+				//		((int64_t*)coeffs2)[k]=(1LL<<SHIFT)/MIXPREDS;
+					memset(hist, 0, hsize);
+					for(int ky=0;ky<dy;++ky)
+					{
+						int idx=4*(src->iw*(y1+ky)+x1)+kc;
+						for(int kx=0;kx<dx;++kx, idx+=4)
+						{
+							int
+								NN	=src->data[idx-2*rowstride+0*4],
+								NW	=src->data[idx-1*rowstride-1*4],
+								N	=src->data[idx-1*rowstride+0*4],
+								NE	=src->data[idx-1*rowstride+1*4],
+								W	=src->data[idx+0*rowstride-1*4],
+								curr	=src->data[idx+0*rowstride+0*4];
+							//		NN
+							//	NW	N	NE
+							//	W	?
+							int estim[]=
+							{
+								W,
+								NE,
+								2*N-NN,
+								N+W-NW,
+							};
+							int32_t pred=(int32_t)((
+								+estim[0]*coeffs2[kc][0]
+								+estim[1]*coeffs2[kc][1]
+								+estim[2]*coeffs2[kc][2]
+								+estim[3]*coeffs2[kc][3]
+								+(1<<SHIFT>>1)
+							)>>SHIFT);
+
+							++hist[(curr-pred-amin[kc])&amask[kc]];
+
+							int e=((curr>pred)-(curr<pred))<<sh;
+							coeffs2[kc][0]+=(int64_t)e*estim[0];
+							coeffs2[kc][1]+=(int64_t)e*estim[1];
+							coeffs2[kc][2]+=(int64_t)e*estim[2];
+							coeffs2[kc][3]+=(int64_t)e*estim[3];
+						}
+					}
+					int32_t sum=dy*dx;
+					double e=0, norm=1./sum;
+					for(int ks=0;ks<1<<src->depth[kc];++ks)
+					{
+						int32_t freq=hist[ks];
+						if(freq)
+							e-=freq*log2(freq*norm);
+					}
+					e/=8;
+					if(!sh||bestsize>e)
+					{
+						bestsize=e;
+						bestsh=sh;
+						memcpy(coeffs3, coeffs2, sizeof(coeffs3));
+					}
+				}
+				if(masks)
+					masks[km++]=bestsh;
+				ctotal+=bestsize;
+				memcpy(coeffs, coeffs3, sizeof(coeffs));
+
+				if(nprinted+3<(int)sizeof(str)-1)//
+					nprinted+=snprintf(str+nprinted, sizeof(str)-1-nprinted, " %2d", bestsh);//
+			}
+		}
+		if(nprinted+1<(int)sizeof(str)-1)//
+			nprinted+=snprintf(str+nprinted, sizeof(str)-1-nprinted, "\n");//
+	}
+	copy_to_clipboard(str, nprinted);//
+	messagebox(MBOX_OK, "Info", "%12.2lf", ctotal);//
+}
+#endif
+#if 0
+static void bestN_analysis(Image *src, uint8_t *masks)
+{
+#define BESTNLIST\
+	BESTN(0)\
+	BESTN(W)\
+	BESTN(NW)\
+	BESTN((N+W)>>1)\
+	BESTN(abs(N-NW)>abs(W-NW) ? N : W)\
+	BESTN(cg)\
+	BESTN(av3)\
+	BESTN(iz)\
+	BESTN(av4)\
+	BESTN(av6)\
+	BESTN(av8)\
+	BESTN(av9)\
+
+	enum
+	{
+#define BESTN(...) +1
+		NBEST=BESTNLIST,
+#undef  BESTN
+		BESTNDX=128,
+		BESTNDY=128,
+
+		XPAD=8,
+		NROWS=4,
+		NCH=4,
+		NVAL=1,
+	};
+	int amin[]=
+	{
+		-(1<<src->depth[0]>>1),
+		-(1<<src->depth[1]>>1),
+		-(1<<src->depth[2]>>1),
+		-(1<<src->depth[3]>>1),
+	};
+	int amax[]=
+	{
+		(1<<src->depth[0]>>1)-1,
+		(1<<src->depth[1]>>1)-1,
+		(1<<src->depth[2]>>1)-1,
+		(1<<src->depth[3]>>1)-1,
+	};
+	int nlevels[]=
+	{
+		1<<src->depth[0],
+		1<<src->depth[1],
+		1<<src->depth[2],
+		1<<src->depth[3],
+	};
+	int amask[]=
+	{
+		(1<<src->depth[0])-1,
+		(1<<src->depth[1])-1,
+		(1<<src->depth[2])-1,
+		(1<<src->depth[3])-1,
+	};
+	int psize=(src->iw+2*XPAD)*(int)sizeof(int32_t[NROWS*NCH*NVAL]);
+	int32_t *pixels=(int32_t*)_mm_malloc(psize, sizeof(__m128i));
+
+	int xblocks=src->iw/BESTNDX;
+	int yblocks=src->ih/BESTNDY;
+	int nblocks=xblocks*yblocks;
+	int maxdepth=MAXVAR(src->depth[0], src->depth[1]);
+	maxdepth=MAXVAR(maxdepth, src->depth[2]);
+	maxdepth=MAXVAR(maxdepth, src->depth[3]);
+	int hsize=nblocks*(int)sizeof(int32_t[3*NBEST])<<maxdepth;
+	int32_t *hists=(int32_t*)malloc(hsize);
+
+	if(!pixels||!hists)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	memset(pixels, 0, psize);
+	memset(hists, 0, hsize);
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		int32_t *rows[]=
+		{
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,//sub 1 channel for pre-increment
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
+		};
+		int by=ky/BESTNDY;
+		if(by>yblocks-1)
+			by=yblocks-1;
+		for(int kx=0;kx<src->iw;++kx)
+		{
+			int bx=kx/BESTNDX;
+			if(bx>xblocks-1)
+				bx=xblocks-1;
+			int bidx=xblocks*by+bx;
+			for(int kc=0;kc<4;++kc, ++idx)
+			{
+				rows[0]+=NROWS*NVAL;
+				rows[1]+=NROWS*NVAL;
+				rows[2]+=NROWS*NVAL;
+				rows[3]+=NROWS*NVAL;
+				if(!src->depth[kc])
+					continue;
+				int32_t
+					NNN	=rows[3][0+0*NCH*NROWS*NVAL],
+					NNWW	=rows[2][0-2*NCH*NROWS*NVAL],
+					NNW	=rows[2][0-1*NCH*NROWS*NVAL],
+					NN	=rows[2][0+0*NCH*NROWS*NVAL],
+					NNE	=rows[2][0+1*NCH*NROWS*NVAL],
+					NNEE	=rows[2][0+2*NCH*NROWS*NVAL],
+					NWW	=rows[1][0-2*NCH*NROWS*NVAL],
+					NW	=rows[1][0-1*NCH*NROWS*NVAL],
+					N	=rows[1][0+0*NCH*NROWS*NVAL],
+					NE	=rows[1][0+1*NCH*NROWS*NVAL],
+					NEE	=rows[1][0+2*NCH*NROWS*NVAL],
+					NEEE	=rows[1][0+3*NCH*NROWS*NVAL],
+					NEEEE	=rows[1][0+4*NCH*NROWS*NVAL],
+					WWWW	=rows[0][0-4*NCH*NROWS*NVAL],
+					WWW	=rows[0][0-3*NCH*NROWS*NVAL],
+					WW	=rows[0][0-2*NCH*NROWS*NVAL],
+					W	=rows[0][0-1*NCH*NROWS*NVAL];
+				int cg=N+W-NW;
+				int vmax=N, vmin=W;
+				if(N<W)vmin=N, vmax=W;
+				CLAMP2(cg, vmin, vmax);
+				if(vmin>NE)vmin=NE;
+				if(vmax<NE)vmax=NE;
+				int av3=(5*(N+W)-2*NW)>>3;		CLAMP2(av3, vmin, vmax);
+				int iz=(3*(N+W)-2*NW)>>2;		CLAMP2(iz, vmin, vmax);
+				int av4=(4*(N+W)+NE-NW)>>3;		CLAMP2(av4, vmin, vmax);
+				int av6=W+((5*(N-NW)+NE-NW+N-NN)>>3);	CLAMP2(av6, vmin, vmax);
+				int av8=(N+W+NN+WW+NW+NE+NNE+NEE)>>3;
+				int av9=W+((2*(5*N-(NN+WW)+2*NE)-9*NW+NNW-NNE-NWW)>>4);	CLAMP2(av9, vmin, vmax);
+				int estim[]=
+				{
+#define BESTN(E) E,
+					BESTNLIST
+#undef  BESTN
+				};
+				int curr=src->data[idx];
+				int bidx2=3*bidx+kc;
+				for(int k=0;k<NBEST;++k)
+				{
+					int e=(curr-estim[k]-amin[kc])&amask[kc];
+					++hists[(NBEST*bidx2+k)<<maxdepth|e];
+				}
+				rows[0][0]=curr;
+			}
+		}
+	}
+#if 0
+	for(int y1=0, y2=BESTNDY;y1<src->ih;y1=y2)
+	{
+		y2=y1+BESTNDY;
+		if(y2+BESTNDY>src->ih)
+			y2=src->ih;
+		int dy=y2-y1;
+		for(int x1=0, x2=BESTNDY;x1<src->iw;x1=x2)
+		{
+			x2=x1+BESTNDX;
+			if(x2+BESTNDX>src->iw)
+				x2=src->iw;
+			int dx=x2-x1;
+			for(int ky=0;ky<dy;++ky)
+			{
+				for(int kx=0;kx<dx;++kx)
+				{
+				}
+			}
+		}
+	}
+#endif
+	double ctotal=0;
+	for(int kb=0;kb<3*nblocks;++kb)
+	{
+		int kbest=0;
+		double csizes[NBEST]={0};
+		for(int kp=0;kp<NBEST;++kp)
+		{
+			int hidx=(NBEST*kb+kp)<<maxdepth;
+			int32_t *hist=hists+hidx;
+			int32_t sum=0;
+			int nlevels=1<<maxdepth;
+			for(int ks=0;ks<nlevels;++ks)
+				sum+=hist[ks];
+			if(!sum)
+				continue;
+			double e=0, norm=1./sum;
+			for(int ks=0;ks<nlevels;++ks)
+			{
+				int freq=hist[ks];
+				if(freq)
+					e-=freq*log2(freq*norm);
+			}
+			csizes[kp]=e/8;
+			if(!kp||csizes[kbest]>csizes[kp])
+				kbest=kp;
+		}
+		if(masks)
+			masks[kb]=kbest;
+		ctotal+=csizes[kbest];
+#if 0
+		int by=kb/nblocks, bx=kb%nblocks;
+		int dx=bx<xblocks-1?BESTNDX:src->iw-BESTNDX*bx;
+		int dy=by<yblocks-1?BESTNDY:src->ih-BESTNDY*by;
+		messagebox(MBOX_OK, "Info0", "%12.2lf/%10d = %8.4lf%%", csizes[kbest], dx*dy, 100.*csizes[kbest]/(dx*dy));
+#endif
+	}
+	messagebox(MBOX_OK, "Info", "%12.2lf", ctotal);//
+	_mm_free(pixels);
+	free(hists);
+}
+#endif
+void pred_bestN(Image *src, int fwd)
+{
+	if(fwd)
+	{
+		bestN_analysis3(src, 0);
+		return;
+	}
+	int amin[]=
+	{
+		-(1<<src->depth[0]>>1),
+		-(1<<src->depth[1]>>1),
+		-(1<<src->depth[2]>>1),
+		-(1<<src->depth[3]>>1),
+	};
+	int amax[]=
+	{
+		(1<<src->depth[0]>>1)-1,
+		(1<<src->depth[1]>>1)-1,
+		(1<<src->depth[2]>>1)-1,
+		(1<<src->depth[3]>>1)-1,
+	};
+	int rmin[]=
+	{
+		amin[0]/g_dist,
+		amin[1]/g_dist,
+		amin[2]/g_dist,
+		amin[3]/g_dist,
+	};
+	int rmax[]=
+	{
+		amax[0]/g_dist,
+		amax[1]/g_dist,
+		amax[2]/g_dist,
+		amax[3]/g_dist,
+	};
+	int invdist=((1<<16)+g_dist-1)/g_dist;
+
+	enum
+	{
+		MIXPREDS=4,
+
+		SHIFT=18+6,
+
+		XPAD=8,
+		NROWS=4,
+		NCH=4,
+		NVAL=1,
+	};
+	ALIGN(16) int32_t coeffs[4][MIXPREDS]={0}, bias[4]={1<<SHIFT>>1}, estims[MIXPREDS]={0};
+	/*
+	cache-friendly layout:
+	...
+	A(NNN NN N C)WW
+
+	Y(NNN NN N C)W
+	U(NNN NN N C)W
+	V(NNN NN N C)W
+	A(NNN NN N C)W
+
+	Y(NNN NN N C)curr
+	...
+	*/
+	int psize=(src->iw+2*XPAD)*(int)sizeof(int32_t[NROWS*NCH*NVAL]);
+	int32_t *pixels=(int32_t*)_mm_malloc(psize, sizeof(__m128i));
+
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	FILLMEM((int32_t*)coeffs, (1<<SHIFT)/MIXPREDS, sizeof(coeffs), sizeof(int32_t));
+	bias[3]=bias[2]=bias[1]=bias[0];
+	memset(pixels, 0, psize);
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		int32_t *rows[]=
+		{
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,//sub 1 channel for pre-increment
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
+		};
+		for(int kx=0;kx<src->iw;++kx)
+		{
+			for(int kc=0;kc<4;++kc, ++idx)
+			{
+				rows[0]+=NROWS*NVAL;
+				rows[1]+=NROWS*NVAL;
+				rows[2]+=NROWS*NVAL;
+				rows[3]+=NROWS*NVAL;
+				if(!src->depth[kc])
+					continue;
+				int32_t
+					NNN	=rows[3][0+0*NCH*NROWS*NVAL],
+					NNWW	=rows[2][0-2*NCH*NROWS*NVAL],
+					NNW	=rows[2][0-1*NCH*NROWS*NVAL],
+					NN	=rows[2][0+0*NCH*NROWS*NVAL],
+					NNE	=rows[2][0+1*NCH*NROWS*NVAL],
+					NNEE	=rows[2][0+2*NCH*NROWS*NVAL],
+					NWW	=rows[1][0-2*NCH*NROWS*NVAL],
+					NW	=rows[1][0-1*NCH*NROWS*NVAL],
+					N	=rows[1][0+0*NCH*NROWS*NVAL],
+					NE	=rows[1][0+1*NCH*NROWS*NVAL],
+					NEE	=rows[1][0+2*NCH*NROWS*NVAL],
+					NEEE	=rows[1][0+3*NCH*NROWS*NVAL],
+					NEEEE	=rows[1][0+4*NCH*NROWS*NVAL],
+					WWWW	=rows[0][0-4*NCH*NROWS*NVAL],
+					WWW	=rows[0][0-3*NCH*NROWS*NVAL],
+					WW	=rows[0][0-2*NCH*NROWS*NVAL],
+					W	=rows[0][0-1*NCH*NROWS*NVAL];
+				//	eN	=rows[1][1+0*NCH*NROWS*NVAL],
+				//	eNE	=rows[1][1+1*NCH*NROWS*NVAL],
+				//	eW	=rows[0][1-1*NCH*NROWS*NVAL];
+				int curr=src->data[idx];
+				int j=0;
+
+				//mix 2
+#if 0
+				estims[j++]=W;
+				estims[j++]=N;
+				estims[j++]=(N+W)>>1;
+				estims[j++]=N+W-NW;
+#endif
+
+				//mix 3		FIXME worse than mix2
+#if 0
+				estims[j++]=2*W-WW;
+				estims[j++]=(N+W)>>1;
+				estims[j++]=N+W-NW;
+#endif
+
+				//mix 4
+#if 1
+				//		NN
+				//	NW	N	NE
+				//	W	?		216 MB/s  4.49 ms/MB  i7-13700KF
+
+				estims[j++]=W;
+				estims[j++]=NE;
+				estims[j++]=2*N-NN;
+				estims[j++]=N+W-NW;
+#endif
+
+				//mix 8 - c32
+#if 0
+				//					NNN
+				//					NN	NNE
+				//				NW	N	NE	NEE	NEEE	NEEEE
+				//	WWWW	WWW	WW	W	?
+				estims[j++]=N;
+				estims[j++]=W;
+				estims[j++]=3*(N-NN)+NNN;
+				estims[j++]=3*(W-WW)+WWW;
+				estims[j++]=W+NE-N;
+				estims[j++]=(WWWW+WWW+NNN+NEE+NEEE+NEEEE-2*NW)/4;
+				estims[j++]=N+W-NW;
+				estims[j++]=N+NE-NNE;
+#endif
+				int p1=(int)((bias[kc]
+					+(int64_t)coeffs[kc][0]*estims[0]
+					+(int64_t)coeffs[kc][1]*estims[1]
+					+(int64_t)coeffs[kc][2]*estims[2]
+					+(int64_t)coeffs[kc][3]*estims[3]
+				)>>SHIFT);
+				int pred=p1;
+				
+				int vmax=N, vmin=W;
+				if(N<W)vmin=N, vmax=W;
+				if(vmin>NE)vmin=NE;
+				if(vmax<NE)vmax=NE;
+				if(vmin>NEEE)vmin=NEEE;
+				if(vmax<NEEE)vmax=NEEE;
+				CLAMP2(pred, vmin, vmax);
+#if 1
+				if(g_dist>1)
+				{
+					if(fwd)
+					{
+						curr-=(int)pred;
+						curr=(curr*invdist>>16)-(curr>>31);
+						CLAMP2(curr, rmin[kc], rmax[kc]);
+						src->data[idx]=curr;
+					}
+					curr=g_dist*curr+(int)pred;
+					CLAMP2(curr, amin[kc], amax[kc]);
+					if(!fwd)
+						src->data[idx]=curr;
+				}
+				else
+				{
+					if(fwd)
+					{
+						int error=curr-pred;
+						error<<=32-src->depth[kc];
+						error>>=32-src->depth[kc];
+						src->data[idx]=error;
+					}
+					else
+					{
+						curr+=pred;
+						curr<<=32-src->depth[kc];
+						curr>>=32-src->depth[kc];
+						src->data[idx]=curr;
+					}
+				}
+#endif
+				rows[0][0]=curr;
+
+				//150 MB/s  6.65 ms/MB  i5-1145G7
+#if 0
+				{
+					__m128i p=_mm_load_si128((__m128i*)estims);
+					__m128i c=_mm_load_si128((__m128i*)coeffs[kc]);
+					p=_mm_sign_epi32(p, _mm_set1_epi32(curr-p1));
+					c=_mm_add_epi32(c, p);
+					_mm_store_si128((__m128i*)coeffs[kc], c);
+				}
+#endif
+
+				//147 MB/s  6.77 ms/MB  i5-1145G7
+#if 1
+				int e=(curr>p1)-(curr<p1);//L1
+				//int e=((curr-p1)>>31)-((p1-curr)>>31);
+				//int e=curr-p1; CLAMP2(e, -1, 1);//jump?
+				bias[kc]+=e;
+				coeffs[kc][0]+=(int16_t)((int16_t)e*(int16_t)estims[0]);//casts prevent pmulld
+				coeffs[kc][1]+=(int16_t)((int16_t)e*(int16_t)estims[1]);
+				coeffs[kc][2]+=(int16_t)((int16_t)e*(int16_t)estims[2]);
+				coeffs[kc][3]+=(int16_t)((int16_t)e*(int16_t)estims[3]);
 #endif
 			}
 		}

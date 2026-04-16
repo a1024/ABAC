@@ -223,6 +223,7 @@ typedef enum TransformTypeEnum
 	
 	ST_FWD_GRAY,		ST_INV_GRAY,
 	ST_FWD_MIXN,		ST_INV_MIXN,
+	ST_FWD_BESTN,		ST_INV_BESTN,
 	ST_FWD_RLS,		ST_INV_RLS,
 	ST_FWD_ADAQUANT,	ST_INV_ADAQUANT,
 	ST_FWD_GRFILT,		ST_INV_GRFILT,
@@ -862,7 +863,7 @@ void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 				//}
 
 				double e=0;
-				if(maxdepth>8)//exact estimate
+				if(maxdepth>9)//exact estimate
 				{
 					double norm=1./sum;
 					for(int ks=0;ks<nlevels;++ks)
@@ -3153,6 +3154,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_GRAY:		a=" S Inv Gray";		break;
 	case ST_FWD_MIXN:		a=" S Fwd MIX N";		break;
 	case ST_INV_MIXN:		a=" S Inv MIX N";		break;
+	case ST_FWD_BESTN:		a=" S Fwd Best N";		break;
+	case ST_INV_BESTN:		a=" S Inv Best N";		break;
 	case ST_FWD_RLS:		a=" S Fwd RLS";			break;
 	case ST_INV_RLS:		a=" S Inv RLS";			break;
 //	case ST_FWD_AV3:		a=" S Fwd AV3";			break;
@@ -4438,6 +4441,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_GRAY:		pred_gray(image, 0);					break;
 	case ST_FWD_MIXN:		pred_mixN(image, 1);					break;
 	case ST_INV_MIXN:		pred_mixN(image, 0);					break;
+	case ST_FWD_BESTN:		pred_bestN(image, 1);					break;
+	case ST_INV_BESTN:		pred_bestN(image, 0);					break;
 	case ST_FWD_RLS:		pred_rls(image, 1);					break;
 	case ST_INV_RLS:		pred_rls(image, 0);					break;
 //	case ST_FWD_AV3:		pred_av3(image, 1);					break;
