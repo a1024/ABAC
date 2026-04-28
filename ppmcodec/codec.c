@@ -65,8 +65,9 @@ int c52_codec(int argc, char **argv);//multichannel-AC
 int c53_codec(int argc, char **argv);//bit coding, paq0f mixer
 int c54_codec(int argc, char **argv);//low memory
 int c55_codec(int argc, char **argv);//16-bit
-int c56_codec(int argc, char **argv);//synth
+int c56_codec(int argc, char **argv);//LZAC (synth)
 int c57_codec(int argc, char **argv);//fast Rice
+int c58_codec(int argc, char **argv);//bit coding with plain histograms (c12)
 #endif
 
 
@@ -82,7 +83,7 @@ int c57_codec(int argc, char **argv);//fast Rice
 //	#define CODEC_EXT c09
 //	#define CODEC_EXT c10
 //	#define CODEC_EXT c11
-//	#define CODEC_EXT c12
+	#define CODEC_EXT c12
 //	#define CODEC_EXT c13
 //	#define CODEC_EXT c14
 //	#define CODEC_EXT c15
@@ -110,7 +111,7 @@ int c57_codec(int argc, char **argv);//fast Rice
 //	#define CODEC_EXT c37
 //	#define CODEC_EXT c38
 //	#define CODEC_EXT c39
-	#define CODEC_EXT c40
+//	#define CODEC_EXT c40
 //	#define CODEC_EXT c41
 //	#define CODEC_EXT c42
 //	#define CODEC_EXT c43
@@ -128,6 +129,7 @@ int c57_codec(int argc, char **argv);//fast Rice
 //	#define CODEC_EXT c55
 //	#define CODEC_EXT c56
 //	#define CODEC_EXT c57
+//	#define CODEC_EXT c58
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -223,15 +225,15 @@ int main(int argc, char **argv)
 	//	"C:/dataset-HUGE-ppm/jwst.ppm"
 	//	"C:/dataset-HUGE-ppm/kodak.PPM"
 	//	"C:/dataset-HUGE-ppm/space_huge.ppm"		//X
-	//	"C:/dataset-ic8-ppm/big_building.ppm"
 	//	"C:/dataset-ic16-ppm/big_building.ppm"		//16-bit
-		"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+	//	"C:/dataset-ic8-ppm/big_building.ppm"
+	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_13.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA12811.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13757.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13803.ppm"
-	//	"C:/dataset-LPCB-ppm/PIA13833.ppm"
+		"C:/dataset-LPCB-ppm/PIA13833.ppm"	//CGI
 	//	"C:/dataset-LPCB-ppm/PIA13912.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13914.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13915.ppm"	//false color terrain
@@ -317,8 +319,8 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/enwik8"
 	//	"C:/Projects/datasets/kodim13.ppm"
 	//	"C:/Projects/datasets/kodim13.ppm"
-	//	"C:/Projects/datasets/kodim13-small16.PPM"
 	//	"C:/Projects/datasets/kodim13-small16.ppm"
+	//	"C:/Projects/datasets/kodim13-small16.PPM"
 	//	"C:/Projects/datasets/kodim13-small4.PPM"
 	//	"C:/Projects/datasets/kodim24.ppm"
 	//	"C:/Projects/datasets/lena.ppm"
@@ -326,6 +328,8 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/space_huge.ppm"
 	//	"C:/Projects/datasets/temp.c18"
 	//	"C:/Projects/datasets/zzzpng.ppm"
+	//	"D:/ML/20260428-PIA13912-L.PPM"
+	//	"D:/ML/20260428-PIA13912-R.PPM"
 	//	"D:/ML/big_building.PPM"
 	//	"D:/ML/big_building.PPM"
 	//	"D:/ML/checkboard.PPM"
@@ -336,6 +340,7 @@ int main(int argc, char **argv)
 	//	"D:/ML/kodim13.ppm"
 	//	"D:/ML/kodim24.ppm"
 	//	"D:/ML/nice_clock_face.ppm"
+	//	"D:/ML/tiny.ppm"
 	//	"D:/ML/zzz_halfbright.PPM"
 	//	"D:/ML/zzz_halfbright.PPM"
 	//	"D:/Programs/c29/song.ppm"

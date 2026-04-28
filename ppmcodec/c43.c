@@ -40,10 +40,10 @@
 	}while(0)
 #ifdef _MSC_VER
 #	define	ALIGN(N) __declspec(align(N))
-#	define AWM_INLINE __forceinline static
+#	define INLINE __forceinline static
 #else
 #	define	ALIGN(N) __attribute__((aligned(N)))
-#	define AWM_INLINE __attribute__((always_inline)) inline static
+#	define INLINE __attribute__((always_inline)) inline static
 #	ifndef _countof
 #		define _countof(A) (sizeof(A)/sizeof(*(A)))
 #	endif
@@ -52,7 +52,7 @@
 #define FLOOR_LOG2(X)\
 	(sizeof(X)==8?63-(int32_t)_lzcnt_u64(X):31-_lzcnt_u32((uint32_t)(X)))
 #else
-AWM_INLINE int floor_log2_64(uint64_t n)
+INLINE int floor_log2_64(uint64_t n)
 {
 	int	logn=-!n;
 	int	sh=(n>=1ULL<<32)<<5;	logn+=sh, n>>=sh;
@@ -63,7 +63,7 @@ AWM_INLINE int floor_log2_64(uint64_t n)
 		sh= n>=1<< 1;		logn+=sh;
 	return logn;
 }
-AWM_INLINE int floor_log2_32(uint32_t n)
+INLINE int floor_log2_32(uint32_t n)
 {
 	int	logn=-!n;
 	int	sh=(n>=1<<16)<<4;	logn+=sh, n>>=sh;
@@ -135,19 +135,19 @@ typedef struct _RiceCoder
 	uint64_t cache, nbits;
 	uint8_t *ptr, *end;
 } RiceCoder;
-AWM_INLINE void rice_init(RiceCoder *ec, uint8_t *start, uint8_t *end)
+INLINE void rice_init(RiceCoder *ec, uint8_t *start, uint8_t *end)
 {
 	ec->cache=0;
 	ec->nbits=64;
 	ec->ptr=start;
 	ec->end=end;
 }
-AWM_INLINE void rice_enc_flush(RiceCoder *ec)
+INLINE void rice_enc_flush(RiceCoder *ec)
 {
 	*(uint64_t*)ec->ptr=ec->cache;
 	ec->ptr+=8;
 }
-AWM_INLINE void rice_enc(RiceCoder *ec, int nbypass, int sym)
+INLINE void rice_enc(RiceCoder *ec, int nbypass, int sym)
 {
 	//buffer: {c,c,c,b,b,a,a,a, f,f,f,e,e,e,d,c}, cache: MSB gg[hhh]000 LSB	nbits is number of ASSIGNED bits
 	//written 64-bit words are byte-reversed because the CPU is little-endian
@@ -189,7 +189,7 @@ AWM_INLINE void rice_enc(RiceCoder *ec, int nbypass, int sym)
 		ec->cache|=(uint64_t)bypass<<ec->nbits;
 	}
 }
-AWM_INLINE int rice_dec(RiceCoder *ec, int nbypass)
+INLINE int rice_dec(RiceCoder *ec, int nbypass)
 {
 	//cache: MSB 00[hhh]ijj LSB	nbits is number of CLEARED bits (past codes must be cleared from cache)
 	

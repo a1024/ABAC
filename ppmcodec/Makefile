@@ -80,7 +80,8 @@ c12m:
 	gcc $(FLAGS) -DCODEC_EXT=c12 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c12m.c codec.c util.c  -o c12 $(LIBS)
 
 c12:
-	clang -Wall -O2 -s -Dc12_codec=main -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS2) c12.c  -o c12 $(LIBS)
+#	gcc -Wall -O2 -s -Dc12_codec=main -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS2) c12.c  -o c12 $(LIBS)
+	clang -Wall -O3 -s -Dc12_codec=main -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS2) c12.c  -o c12 $(LIBS)
 #	gcc $(FLAGS) -masm=intel -Dc12_codec=main -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS2) c12.c  -o c12 $(LIBS)
 
 c12debug:

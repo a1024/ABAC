@@ -2443,7 +2443,7 @@ static void block_func(void *param)
 					);
 				}
 #endif
-				
+
 				//WG
 				//gx=abs(W-WW)+abs(N-NW)+abs(NE-N)+1
 				//gy=abs(W-NW)+abs(N-NN)+abs(NE-NNE)+1
@@ -2544,7 +2544,7 @@ static void block_func(void *param)
 					);
 				}
 #endif
-				
+
 				//WGB
 				//gx=abs(N-NW)+abs(W-WW)+abs(NE-N)+abs(NW-NWW)+1
 				//gy=abs(N-NN)+abs(W-NW)+abs(NE-NNE)+abs(NW-NNW)+1
@@ -2735,7 +2735,7 @@ static void block_func(void *param)
 					);
 				}
 #endif
-				
+
 				//WG2
 				//gx=abs(W-WW)+abs(N-NW)+abs(NE-N)+1
 				//gy=abs(W-NW)+abs(N-NN)+abs(NE-NNE)+1
@@ -2806,7 +2806,7 @@ static void block_func(void *param)
 					OCH_GR, OCH_BG, OCH_RB
 				);
 #endif
-				
+
 				//WG3
 				//gx=abs(W-WW)+abs(N-NW)+abs(NE-N)+1
 				//gy=abs(W-NW)+abs(N-NN)+abs(NE-NNE)+1

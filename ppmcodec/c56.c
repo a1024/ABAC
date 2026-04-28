@@ -320,11 +320,11 @@ static void codegamma(ACState *ac, int32_t *stats, int *psym, const int fwd)//sy
 	int sym=0, nbits=0, tidx=0, bit;
 	if(fwd)
 	{
+		sym=*psym;
 #ifdef _MSC_VER
-		if(sym<0)
+		if(sym<1)
 			CRASH("");
 #endif
-		sym=*psym;
 		nbits=FLOOR_LOG2(sym);
 	}
 	do

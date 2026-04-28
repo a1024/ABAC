@@ -268,9 +268,21 @@ static void prof_print(ptrdiff_t usize)
 #define OCHLIST\
 	OCH(Y400) OCH(Y040) OCH(Y004)\
 	OCH(CX40) OCH(C0X4) OCH(C40X)\
+	OCH(CX22) OCH(C2X2) OCH(C22X)\
 	OCH(CX31) OCH(C3X1) OCH(C31X)\
 	OCH(CX13) OCH(C1X3) OCH(C13X)\
-	OCH(CX22) OCH(C2X2) OCH(C22X)
+	OCH(CX71) OCH(C7X1) OCH(C71X)\
+	OCH(CX17) OCH(C1X7) OCH(C17X)\
+	OCH(CX53) OCH(C5X3) OCH(C53X)\
+	OCH(CX35) OCH(C3X5) OCH(C35X)\
+	OCH(CX33) OCH(C3X3) OCH(C33X)\
+	OCH(CX60) OCH(C6X0) OCH(C60X)\
+	OCH(CX06) OCH(C0X6) OCH(C06X)\
+	OCH(CX51) OCH(C5X1) OCH(C51X)\
+	OCH(CX15) OCH(C1X5) OCH(C15X)\
+	OCH(CX42) OCH(C4X2) OCH(C42X)\
+	OCH(CX24) OCH(C2X4) OCH(C24X)\
+
 #if 0
 #define OCHLIST\
 	OCH(Y400) OCH(Y040) OCH(Y004)\
@@ -280,7 +292,8 @@ static void prof_print(ptrdiff_t usize)
 	OCH(CX40) OCH(C0X4) OCH(C40X)\
 	OCH(CX31) OCH(C3X1) OCH(C31X)\
 	OCH(CX13) OCH(C1X3) OCH(C13X)\
-	OCH(CX22) OCH(C2X2) OCH(C22X)
+	OCH(CX22) OCH(C2X2) OCH(C22X)\
+
 #endif
 #endif
 typedef enum _OCHIndex
@@ -365,49 +378,148 @@ typedef enum _RCTInfoIdx
 #endif
 #ifdef ENABLE_RCT_EXTENSION
 #define RCTLIST\
-	RCT(_400_0X0_00X,	OCH_R,		OCH_G,		OCH_B,		0, 1, 2,	0,  0, 0)\
-	RCT(_400_0X0_04X,	OCH_R,		OCH_G,		OCH_BG,		0, 1, 2,	0,  0, 4)\
-	RCT(_400_0X0_40X,	OCH_R,		OCH_G,		OCH_BR,		0, 1, 2,	0,  4, 0)\
-	RCT(_040_00X_X40,	OCH_G,		OCH_B,		OCH_RG,		1, 2, 0,	0,  4, 0)\
-	RCT(_040_00X_X04,	OCH_G,		OCH_B,		OCH_RB,		1, 2, 0,	0,  0, 4)\
-	RCT(_004_X00_4X0,	OCH_B,		OCH_R,		OCH_GR,		2, 0, 1,	0,  0, 4)\
-	RCT(_004_X00_0X4,	OCH_B,		OCH_R,		OCH_GB,		2, 0, 1,	0,  4, 0)\
-	RCT(_040_04X_X40,	OCH_G,		OCH_BG,		OCH_RG,		1, 2, 0,	4,  4, 0)\
-	RCT(_040_04X_X04,	OCH_G,		OCH_BG,		OCH_RB,		1, 2, 0,	4,  0, 4)\
-	RCT(_040_X40_40X,	OCH_G,		OCH_RG,		OCH_BR,		1, 0, 2,	4,  0, 4)\
-	RCT(_004_X04_0X4,	OCH_B,		OCH_RB,		OCH_GB,		2, 0, 1,	4,  4, 0)\
-	RCT(_004_X04_4X0,	OCH_B,		OCH_RB,		OCH_GR,		2, 0, 1,	4,  0, 4)\
-	RCT(_004_0X4_X40,	OCH_B,		OCH_GB,		OCH_RG,		2, 1, 0,	4,  0, 4)\
-	RCT(_400_4X0_40X,	OCH_R,		OCH_GR,		OCH_BR,		0, 1, 2,	4,  4, 0)\
-	RCT(_400_4X0_04X,	OCH_R,		OCH_GR,		OCH_BG,		0, 1, 2,	4,  0, 4)\
-	RCT(_400_40X_0X4,	OCH_R,		OCH_BR,		OCH_GB,		0, 2, 1,	4,  0, 4)\
-	RCT(_400_0X0_13X,	OCH_R,		OCH_G,		OCH_B1,		0, 1, 2,	0,  1, 3)\
-	RCT(_400_4X0_13X,	OCH_R,		OCH_GR,		OCH_B1,		0, 1, 2,	4,  1, 3)\
-	RCT(_400_00X_3X1,	OCH_R,		OCH_B,		OCH_G1,		0, 2, 1,	0,  3, 1)\
-	RCT(_400_40X_3X1,	OCH_R,		OCH_BR,		OCH_G1,		0, 2, 1,	4,  3, 1)\
-	RCT(_040_00X_X13,	OCH_G,		OCH_B,		OCH_R1,		1, 2, 0,	0,  1, 3)\
-	RCT(_040_04X_X13,	OCH_G,		OCH_BG,		OCH_R1,		1, 2, 0,	4,  1, 3)\
-	RCT(_040_X40_13X,	OCH_G,		OCH_RG,		OCH_B1,		1, 0, 2,	4,  3, 1)\
-	RCT(_004_X04_3X1,	OCH_B,		OCH_RB,		OCH_G1,		2, 0, 1,	4,  1, 3)\
-	RCT(_004_04X_X13,	OCH_B,		OCH_GB,		OCH_R1,		2, 1, 0,	4,  3, 1)\
-	RCT(_400_0X0_22X,	OCH_R,		OCH_G,		OCH_B2,		0, 1, 2,	0,  2, 2)\
-	RCT(_400_4X0_22X,	OCH_R,		OCH_GR,		OCH_B2,		0, 1, 2,	4,  2, 2)\
-	RCT(_400_00X_2X2,	OCH_R,		OCH_B,		OCH_G2,		0, 2, 1,	0,  2, 2)\
-	RCT(_400_40X_2X2,	OCH_R,		OCH_BR,		OCH_G2,		0, 2, 1,	4,  2, 2)\
-	RCT(_040_00X_X22,	OCH_G,		OCH_B,		OCH_R2,		1, 2, 0,	0,  2, 2)\
-	RCT(_040_04X_X22,	OCH_G,		OCH_BG,		OCH_R2,		1, 2, 0,	4,  2, 2)\
-	RCT(_040_X40_22X,	OCH_G,		OCH_RG,		OCH_B2,		1, 0, 2,	4,  2, 2)\
-	RCT(_004_X04_2X2,	OCH_B,		OCH_RB,		OCH_G2,		2, 0, 1,	4,  2, 2)\
-	RCT(_004_0X4_X22,	OCH_B,		OCH_GB,		OCH_R2,		2, 1, 0,	4,  2, 2)\
-	RCT(_400_0X0_31X,	OCH_R,		OCH_G,		OCH_B3,		0, 1, 2,	0,  3, 1)\
-	RCT(_400_4X0_31X,	OCH_R,		OCH_GR,		OCH_B3,		0, 1, 2,	4,  3, 1)\
-	RCT(_400_00X_1X3,	OCH_R,		OCH_B,		OCH_G3,		0, 2, 1,	0,  1, 3)\
-	RCT(_400_40X_1X3,	OCH_R,		OCH_BR,		OCH_G3,		0, 2, 1,	4,  1, 3)\
-	RCT(_040_00X_X31,	OCH_G,		OCH_B,		OCH_R3,		1, 2, 0,	0,  3, 1)\
-	RCT(_040_04X_X31,	OCH_G,		OCH_BG,		OCH_R3,		1, 2, 0,	4,  3, 1)\
-	RCT(_040_X40_31X,	OCH_G,		OCH_RG,		OCH_B3,		1, 0, 2,	4,  1, 3)\
-	RCT(_004_X04_1X3,	OCH_B,		OCH_RB,		OCH_G3,		2, 0, 1,	4,  3, 1)\
-	RCT(_004_0X4_X31,	OCH_B,		OCH_GB,		OCH_R3,		2, 1, 0,	4,  1, 3)\
+	RCT(_X00_0X0_00X,	OCH_R,		OCH_G,		OCH_B,		0, 1, 2,	0,  0, 0)\
+	RCT(_X00_0X0_08X,	OCH_R,		OCH_G,		OCH_BG,		0, 1, 2,	0,  0, 8)\
+	RCT(_X00_0X0_80X,	OCH_R,		OCH_G,		OCH_BR,		0, 1, 2,	0,  8, 0)\
+	RCT(_0X0_00X_X80,	OCH_G,		OCH_B,		OCH_RG,		1, 2, 0,	0,  8, 0)\
+	RCT(_0X0_00X_X08,	OCH_G,		OCH_B,		OCH_RB,		1, 2, 0,	0,  0, 8)\
+	RCT(_00X_X00_8X0,	OCH_B,		OCH_R,		OCH_GR,		2, 0, 1,	0,  0, 8)\
+	RCT(_00X_X00_0X8,	OCH_B,		OCH_R,		OCH_GB,		2, 0, 1,	0,  8, 0)\
+	RCT(_0X0_08X_X80,	OCH_G,		OCH_BG,		OCH_RG,		1, 2, 0,	8,  8, 0)\
+	RCT(_0X0_08X_X08,	OCH_G,		OCH_BG,		OCH_RB,		1, 2, 0,	8,  0, 8)\
+	RCT(_0X0_X80_80X,	OCH_G,		OCH_RG,		OCH_BR,		1, 0, 2,	8,  0, 8)\
+	RCT(_00X_X08_0X8,	OCH_B,		OCH_RB,		OCH_GB,		2, 0, 1,	8,  8, 0)\
+	RCT(_00X_X08_8X0,	OCH_B,		OCH_RB,		OCH_GR,		2, 0, 1,	8,  0, 8)\
+	RCT(_00X_0X8_X80,	OCH_B,		OCH_GB,		OCH_RG,		2, 1, 0,	8,  0, 8)\
+	RCT(_X00_8X0_80X,	OCH_R,		OCH_GR,		OCH_BR,		0, 1, 2,	8,  8, 0)\
+	RCT(_X00_8X0_08X,	OCH_R,		OCH_GR,		OCH_BG,		0, 1, 2,	8,  0, 8)\
+	RCT(_X00_80X_0X8,	OCH_R,		OCH_BR,		OCH_GB,		0, 2, 1,	8,  0, 8)\
+	RCT(_X00_0X0_26X,	OCH_R,		OCH_G,		OCH_B1,		0, 1, 2,	0,  2, 6)\
+	RCT(_X00_8X0_26X,	OCH_R,		OCH_GR,		OCH_B1,		0, 1, 2,	8,  2, 6)\
+	RCT(_X00_00X_6X2,	OCH_R,		OCH_B,		OCH_G1,		0, 2, 1,	0,  6, 2)\
+	RCT(_X00_80X_6X2,	OCH_R,		OCH_BR,		OCH_G1,		0, 2, 1,	8,  6, 2)\
+	RCT(_0X0_00X_X26,	OCH_G,		OCH_B,		OCH_R1,		1, 2, 0,	0,  2, 6)\
+	RCT(_0X0_08X_X26,	OCH_G,		OCH_BG,		OCH_R1,		1, 2, 0,	8,  2, 6)\
+	RCT(_0X0_X80_26X,	OCH_G,		OCH_RG,		OCH_B1,		1, 0, 2,	8,  6, 2)\
+	RCT(_00X_X08_6X2,	OCH_B,		OCH_RB,		OCH_G1,		2, 0, 1,	8,  2, 6)\
+	RCT(_00X_08X_X26,	OCH_B,		OCH_GB,		OCH_R1,		2, 1, 0,	8,  6, 2)\
+	RCT(_X00_0X0_44X,	OCH_R,		OCH_G,		OCH_B2,		0, 1, 2,	0,  4, 4)\
+	RCT(_X00_8X0_44X,	OCH_R,		OCH_GR,		OCH_B2,		0, 1, 2,	8,  4, 4)\
+	RCT(_X00_00X_4X4,	OCH_R,		OCH_B,		OCH_G2,		0, 2, 1,	0,  4, 4)\
+	RCT(_X00_80X_4X4,	OCH_R,		OCH_BR,		OCH_G2,		0, 2, 1,	8,  4, 4)\
+	RCT(_0X0_00X_X44,	OCH_G,		OCH_B,		OCH_R2,		1, 2, 0,	0,  4, 4)\
+	RCT(_0X0_08X_X44,	OCH_G,		OCH_BG,		OCH_R2,		1, 2, 0,	8,  4, 4)\
+	RCT(_0X0_X80_44X,	OCH_G,		OCH_RG,		OCH_B2,		1, 0, 2,	8,  4, 4)\
+	RCT(_00X_X08_4X4,	OCH_B,		OCH_RB,		OCH_G2,		2, 0, 1,	8,  4, 4)\
+	RCT(_00X_0X8_X44,	OCH_B,		OCH_GB,		OCH_R2,		2, 1, 0,	8,  4, 4)\
+	RCT(_X00_0X0_62X,	OCH_R,		OCH_G,		OCH_B3,		0, 1, 2,	0,  6, 2)\
+	RCT(_X00_8X0_62X,	OCH_R,		OCH_GR,		OCH_B3,		0, 1, 2,	8,  6, 2)\
+	RCT(_X00_00X_2X6,	OCH_R,		OCH_B,		OCH_G3,		0, 2, 1,	0,  2, 6)\
+	RCT(_X00_80X_2X6,	OCH_R,		OCH_BR,		OCH_G3,		0, 2, 1,	8,  2, 6)\
+	RCT(_0X0_00X_X62,	OCH_G,		OCH_B,		OCH_R3,		1, 2, 0,	0,  6, 2)\
+	RCT(_0X0_08X_X62,	OCH_G,		OCH_BG,		OCH_R3,		1, 2, 0,	8,  6, 2)\
+	RCT(_0X0_X80_62X,	OCH_G,		OCH_RG,		OCH_B3,		1, 0, 2,	8,  2, 6)\
+	RCT(_00X_X08_2X6,	OCH_B,		OCH_RB,		OCH_G3,		2, 0, 1,	8,  6, 2)\
+	RCT(_00X_0X8_X62,	OCH_B,		OCH_GB,		OCH_R3,		2, 1, 0,	8,  2, 6)\
+	RCT(_X00_0X0_17X,	OCH_R,		OCH_G,		OCH_C17X,	0, 1, 2,	0,  1, 7)\
+	RCT(_X00_8X0_17X,	OCH_R,		OCH_GR,		OCH_C17X,	0, 1, 2,	8,  1, 7)\
+	RCT(_X00_00X_7X1,	OCH_R,		OCH_B,		OCH_C7X1,	0, 2, 1,	0,  7, 1)\
+	RCT(_X00_80X_7X1,	OCH_R,		OCH_BR,		OCH_C7X1,	0, 2, 1,	8,  7, 1)\
+	RCT(_0X0_00X_X17,	OCH_G,		OCH_B,		OCH_CX17,	1, 2, 0,	0,  1, 7)\
+	RCT(_0X0_08X_X17,	OCH_G,		OCH_BG,		OCH_CX17,	1, 2, 0,	8,  1, 7)\
+	RCT(_0X0_X80_17X,	OCH_G,		OCH_RG,		OCH_C17X,	1, 0, 2,	8,  7, 1)\
+	RCT(_00X_X08_7X1,	OCH_B,		OCH_RB,		OCH_C7X1,	2, 0, 1,	8,  1, 7)\
+	RCT(_00X_08X_X17,	OCH_B,		OCH_GB,		OCH_CX17,	2, 1, 0,	8,  7, 1)\
+	RCT(_X00_0X0_71X,	OCH_R,		OCH_G,		OCH_C71X,	0, 1, 2,	0,  7, 1)\
+	RCT(_X00_8X0_71X,	OCH_R,		OCH_GR,		OCH_C71X,	0, 1, 2,	8,  7, 1)\
+	RCT(_X00_00X_1X7,	OCH_R,		OCH_B,		OCH_C1X7,	0, 2, 1,	0,  1, 7)\
+	RCT(_X00_80X_1X7,	OCH_R,		OCH_BR,		OCH_C1X7,	0, 2, 1,	8,  1, 7)\
+	RCT(_0X0_00X_X71,	OCH_G,		OCH_B,		OCH_CX71,	1, 2, 0,	0,  7, 1)\
+	RCT(_0X0_08X_X71,	OCH_G,		OCH_BG,		OCH_CX71,	1, 2, 0,	8,  7, 1)\
+	RCT(_0X0_X80_71X,	OCH_G,		OCH_RG,		OCH_C71X,	1, 0, 2,	8,  1, 7)\
+	RCT(_00X_X08_1X7,	OCH_B,		OCH_RB,		OCH_C1X7,	2, 0, 1,	8,  7, 1)\
+	RCT(_00X_0X8_X71,	OCH_B,		OCH_GB,		OCH_CX71,	2, 1, 0,	8,  1, 7)\
+	RCT(_X00_0X0_33X,	OCH_R,		OCH_G,		OCH_C33X,	0, 1, 2,	0,  3, 3)\
+	RCT(_X00_8X0_33X,	OCH_R,		OCH_GR,		OCH_C33X,	0, 1, 2,	8,  3, 3)\
+	RCT(_X00_00X_3X3,	OCH_R,		OCH_B,		OCH_C3X3,	0, 2, 1,	0,  3, 3)\
+	RCT(_X00_80X_3X3,	OCH_R,		OCH_BR,		OCH_C3X3,	0, 2, 1,	8,  3, 3)\
+	RCT(_0X0_00X_X33,	OCH_G,		OCH_B,		OCH_CX33,	1, 2, 0,	0,  3, 3)\
+	RCT(_0X0_08X_X33,	OCH_G,		OCH_BG,		OCH_CX33,	1, 2, 0,	8,  3, 3)\
+	RCT(_0X0_X80_33X,	OCH_G,		OCH_RG,		OCH_C33X,	1, 0, 2,	8,  3, 3)\
+	RCT(_00X_X08_3X3,	OCH_B,		OCH_RB,		OCH_C3X3,	2, 0, 1,	8,  3, 3)\
+	RCT(_00X_08X_X33,	OCH_B,		OCH_GB,		OCH_CX33,	2, 1, 0,	8,  3, 3)\
+	RCT(_X00_0X0_35X,	OCH_R,		OCH_G,		OCH_C35X,	0, 1, 2,	0,  3, 5)\
+	RCT(_X00_8X0_35X,	OCH_R,		OCH_GR,		OCH_C35X,	0, 1, 2,	8,  3, 5)\
+	RCT(_X00_00X_5X3,	OCH_R,		OCH_B,		OCH_C5X3,	0, 2, 1,	0,  5, 3)\
+	RCT(_X00_80X_5X3,	OCH_R,		OCH_BR,		OCH_C5X3,	0, 2, 1,	8,  5, 3)\
+	RCT(_0X0_00X_X35,	OCH_G,		OCH_B,		OCH_CX35,	1, 2, 0,	0,  3, 5)\
+	RCT(_0X0_08X_X35,	OCH_G,		OCH_BG,		OCH_CX35,	1, 2, 0,	8,  3, 5)\
+	RCT(_0X0_X80_35X,	OCH_G,		OCH_RG,		OCH_C35X,	1, 0, 2,	8,  5, 3)\
+	RCT(_00X_X08_5X3,	OCH_B,		OCH_RB,		OCH_C5X3,	2, 0, 1,	8,  3, 5)\
+	RCT(_00X_08X_X35,	OCH_B,		OCH_GB,		OCH_CX35,	2, 1, 0,	8,  5, 3)\
+	RCT(_X00_0X0_53X,	OCH_R,		OCH_G,		OCH_C53X,	0, 1, 2,	0,  5, 3)\
+	RCT(_X00_8X0_53X,	OCH_R,		OCH_GR,		OCH_C53X,	0, 1, 2,	8,  5, 3)\
+	RCT(_X00_00X_3X5,	OCH_R,		OCH_B,		OCH_C3X5,	0, 2, 1,	0,  3, 5)\
+	RCT(_X00_80X_3X5,	OCH_R,		OCH_BR,		OCH_C3X5,	0, 2, 1,	8,  3, 5)\
+	RCT(_0X0_00X_X53,	OCH_G,		OCH_B,		OCH_CX53,	1, 2, 0,	0,  5, 3)\
+	RCT(_0X0_08X_X53,	OCH_G,		OCH_BG,		OCH_CX53,	1, 2, 0,	8,  5, 3)\
+	RCT(_0X0_X80_53X,	OCH_G,		OCH_RG,		OCH_C53X,	1, 0, 2,	8,  3, 5)\
+	RCT(_00X_X08_3X5,	OCH_B,		OCH_RB,		OCH_C3X5,	2, 0, 1,	8,  5, 3)\
+	RCT(_00X_0X8_X53,	OCH_B,		OCH_GB,		OCH_CX53,	2, 1, 0,	8,  3, 5)\
+	RCT(_X00_0X0_06X,	OCH_R,		OCH_G,		OCH_C06X,	0, 1, 2,	0,  0, 6)\
+	RCT(_X00_8X0_06X,	OCH_R,		OCH_GR,		OCH_C06X,	0, 1, 2,	8,  0, 6)\
+	RCT(_X00_00X_6X0,	OCH_R,		OCH_B,		OCH_C6X0,	0, 2, 1,	0,  6, 0)\
+	RCT(_X00_80X_6X0,	OCH_R,		OCH_BR,		OCH_C6X0,	0, 2, 1,	8,  6, 0)\
+	RCT(_0X0_00X_X06,	OCH_G,		OCH_B,		OCH_CX06,	1, 2, 0,	0,  0, 6)\
+	RCT(_0X0_08X_X06,	OCH_G,		OCH_BG,		OCH_CX06,	1, 2, 0,	8,  0, 6)\
+	RCT(_0X0_X80_06X,	OCH_G,		OCH_RG,		OCH_C06X,	1, 0, 2,	8,  6, 0)\
+	RCT(_00X_X08_6X0,	OCH_B,		OCH_RB,		OCH_C6X0,	2, 0, 1,	8,  0, 6)\
+	RCT(_00X_08X_X06,	OCH_B,		OCH_GB,		OCH_CX06,	2, 1, 0,	8,  6, 0)\
+	RCT(_X00_0X0_60X,	OCH_R,		OCH_G,		OCH_C60X,	0, 1, 2,	0,  6, 0)\
+	RCT(_X00_8X0_60X,	OCH_R,		OCH_GR,		OCH_C60X,	0, 1, 2,	8,  6, 0)\
+	RCT(_X00_00X_0X6,	OCH_R,		OCH_B,		OCH_C0X6,	0, 2, 1,	0,  0, 6)\
+	RCT(_X00_80X_0X6,	OCH_R,		OCH_BR,		OCH_C0X6,	0, 2, 1,	8,  0, 6)\
+	RCT(_0X0_00X_X60,	OCH_G,		OCH_B,		OCH_CX60,	1, 2, 0,	0,  6, 0)\
+	RCT(_0X0_08X_X60,	OCH_G,		OCH_BG,		OCH_CX60,	1, 2, 0,	8,  6, 0)\
+	RCT(_0X0_X80_60X,	OCH_G,		OCH_RG,		OCH_C60X,	1, 0, 2,	8,  0, 6)\
+	RCT(_00X_X08_0X6,	OCH_B,		OCH_RB,		OCH_C0X6,	2, 0, 1,	8,  6, 0)\
+	RCT(_00X_0X8_X60,	OCH_B,		OCH_GB,		OCH_CX60,	2, 1, 0,	8,  0, 6)\
+	RCT(_X00_0X0_15X,	OCH_R,		OCH_G,		OCH_C15X,	0, 1, 2,	0,  1, 5)\
+	RCT(_X00_8X0_15X,	OCH_R,		OCH_GR,		OCH_C15X,	0, 1, 2,	8,  1, 5)\
+	RCT(_X00_00X_5X1,	OCH_R,		OCH_B,		OCH_C5X1,	0, 2, 1,	0,  5, 1)\
+	RCT(_X00_80X_5X1,	OCH_R,		OCH_BR,		OCH_C5X1,	0, 2, 1,	8,  5, 1)\
+	RCT(_0X0_00X_X15,	OCH_G,		OCH_B,		OCH_CX15,	1, 2, 0,	0,  1, 5)\
+	RCT(_0X0_08X_X15,	OCH_G,		OCH_BG,		OCH_CX15,	1, 2, 0,	8,  1, 5)\
+	RCT(_0X0_X80_15X,	OCH_G,		OCH_RG,		OCH_C15X,	1, 0, 2,	8,  5, 1)\
+	RCT(_00X_X08_5X1,	OCH_B,		OCH_RB,		OCH_C5X1,	2, 0, 1,	8,  1, 5)\
+	RCT(_00X_08X_X15,	OCH_B,		OCH_GB,		OCH_CX15,	2, 1, 0,	8,  5, 1)\
+	RCT(_X00_0X0_51X,	OCH_R,		OCH_G,		OCH_C51X,	0, 1, 2,	0,  5, 1)\
+	RCT(_X00_8X0_51X,	OCH_R,		OCH_GR,		OCH_C51X,	0, 1, 2,	8,  5, 1)\
+	RCT(_X00_00X_1X5,	OCH_R,		OCH_B,		OCH_C1X5,	0, 2, 1,	0,  1, 5)\
+	RCT(_X00_80X_1X5,	OCH_R,		OCH_BR,		OCH_C1X5,	0, 2, 1,	8,  1, 5)\
+	RCT(_0X0_00X_X51,	OCH_G,		OCH_B,		OCH_CX51,	1, 2, 0,	0,  5, 1)\
+	RCT(_0X0_08X_X51,	OCH_G,		OCH_BG,		OCH_CX51,	1, 2, 0,	8,  5, 1)\
+	RCT(_0X0_X80_51X,	OCH_G,		OCH_RG,		OCH_C51X,	1, 0, 2,	8,  1, 5)\
+	RCT(_00X_X08_1X5,	OCH_B,		OCH_RB,		OCH_C1X5,	2, 0, 1,	8,  5, 1)\
+	RCT(_00X_0X8_X51,	OCH_B,		OCH_GB,		OCH_CX51,	2, 1, 0,	8,  1, 5)\
+	RCT(_X00_0X0_24X,	OCH_R,		OCH_G,		OCH_C24X,	0, 1, 2,	0,  2, 4)\
+	RCT(_X00_8X0_24X,	OCH_R,		OCH_GR,		OCH_C24X,	0, 1, 2,	8,  2, 4)\
+	RCT(_X00_00X_4X2,	OCH_R,		OCH_B,		OCH_C4X2,	0, 2, 1,	0,  4, 2)\
+	RCT(_X00_80X_4X2,	OCH_R,		OCH_BR,		OCH_C4X2,	0, 2, 1,	8,  4, 2)\
+	RCT(_0X0_00X_X24,	OCH_G,		OCH_B,		OCH_CX24,	1, 2, 0,	0,  2, 4)\
+	RCT(_0X0_08X_X24,	OCH_G,		OCH_BG,		OCH_CX24,	1, 2, 0,	8,  2, 4)\
+	RCT(_0X0_X80_24X,	OCH_G,		OCH_RG,		OCH_C24X,	1, 0, 2,	8,  4, 2)\
+	RCT(_00X_X08_4X2,	OCH_B,		OCH_RB,		OCH_C4X2,	2, 0, 1,	8,  2, 4)\
+	RCT(_00X_08X_X24,	OCH_B,		OCH_GB,		OCH_CX24,	2, 1, 0,	8,  4, 2)\
+	RCT(_X00_0X0_42X,	OCH_R,		OCH_G,		OCH_C42X,	0, 1, 2,	0,  4, 2)\
+	RCT(_X00_8X0_42X,	OCH_R,		OCH_GR,		OCH_C42X,	0, 1, 2,	8,  4, 2)\
+	RCT(_X00_00X_2X4,	OCH_R,		OCH_B,		OCH_C2X4,	0, 2, 1,	0,  2, 4)\
+	RCT(_X00_80X_2X4,	OCH_R,		OCH_BR,		OCH_C2X4,	0, 2, 1,	8,  2, 4)\
+	RCT(_0X0_00X_X42,	OCH_G,		OCH_B,		OCH_CX42,	1, 2, 0,	0,  4, 2)\
+	RCT(_0X0_08X_X42,	OCH_G,		OCH_BG,		OCH_CX42,	1, 2, 0,	8,  4, 2)\
+	RCT(_0X0_X80_42X,	OCH_G,		OCH_RG,		OCH_C42X,	1, 0, 2,	8,  2, 4)\
+	RCT(_00X_X08_2X4,	OCH_B,		OCH_RB,		OCH_C2X4,	2, 0, 1,	8,  4, 2)\
+	RCT(_00X_0X8_X42,	OCH_B,		OCH_GB,		OCH_CX42,	2, 1, 0,	8,  2, 4)\
 
 #if 0
 	RCT(_211_4X0_40X,	OCH_Y211,	OCH_C4X0,	OCH_C40X,	0, 1, 2,	4,  4, 0,	1, 1, 0, 0)\
@@ -436,7 +548,8 @@ typedef enum _RCTInfoIdx
 	RCT(_013_X13_0X4,	OCH_Y013,	OCH_CX13,	OCH_C0X4,	2, 0, 1,	4,  4, 0,	0, 1, 1, 0)\
 	RCT(_103_X40_0X4,	OCH_Y103,	OCH_CX04,	OCH_C0X4,	2, 0, 1,	4,  4, 0,	1, 0, 0, 0)\
 	RCT(_103_X40_1X3,	OCH_Y103,	OCH_CX04,	OCH_C1X3,	2, 0, 1,	4,  4, 0,	1, 0, 0, 1)\
-	RCT(_103_X31_0X4,	OCH_Y103,	OCH_CX13,	OCH_C0X4,	2, 0, 1,	4,  4, 0,	1, 0, 1, 0)
+	RCT(_103_X31_0X4,	OCH_Y103,	OCH_CX13,	OCH_C0X4,	2, 0, 1,	4,  4, 0,	1, 0, 1, 0)\
+
 #endif
 #endif
 typedef enum _RCTIndex
@@ -2506,9 +2619,9 @@ int c32_codec(int argc, char **argv)
 					r=_mm256_sub_epi16(r, rN);
 					g=_mm256_sub_epi16(g, gN);
 					b=_mm256_sub_epi16(b, bN);
-					r=_mm256_slli_epi16(r, 2);
-					g=_mm256_slli_epi16(g, 2);
-					b=_mm256_slli_epi16(b, 2);
+					r=_mm256_slli_epi16(r, 3);
+					g=_mm256_slli_epi16(g, 3);
+					b=_mm256_slli_epi16(b, 3);
 					__m256i rg=_mm256_sub_epi16(r, g);
 					__m256i gb=_mm256_sub_epi16(g, b);
 					__m256i br=_mm256_sub_epi16(b, r);
@@ -2562,6 +2675,65 @@ int c32_codec(int argc, char **argv)
 						OCH_CX22, _mm256_srai_epi16(_mm256_sub_epi16(rg, br), 1),//r-(g+b)/2 = (r-g + r-b)/2
 						OCH_C2X2, _mm256_srai_epi16(_mm256_sub_epi16(gb, rg), 1),//g-(r+b)/2 = (g-r + g-b)/2
 						OCH_C22X, _mm256_srai_epi16(_mm256_sub_epi16(br, gb), 1) //b-(r+g)/2 = (b-r + b-g)/2
+					);
+					//20260425Sa
+					UPDATE(
+						OCH_CX71, _mm256_add_epi16(rg, _mm256_srai_epi16(gb, 3)),//r-(7*g+b)/8 = r-g-(b-g)/8
+						OCH_C7X1, _mm256_add_epi16(rg, _mm256_srai_epi16(br, 3)),//g-(7*r+b)/8 = g-r-(b-r)/8
+						OCH_C71X, _mm256_add_epi16(br, _mm256_srai_epi16(rg, 3)) //b-(7*r+g)/8 = b-r-(g-r)/8
+					);
+					UPDATE(
+						OCH_CX17, _mm256_add_epi16(br, _mm256_srai_epi16(gb, 3)),//r-(g+7*b)/8 = r-b-(g-b)/8
+						OCH_C1X7, _mm256_add_epi16(gb, _mm256_srai_epi16(br, 3)),//g-(r+7*b)/8 = g-b-(r-b)/8
+						OCH_C17X, _mm256_add_epi16(gb, _mm256_srai_epi16(rg, 3)) //b-(r+7*g)/8 = b-g-(r-g)/8
+					);
+					UPDATE(
+						OCH_CX53, _mm256_srai_epi16(_mm256_sub_epi16(_mm256_sub_epi16(rg, br), _mm256_srai_epi16(gb, 2)), 1),//r-(5*g+3*b)/8 =  (5*rg-3*br)/8 = (4*(rg-br)+rg+br)/8 = (((rg+br)>>2)+rg-br)>>1
+						OCH_C5X3, _mm256_srai_epi16(_mm256_sub_epi16(_mm256_sub_epi16(rg, gb), _mm256_srai_epi16(br, 2)), 1),//g-(5*r+3*b)/8 = -(5*rg-3*gb)/8
+						OCH_C53X, _mm256_srai_epi16(_mm256_sub_epi16(_mm256_sub_epi16(br, gb), _mm256_srai_epi16(rg, 2)), 1) //b-(5*r+3*g)/8 =  (5*br-3*gb)/8
+					);
+					UPDATE(
+						OCH_CX35, _mm256_srai_epi16(_mm256_add_epi16(_mm256_sub_epi16(rg, br), _mm256_srai_epi16(gb, 2)), 1),//r-(3*g+5*b)/8 =  (3*rg-5*br)/8 = (rg-br-((rg+br)>>2))>>1
+						OCH_C3X5, _mm256_srai_epi16(_mm256_add_epi16(_mm256_sub_epi16(rg, gb), _mm256_srai_epi16(br, 2)), 1),//g-(3*r+5*b)/8 = -(3*rg-5*gb)/8
+						OCH_C35X, _mm256_srai_epi16(_mm256_add_epi16(_mm256_sub_epi16(br, gb), _mm256_srai_epi16(rg, 2)), 1) //b-(3*r+5*g)/8 =  (3*br-5*gb)/8
+					);
+					__m256i t0=_mm256_add_epi16(g, b);
+					__m256i t1=_mm256_add_epi16(r, b);
+					__m256i t2=_mm256_add_epi16(r, g);
+					UPDATE(
+						OCH_CX33, _mm256_sub_epi16(r, _mm256_srai_epi16(_mm256_add_epi16(t0, _mm256_slli_epi16(t0, 1)), 3)),//r-3*(g+b)>>3
+						OCH_C3X3, _mm256_sub_epi16(g, _mm256_srai_epi16(_mm256_add_epi16(t1, _mm256_slli_epi16(t1, 1)), 3)),//g-3*(r+b)>>3
+						OCH_C33X, _mm256_sub_epi16(b, _mm256_srai_epi16(_mm256_add_epi16(t2, _mm256_slli_epi16(t2, 1)), 3)) //b-3*(r+g)>>3
+					);
+					UPDATE(
+						OCH_CX60, _mm256_sub_epi16(r, _mm256_srai_epi16(_mm256_add_epi16(g, _mm256_slli_epi16(g, 1)), 3)),
+						OCH_C6X0, _mm256_sub_epi16(g, _mm256_srai_epi16(_mm256_add_epi16(r, _mm256_slli_epi16(r, 1)), 3)),
+						OCH_C60X, _mm256_sub_epi16(b, _mm256_srai_epi16(_mm256_add_epi16(r, _mm256_slli_epi16(r, 1)), 3))
+					);
+					UPDATE(
+						OCH_CX06, _mm256_sub_epi16(r, _mm256_srai_epi16(_mm256_add_epi16(b, _mm256_slli_epi16(b, 1)), 3)),
+						OCH_C0X6, _mm256_sub_epi16(g, _mm256_srai_epi16(_mm256_add_epi16(b, _mm256_slli_epi16(b, 1)), 3)),
+						OCH_C06X, _mm256_sub_epi16(b, _mm256_srai_epi16(_mm256_add_epi16(g, _mm256_slli_epi16(g, 1)), 3))
+					);
+					UPDATE(
+						OCH_CX51, _mm256_sub_epi16(r, _mm256_srai_epi16(_mm256_add_epi16(_mm256_add_epi16(g, _mm256_slli_epi16(g, 2)), b), 3)),
+						OCH_C5X1, _mm256_sub_epi16(g, _mm256_srai_epi16(_mm256_add_epi16(_mm256_add_epi16(r, _mm256_slli_epi16(r, 2)), b), 3)),
+						OCH_C51X, _mm256_sub_epi16(b, _mm256_srai_epi16(_mm256_add_epi16(_mm256_add_epi16(r, _mm256_slli_epi16(r, 2)), g), 3))
+					);
+					UPDATE(
+						OCH_CX15, _mm256_sub_epi16(r, _mm256_srai_epi16(_mm256_add_epi16(_mm256_add_epi16(b, _mm256_slli_epi16(b, 2)), g), 3)),
+						OCH_C1X5, _mm256_sub_epi16(g, _mm256_srai_epi16(_mm256_add_epi16(_mm256_add_epi16(b, _mm256_slli_epi16(b, 2)), r), 3)),
+						OCH_C15X, _mm256_sub_epi16(b, _mm256_srai_epi16(_mm256_add_epi16(_mm256_add_epi16(g, _mm256_slli_epi16(g, 2)), r), 3))
+					);
+					UPDATE(
+						OCH_CX42, _mm256_sub_epi16(r, _mm256_srai_epi16(_mm256_add_epi16(_mm256_slli_epi16(g, 1), b), 2)),
+						OCH_C4X2, _mm256_sub_epi16(g, _mm256_srai_epi16(_mm256_add_epi16(_mm256_slli_epi16(r, 1), b), 2)),
+						OCH_C42X, _mm256_sub_epi16(b, _mm256_srai_epi16(_mm256_add_epi16(_mm256_slli_epi16(r, 1), g), 2))
+					);
+					UPDATE(
+						OCH_CX24, _mm256_sub_epi16(r, _mm256_srai_epi16(_mm256_add_epi16(_mm256_slli_epi16(b, 1), g), 2)),
+						OCH_C2X4, _mm256_sub_epi16(g, _mm256_srai_epi16(_mm256_add_epi16(_mm256_slli_epi16(b, 1), r), 2)),
+						OCH_C24X, _mm256_sub_epi16(b, _mm256_srai_epi16(_mm256_add_epi16(_mm256_slli_epi16(g, 1), r), 2))
 					);
 #endif
 #undef  UPDATE
@@ -2975,10 +3147,8 @@ int c32_codec(int argc, char **argv)
 	else
 	{
 		//decode flags, stats
-		int flags=*streamptr++;
-		mixer=flags&3;
-		flags>>=2;
-		bestrct=flags%RCT_COUNT;
+		mixer=*streamptr++&3;
+		bestrct=*streamptr++%RCT_COUNT;
 		dist=*streamptr++;
 
 		//if(dist>1)
@@ -3713,12 +3883,20 @@ int c32_codec(int argc, char **argv)
 				predYUV0[1]=predU;
 				predYUV0[2]=predV;
 
-				predY=_mm256_max_epi16(predY, ymin);
-				predU=_mm256_max_epi16(predU, umin);
-				predV=_mm256_max_epi16(predV, vmin);
-				predY=_mm256_min_epi16(predY, ymax);
-				predU=_mm256_min_epi16(predU, umax);
-				predV=_mm256_min_epi16(predV, vmax);
+				if(!mixer)
+				{
+					predY=_mm256_max_epi16(predY, ymin);
+					predU=_mm256_max_epi16(predU, umin);
+					predV=_mm256_max_epi16(predV, vmin);
+					predY=_mm256_min_epi16(predY, ymax);
+					predU=_mm256_min_epi16(predU, umax);
+					predV=_mm256_min_epi16(predV, vmax);
+				}
+				else
+				{
+					predY=_mm256_max_epi16(predY, amin);
+					predY=_mm256_min_epi16(predY, amax);
+				}
 
 				//predY=_mm256_setzero_si256();//
 				//predU=_mm256_setzero_si256();//
@@ -4000,11 +4178,11 @@ int c32_codec(int argc, char **argv)
 				moffset=_mm256_mullo_epi16(vc0, myuv[0]);
 				moffset=_mm256_add_epi16(moffset, _mm256_mullo_epi16(vc1, myuv[1]));
 #ifdef VNATIVE
-				moffset=_mm256_srai_epi16(moffset, 2);
+				moffset=_mm256_srai_epi16(moffset, 3);
 #endif
 				predV=_mm256_add_epi16(predV, moffset);
 #ifndef VNATIVE
-				predV=_mm256_srai_epi16(predV, 2);
+				predV=_mm256_srai_epi16(predV, 3);
 #endif
 				predV=_mm256_max_epi16(predV, amin);
 				predV=_mm256_min_epi16(predV, amax);
@@ -4041,7 +4219,7 @@ int c32_codec(int argc, char **argv)
 				W[2]=_mm256_sub_epi16(myuv[2], moffset);
 				_mm256_store_si256((__m256i*)rows[0]+0+2+0*6, W[2]);//store V neighbors
 #else
-				msyms=_mm256_slli_epi16(myuv[2], 2);
+				msyms=_mm256_slli_epi16(myuv[2], 3);
 				msyms=_mm256_sub_epi16(msyms, moffset);
 				W[2]=msyms;
 				_mm256_store_si256((__m256i*)rows[0]+0+2+0*6, msyms);//store V neighbors
@@ -4216,11 +4394,11 @@ int c32_codec(int argc, char **argv)
 				moffset=_mm256_mullo_epi16(vc0, myuv[0]);
 				moffset=_mm256_add_epi16(moffset, _mm256_mullo_epi16(vc1, myuv[1]));
 #ifdef VNATIVE
-				moffset=_mm256_srai_epi16(moffset, 2);
+				moffset=_mm256_srai_epi16(moffset, 3);
 				predV=_mm256_add_epi16(predV, moffset);
 #else
 				predV=_mm256_add_epi16(predV, moffset);
-				predV=_mm256_srai_epi16(predV, 2);
+				predV=_mm256_srai_epi16(predV, 3);
 #endif
 				predV=_mm256_max_epi16(predV, amin);
 				predV=_mm256_min_epi16(predV, amax);
@@ -4248,7 +4426,7 @@ int c32_codec(int argc, char **argv)
 #ifdef VNATIVE
 				W[2]=_mm256_sub_epi16(myuv[2], moffset);//subtract Voffset from V
 #else
-				W[2]=_mm256_slli_epi16(myuv[2], 2);
+				W[2]=_mm256_slli_epi16(myuv[2], 3);
 				W[2]=_mm256_sub_epi16(W[2], moffset);//subtract Voffset from V
 #endif
 				_mm256_store_si256((__m256i*)rows[0]+0+2+0*6, W[2]);//store V neighbors
@@ -5249,10 +5427,8 @@ int c32_codec(int argc, char **argv)
 			csize2+=fwrite(&tag, 1, 2, fdst);
 			csize2+=fwrite(&iw, 1, 4, fdst);
 			csize2+=fwrite(&ih, 1, 4, fdst);
-			{
-				int flags=bestrct<<2|(mixer&3);
-				csize2+=fwrite(&flags, 1, 1, fdst);
-			}
+			csize2+=fwrite(&mixer, 1, 1, fdst);
+			csize2+=fwrite(&bestrct, 1, 1, fdst);
 			csize2+=fwrite(&dist, 1, 1, fdst);
 			//if(dist>1)
 			//{

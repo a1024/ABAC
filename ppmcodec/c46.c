@@ -24,7 +24,9 @@
 
 #ifdef _MSC_VER
 	#define LOUD
-	#define ESTIMATE_SIZES
+//	#define ESTIMATE_SIZES
+	#define CTXCTR
+
 	#define ENABLE_GUIDE
 #endif
 
@@ -145,10 +147,10 @@ enum
 	}while(0)
 #ifdef _MSC_VER
 #	define	ALIGN(N) __declspec(align(N))
-#	define AWM_INLINE __forceinline static
+#	define INLINE __forceinline static
 #else
 #	define	ALIGN(N) __attribute__((aligned(N)))
-#	define AWM_INLINE __attribute__((always_inline)) inline static
+#	define INLINE __attribute__((always_inline)) inline static
 #	ifndef _countof
 #		define _countof(A) (sizeof(A)/sizeof(*(A)))
 #	endif
@@ -157,7 +159,7 @@ enum
 #define FLOOR_LOG2(X)\
 	(sizeof(X)==8?63-(int32_t)_lzcnt_u64(X):31-_lzcnt_u32((uint32_t)(X)))
 #else
-AWM_INLINE int floor_log2_64(uint64_t n)
+INLINE int floor_log2_64(uint64_t n)
 {
 	int	logn=-!n;
 	int	sh=(n>=1ULL<<32)<<5;	logn+=sh, n>>=sh;
@@ -168,7 +170,7 @@ AWM_INLINE int floor_log2_64(uint64_t n)
 		sh= n>=1<< 1;		logn+=sh;
 	return logn;
 }
-AWM_INLINE int floor_log2_32(uint32_t n)
+INLINE int floor_log2_32(uint32_t n)
 {
 	int	logn=-!n;
 	int	sh=(n>=1<<16)<<4;	logn+=sh, n>>=sh;
@@ -594,19 +596,19 @@ typedef struct _RiceCoder
 	uint64_t cache, nbits;
 	uint8_t *ptr, *end;
 } RiceCoder;
-AWM_INLINE void rice_init(RiceCoder *ec, uint8_t *start, uint8_t *end)
+INLINE void rice_init(RiceCoder *ec, uint8_t *start, uint8_t *end)
 {
 	ec->cache=0;
 	ec->nbits=64;
 	ec->ptr=start;
 	ec->end=end;
 }
-AWM_INLINE void rice_flush(RiceCoder *ec)
+INLINE void rice_flush(RiceCoder *ec)
 {
 	*(uint64_t*)ec->ptr=ec->cache;
 	ec->ptr+=8;
 }
-AWM_INLINE void rice_enc(RiceCoder *ec, int nbypass, int sym)
+INLINE void rice_enc(RiceCoder *ec, int nbypass, int sym)
 {
 	//buffer: {c,c,c,b,b,a,a,a, f,f,f,e,e,e,d,c}, cache: MSB gg[hhh]000 LSB	nbits is number of ASSIGNED bits
 	//written 64-bit words are byte-reversed because the CPU is little-endian
@@ -655,7 +657,7 @@ AWM_INLINE void rice_enc(RiceCoder *ec, int nbypass, int sym)
 		ec->cache|=(uint64_t)bypass<<ec->nbits;
 	}
 }
-AWM_INLINE int rice_dec(RiceCoder *ec, int nbypass)
+INLINE int rice_dec(RiceCoder *ec, int nbypass)
 {
 	//cache: MSB 00[hhh]ijj LSB	nbits is number of CLEARED bits (past codes must be cleared from cache)
 	
@@ -976,6 +978,9 @@ static double calc_csize(int32_t *hist)
 #endif
 #ifdef USE_AC
 uint32_t hists[3][NCTX][1<<PREDBITS][NLEVELS+1];
+#ifdef CTXCTR
+uint32_t ctxctr[3][NCTX];
+#endif
 #endif
 int c46_codec(int argc, char **argv)
 {
@@ -1297,6 +1302,9 @@ int c46_codec(int argc, char **argv)
 		code=code<<32|*(uint32_t*)streamptr; streamptr+=sizeof(uint32_t);
 	}
 	memset(hists, 0, sizeof(hists));
+#ifdef CTXCTR
+	memset(ctxctr, 0, sizeof(ctxctr));
+#endif
 #else
 	rice_init(&ec, stream, stream+ccap);
 #endif
@@ -1448,12 +1456,15 @@ int c46_codec(int argc, char **argv)
 				int nbypass=FLOOR_LOG2((int)(grestim<0?0:grestim)+1);
 #else
 #ifdef USE_AC
-				int ctx=FLOOR_LOG2(eW*eW+1);
-				//int ctx=eW;
-				//if(ctx<rows[1][2-1*NCH*NROWS*NVAL])ctx=rows[1][2-1*NCH*NROWS*NVAL];
-				//if(ctx<rows[1][2+0*NCH*NROWS*NVAL])ctx=rows[1][2+0*NCH*NROWS*NVAL];
-				//if(ctx<rows[1][2+1*NCH*NROWS*NVAL])ctx=rows[1][2+1*NCH*NROWS*NVAL];
-				//ctx=FLOOR_LOG2(ctx*ctx+1);
+				int ctx=eW;
+			//	if(ctx>rows[1][2-1*NCH*NROWS*NVAL])ctx=rows[1][2-1*NCH*NROWS*NVAL];
+			//	if(ctx>rows[1][2+0*NCH*NROWS*NVAL])ctx=rows[1][2+0*NCH*NROWS*NVAL];
+
+				//int ctx=FLOOR_LOG2((uint64_t)eW*eW*eW*eW+1)-8;
+				//int ctx=eW-16;
+				//int ctx=FLOOR_LOG2(eW*eW+1)-5;
+				//CLAMP2(ctx, 0, NCTX-1-11);
+				ctx=FLOOR_LOG2(ctx*ctx+1);
 				if(ctx>NCTX-1)
 					ctx=NCTX-1;
 #else
@@ -1604,6 +1615,9 @@ int c46_codec(int argc, char **argv)
 #ifdef USE_AC
 				uint32_t *currhist=hists[kc][ctx][pred>>(8-PREDBITS)];
 				int den=((currhist[NLEVELS]+(1<<PROBSHIFT>>1))>>PROBSHIFT)+NLEVELS, cdf=0, freq, tmp;
+#ifdef CTXCTR
+				++ctxctr[kc][ctx];
+#endif
 				if(fwd)
 				{
 					error=(int8_t)(yuv[kc]-pred);
@@ -1830,6 +1844,21 @@ int c46_codec(int argc, char **argv)
 	t=time_sec()-t;
 	if(fwd)
 	{
+#ifdef CTXCTR
+		int vmax=0;
+		for(int k=0;k<NCTX;++k)
+		{
+			if(!k||vmax<(int)ctxctr[0][k])
+				vmax=ctxctr[0][k];
+		}
+		for(int k=0;k<NCTX;++k)
+		{
+			printf("%3d  %10d  %10d  %10d  ", k, ctxctr[0][k], ctxctr[1][k], ctxctr[2][k]);
+			for(int k2=0, nstars=ctxctr[0][k]*64/vmax;k2<nstars;++k2)
+				printf("*");
+			printf("\n");
+		}
+#endif
 #if defined ESTIMATE_SIZES && !defined USE_AC
 		int64_t btotal=0;
 		for(int k=0;k<2;++k)
