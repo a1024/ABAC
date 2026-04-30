@@ -170,12 +170,12 @@ int main(int argc, char **argv)
 	const char dstfn[]=//OVERWRITTEN
 		"C:/dataset-a-temp/zzz.ppm"
 	//	"C:/Projects/datasets/zzz.ppm"
-	//	"D:/ML/zzz_deletethis.ppm"
+	//	"D:/ML/zzz.ppm"
 	;
 	const char tmpfn[]=//OVERWRITTEN
 		"C:/dataset-a-temp/zzz.lsim"
 	//	"C:/Projects/datasets/zzz.lsim"
-	//	"D:/ML/zzz_deletethis.lsim"
+	//	"D:/ML/zzz.lsim"
 	;
 	const char srcfn[]=
 	//	"C:/dataset-a70-ppm/20240816_113656_966.ppm"
@@ -227,13 +227,13 @@ int main(int argc, char **argv)
 	//	"C:/dataset-HUGE-ppm/space_huge.ppm"		//X
 	//	"C:/dataset-ic16-ppm/big_building.ppm"		//16-bit
 	//	"C:/dataset-ic8-ppm/big_building.ppm"
-	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+		"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_13.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA12811.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13757.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13803.ppm"
-		"C:/dataset-LPCB-ppm/PIA13833.ppm"	//CGI
+	//	"C:/dataset-LPCB-ppm/PIA13833.ppm"	//CGI
 	//	"C:/dataset-LPCB-ppm/PIA13912.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13914.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13915.ppm"	//false color terrain
@@ -330,6 +330,7 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/zzzpng.ppm"
 	//	"D:/ML/20260428-PIA13912-L.PPM"
 	//	"D:/ML/20260428-PIA13912-R.PPM"
+	//	"D:/ML/0.PPM"
 	//	"D:/ML/big_building.PPM"
 	//	"D:/ML/big_building.PPM"
 	//	"D:/ML/checkboard.PPM"
