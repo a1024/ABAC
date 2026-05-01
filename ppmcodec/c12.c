@@ -43,6 +43,7 @@
 //	#define FIFOVAL
 #endif
 
+//	#define LEARN_UNTIL_CORRECT	//X
 	#define USE_MEANMINMAX
 //	#define USE_TABLES
 	#define USE_COUNTERS
@@ -50,7 +51,29 @@
 	#define UNSIGNED_PIXEL
 
 
+//lossy estims
 #if 1
+#define PREDLIST_LOSSY\
+	PRED(N)\
+	PRED(NNN)\
+	PRED(NNNN)\
+	PRED(N+N-NN)\
+	PRED(N+NE-NNE)\
+	PRED(N+NW-NNW)\
+	PRED(N+W-NW)\
+	PRED(W)\
+	PRED(WWW)\
+	PRED(WWWW)\
+	PRED(W+W-WW)\
+	PRED(W+NE-N)\
+	PRED(W+NEE-NE)\
+	PRED(W+NW-NWW)\
+	PRED(NE)\
+	PRED(NEEE)\
+	PRED(NEEEE)\
+
+#endif
+#if 0
 #define PREDLIST_LOSSY\
 	PRED(N)\
 	PRED(NNN)\
@@ -75,6 +98,36 @@
 #endif
 
 
+//lossless estims
+#if 1
+#define PREDLIST\
+	PRED(N)\
+	PRED(N+dN)\
+	PRED(NN)\
+	PRED(NNN)\
+	PRED(NNNN)\
+	PRED(2*N-NN+dN)\
+	PRED(N+NE-NNE)\
+	PRED(N+NW-NNW)\
+	PRED(N+W-NW)\
+	PRED(N+W-NW+dNW)\
+	PRED(NEEEE)\
+	PRED(W)\
+	PRED(W+dW)\
+	PRED(WW)\
+	PRED(WWW)\
+	PRED(WWWW)\
+	PRED(2*W-WW+dW)\
+	PRED(W+NE-N)\
+	PRED(W+NEE-NE)\
+	PRED(W+NW-NWW)\
+	PRED(3*(N-NN)+NNN)\
+	PRED(3*(W-WW)+WWW)\
+	PRED(NW+dNW)\
+	PRED(NE)\
+	PRED(NEEE)\
+
+#endif
 #if 0
 #define PREDLIST\
 	PRED(N)\
@@ -93,26 +146,6 @@
 	PRED(W+xNEE)\
 	PRED(W+xNW)\
 	PRED(W+2*xW-xWW)\
-
-#endif
-#if 1
-#define PREDLIST\
-	PRED(N)\
-	PRED(NNN)\
-	PRED(NNNN)\
-	PRED(N+N-NN)\
-	PRED(N+NE-NNE)\
-	PRED(N+NW-NNW)\
-	PRED(N+W-NW)\
-	PRED(NEEEE)\
-	PRED(W)\
-	PRED(WWW)\
-	PRED(WWWW)\
-	PRED(W+W-WW)\
-	PRED(W+NE-N)\
-	PRED(W+NEE-NE)\
-	PRED(W+NW-NWW)\
-	PRED(3*(W-WW)+WWW)\
 
 #endif
 #if 0
@@ -186,7 +219,7 @@ enum
 {
 	RCT_BITS=3,
 	ADDBITS=2,
-
+	
 	L1SH_LOSSY=18,
 	L1SH=20,
 #define PRED(EXPR) +1
@@ -221,8 +254,7 @@ enum
 	XPAD=8,
 	NCH=3,
 	NROWS=4,
-	NVAL=4,
-//	NVAL0=2,
+	NVAL=3,
 };
 
 
@@ -243,10 +275,10 @@ enum
 #endif
 #endif
 #define CLAMP2(X, LO, HI) X=X>(LO)?X:LO, X=X<(HI)?X:HI
-#define CVTFP32_I32(X) _mm_cvt_ss2si(_mm_set_ss(X))
-#define CVTTFP32_I32(X) _mm_cvtt_ss2si(_mm_set_ss(X))
-#define CVTFP64_I64(X) _mm_cvtsd_si64(_mm_set_sd(X))
-#define CVTTFP64_I64(X) _mm_cvttsd_si64(_mm_set_sd(X))
+#define ROUND32(X) _mm_cvt_ss2si(_mm_set_ss(X))
+#define ROUND64(X) _mm_cvtsd_si64(_mm_set_sd(X))
+#define TRUNC32(X) _mm_cvtt_ss2si(_mm_set_ss(X))
+#define TRUNC64(X) _mm_cvttsd_si64(_mm_set_sd(X))
 static void memfill_s(void *dst, const void *src, size_t dstbytes, size_t srcbytes)
 {
 	size_t copied;
@@ -845,7 +877,7 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 #endif
 	for(ky=0;ky<ih;++ky)
 	{
-		uint32_t yuv[4]={0};
+		int yuv[3]={0};
 		int16_t *rows[]=
 		{
 			pixels+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,
@@ -890,48 +922,30 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 					WWW	=rows[0][0-3*NCH*NROWS*NVAL],
 					WW	=rows[0][0-2*NCH*NROWS*NVAL],
 					W	=rows[0][0-1*NCH*NROWS*NVAL],
-					xNW	=rows[1][1-1*NCH*NROWS*NVAL],
-					xNE	=rows[1][1+1*NCH*NROWS*NVAL],
-					xNEE	=rows[1][1+2*NCH*NROWS*NVAL],
-					xNEEE	=rows[1][1+3*NCH*NROWS*NVAL],
-					xWW	=rows[0][1-2*NCH*NROWS*NVAL],
-					xW	=rows[0][1-1*NCH*NROWS*NVAL],
-					yNN	=rows[2][2+0*NCH*NROWS*NVAL],
-					yNW	=rows[1][2-1*NCH*NROWS*NVAL],
-					yN	=rows[1][2+0*NCH*NROWS*NVAL],
-					yNE	=rows[1][2+1*NCH*NROWS*NVAL],
-					yW	=rows[0][2-1*NCH*NROWS*NVAL],
-					eN	=rows[1][2+0*NCH*NROWS*NVAL],
-					eNE	=rows[1][3+1*NCH*NROWS*NVAL],
-					eNEE	=rows[1][3+2*NCH*NROWS*NVAL],
-					eNEEE	=rows[1][3+3*NCH*NROWS*NVAL],
-					eW	=rows[0][3-1*NCH*NROWS*NVAL];
-#if 0
-				int32_t
-					NNNN	=rows[0][0+0*NCH*NROWS*NVAL],
-				//	NNN	=rows[3][0+0*NCH*NROWS*NVAL],
-					NNW	=rows[2][0-1*NCH*NROWS*NVAL],
-					NN	=rows[2][0+0*NCH*NROWS*NVAL],
-					NNE	=rows[2][0+1*NCH*NROWS*NVAL],
-					NWW	=rows[1][0-2*NCH*NROWS*NVAL],
-					NW	=rows[1][0-1*NCH*NROWS*NVAL],
-				//	N	=rows[1][0+0*NCH*NROWS*NVAL],
-				//	NE	=rows[1][0+1*NCH*NROWS*NVAL],
-					NEE	=rows[1][0+2*NCH*NROWS*NVAL],
-				//	NEEE	=rows[1][0+3*NCH*NROWS*NVAL],
-				//	NEEEE	=rows[1][0+4*NCH*NROWS*NVAL],
-					WWWW	=rows[0][0-4*NCH*NROWS*NVAL],
-				//	WWW	=rows[0][0-3*NCH*NROWS*NVAL],
-					WW	=rows[0][0-2*NCH*NROWS*NVAL];
-				//	W	=rows[0][0-1*NCH*NROWS*NVAL],
-				//	eN	=rows[1][1+0*NCH*NROWS*NVAL],
-				//	eNE	=rows[1][1+1*NCH*NROWS*NVAL],
-				//	eNEE	=rows[1][1+2*NCH*NROWS*NVAL],
-				//	eNEEE	=rows[1][1+3*NCH*NROWS*NVAL],
-				//	eW	=rows[0][1-1*NCH*NROWS*NVAL];
-#endif
-				int32_t pred;
-				//int32_t upred;
+
+					eN	=rows[1][1+0*NCH*NROWS*NVAL],
+					eNE	=rows[1][1+1*NCH*NROWS*NVAL],
+					eNEE	=rows[1][1+2*NCH*NROWS*NVAL],
+					eNEEE	=rows[1][1+3*NCH*NROWS*NVAL],
+					eW	=rows[0][1-1*NCH*NROWS*NVAL],
+					
+					dNNNN	=rows[0][2+0*NCH*NROWS*NVAL],
+					dNNN	=rows[3][2+0*NCH*NROWS*NVAL],
+					dNNW	=rows[2][2-1*NCH*NROWS*NVAL],
+					dNN	=rows[2][2+0*NCH*NROWS*NVAL],
+					dNNE	=rows[2][2+1*NCH*NROWS*NVAL],
+					dNWW	=rows[1][2-2*NCH*NROWS*NVAL],
+					dNW	=rows[1][2-1*NCH*NROWS*NVAL],
+					dN	=rows[1][2+0*NCH*NROWS*NVAL],
+					dNE	=rows[1][2+1*NCH*NROWS*NVAL],
+					dNEE	=rows[1][2+2*NCH*NROWS*NVAL],
+					dNEEE	=rows[1][2+3*NCH*NROWS*NVAL],
+					dNEEEE	=rows[1][2+4*NCH*NROWS*NVAL],
+					dWWWW	=rows[0][2-4*NCH*NROWS*NVAL],
+					dWWW	=rows[0][2-3*NCH*NROWS*NVAL],
+					dWW	=rows[0][2-2*NCH*NROWS*NVAL],
+					dW	=rows[0][2-1*NCH*NROWS*NVAL];
+				int64_t pred;
 				int32_t upred2, pred0;
 				int32_t error;
 				int32_t nbypass, nbypass0;
@@ -941,6 +955,7 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 				int32_t bit=0;
 				int32_t ctx;
 				ALIGN(32) int32_t preds[L1NPREDS>L1NPREDS_LOSSY?L1NPREDS:L1NPREDS_LOSSY];
+				int epred;
 				
 				if(kc==0)
 					offset0=lumamean<<RCT_BITS;
@@ -948,7 +963,6 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 					offset0=cu0*yuv[0];
 				else 
 					offset0=cv0*yuv[0]+cv1*yuv[1];
-				//offset0=kc ? cv0*yuv[0]+cv1*yuv[1] : cu0*yuv[0];
 				offset=offset0>>RCT_BITS;
 				{
 					int j;
@@ -960,7 +974,7 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 						j=0;
 						PREDLIST_LOSSY;
 #undef  PRED
-						upred2=pred>>(L1SH_LOSSY-ADDBITS);
+						upred2=(int32_t)(pred>>(L1SH_LOSSY-ADDBITS));
 						pred>>=L1SH_LOSSY;
 					}
 					else
@@ -970,17 +984,13 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 						j=0;
 						PREDLIST;
 #undef  PRED
-						upred2=pred>>(L1SH-ADDBITS);
+						upred2=(int32_t)(pred>>(L1SH-ADDBITS));
 					//	pred>>=L1SH;
 					}
 				}
 				pred0=upred2>>ADDBITS;
 				upred2+=offset0<<ADDBITS>>RCT_BITS;
-#if 0
-				CLAMP2(upred2, (mmm[3+kc]<<ADDBITS), (mmm[6+kc]<<ADDBITS|((1<<ADDBITS)-1)));
-#else
 				CLAMP2(upred2, 0, (256<<ADDBITS)-1);
-#endif
 				pred=upred2>>ADDBITS;
 #ifdef USE_TABLES
 				uint8_t *ctxptr=ctxtable[eW<_countof(ctxtable)-1?eW:_countof(ctxtable)-1];
@@ -1000,8 +1010,10 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 #if 1
 				(void)NNNN	;
 				(void)NNN	;
+				(void)NNW	;
 				(void)NN	;
 				(void)NNE	;
+				(void)NWW	;
 				(void)NW	;
 				(void)N		;
 				(void)NE	;
@@ -1012,30 +1024,38 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 				(void)WWW	;
 				(void)WW	;
 				(void)W		;
+
 				(void)eN	;
-			//	(void)eNE	;
-			//	(void)eNEE	;
-			//	(void)eNEEE	;
-			//	(void)eW	;
-				(void)xNW	;
-				(void)xNE	;
-				(void)xNEE	;
-				(void)xNEEE	;
-				(void)xW	;
-				(void)yNW	;
-				(void)yN	;
-				(void)yNE	;
-				(void)yW	;
+				(void)eNE	;
+				(void)eNEE	;
+				(void)eNEEE	;
+				(void)eW	;
+
+				(void)dNNNN	;
+				(void)dNNN	;
+				(void)dNNW	;
+				(void)dNN	;
+				(void)dNNE	;
+				(void)dNWW	;
+				(void)dNW	;
+				(void)dN	;
+				(void)dNE	;
+				(void)dNEE	;
+				(void)dNEEE	;
+				(void)dNEEEE	;
+				(void)dWWWW	;
+				(void)dWWW	;
+				(void)dWW	;
+				(void)dW	;
 #endif
-				int epred;
 #ifdef USE_TABLES
 				epred=epredptr[pred];
 #else
 #ifdef UNSIGNED_PIXEL
 				if(lossy)
-					epred=pred>=128?255-pred:pred;
+					epred=(int32_t)pred>=128?255-(int32_t)pred:(int32_t)pred;
 				else
-					epred=128-abs(pred-128);
+					epred=128-abs((int32_t)pred-128);
 #else
 				if(lossy)
 					epred=pred>=0?127-pred:pred+128;
@@ -1048,10 +1068,10 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 					if(lossy)
 					{
 						int pixel;
-						error=yuv[kc]-pred;
+						error=yuv[kc]-(int32_t)pred;
 						epred=epred*invdist>>16;
 						error=(error*invdist>>16)-(error>>31);
-						pixel=error*dist+pred;
+						pixel=error*dist+(int32_t)pred;
 #ifdef UNSIGNED_PIXEL
 #ifdef USE_TABLES
 						pixel=clampptr[pixel];
@@ -1113,11 +1133,6 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 				}
 				else
 					error=0;
-//#ifdef UNSIGNED_PIXEL
-//				upred=pred;
-//#else
-//				upred=(uint8_t)(pred+128);
-//#endif
 				statsptr=stats1[kc][upred2][ctx];
 #ifdef PRINT_CTXHIST
 				if(fwd&&kc==0)
@@ -1362,8 +1377,23 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 #endif
 				}
 				{
-					int32_t curr=yuv[kc]-offset;//FIXME prec?
+					int32_t curr=yuv[kc]-offset;
 					int32_t k, e;
+
+					error=yuv[kc]-(int32_t)pred;
+					rows[0][2]=error;
+					if(lossy)
+						error=abs(error);
+					else
+						error=error<<1^error>>31;
+					rows[0][0]=curr;
+
+					rows[0][1]=(eW+(eW<eNE?eW:eNE)+(error<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
+				//	rows[0][1]=(16*eW+7*(error<<GRBITS)+9*(eNEE>eNEEE?eNEE:eNEEE))>>5;
+				//	rows[0][1]=(2*eW+(error<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
+
+				//	rows[0][2]=curr-W;//gx
+				//	rows[0][3]=curr-N;//gy
 
 					e=(curr>pred0)-(curr<pred0);
 
@@ -1377,25 +1407,52 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 					}
 					else
 					{
+#ifdef LEARN_UNTIL_CORRECT
+						int it=0;
+						curr=NEE;
+						do
+						{
+							int32_t
+							//	NNNN	=rows[(0+?)&3][0+(2+0)*NCH*NROWS*NVAL],
+								NNN	=rows[(3+1)&3][0+(2+0)*NCH*NROWS*NVAL],
+								NNW	=rows[(2+1)&3][0+(2-1)*NCH*NROWS*NVAL],
+								NN	=rows[(2+1)&3][0+(2+0)*NCH*NROWS*NVAL],
+								NNE	=rows[(2+1)&3][0+(2+1)*NCH*NROWS*NVAL],
+								NWW	=rows[(1+1)&3][0+(2-2)*NCH*NROWS*NVAL],
+								NW	=rows[(1+1)&3][0+(2-1)*NCH*NROWS*NVAL],
+								N	=rows[(1+1)&3][0+(2+0)*NCH*NROWS*NVAL],
+								NE	=rows[(1+1)&3][0+(2+1)*NCH*NROWS*NVAL],
+								NEE	=rows[(1+1)&3][0+(2+2)*NCH*NROWS*NVAL],
+								NEEE	=rows[(1+1)&3][0+(2+3)*NCH*NROWS*NVAL],
+								NEEEE	=rows[(1+1)&3][0+(2+4)*NCH*NROWS*NVAL],
+								WWWW	=rows[(0+1)&3][0+(2-4)*NCH*NROWS*NVAL],
+								WWW	=rows[(0+1)&3][0+(2-3)*NCH*NROWS*NVAL],
+								WW	=rows[(0+1)&3][0+(2-2)*NCH*NROWS*NVAL],
+								W	=rows[(0+1)&3][0+(2-1)*NCH*NROWS*NVAL];
+
+							bias[kc]+=e<<8;
+#define PRED(EXPR) coeffs[kc][k]+=e*preds[k]; ++k;
+							k=0;
+							PREDLIST;
+#undef  PRED
+
+							pred=bias[kc];
+#define PRED(EXPR) preds[k]=EXPR; pred+=coeffs[kc][k]*preds[k]; ++k;
+							k=0;
+							PREDLIST;
+#undef  PRED
+							pred>>=L1SH;
+							e=(curr>pred0)-(curr<pred0);
+							++it;
+						}while(e&&it<2);
+#else
 						bias[kc]+=e<<8;
 #define PRED(EXPR) coeffs[kc][k]+=e*preds[k]; ++k;
 						k=0;
 						PREDLIST;
 #undef  PRED
+#endif
 					}
-
-					error=yuv[kc]-(int32_t)pred;
-					if(lossy)
-						error=abs(error);
-					else
-						error=error<<1^error>>31;
-					rows[0][0]=curr;
-					rows[0][1]=curr-W;//gx
-					rows[0][2]=curr-N;//gy
-					
-				//	rows[0][3]=(16*eW+7*(error<<GRBITS)+9*(eNEE>eNEEE?eNEE:eNEEE))>>5;
-				//	rows[0][3]=(2*eW+(error<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
-					rows[0][3]=(eW+(eW<eNE?eW:eNE)+(error<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
 				}
 				rows[0]+=NROWS*NVAL;
 				rows[1]+=NROWS*NVAL;
@@ -2138,36 +2195,6 @@ int c12_codec(int argc, char **argv)
 		for(imptr=image;imptr<imend;imptr+=3)
 			mean+=*imptr;
 		lumamean=(uint8_t)(mean/((int64_t)iw*ih));
-#if 0
-		int64_t mean[3]={0};
-		int vmin[]={0xFF, 0xFF, 0xFF};
-		int vmax[3]={0};
-		for(imptr=image;imptr<imend;imptr+=3)
-		{
-			int r=imptr[0];
-			int g=imptr[1];
-			int b=imptr[2];
-			if(vmin[0]>r)vmin[0]=r;
-			if(vmax[0]<r)vmax[0]=r;
-			mean[0]+=r;
-			if(vmin[1]>g)vmin[1]=g;
-			if(vmax[1]<g)vmax[1]=g;
-			mean[1]+=g;
-			if(vmin[2]>b)vmin[2]=b;
-			if(vmax[2]<b)vmax[2]=b;
-			mean[2]+=b;
-		}
-		uint64_t res=(int64_t)iw*ih;
-		mmm[0]=(uint8_t)(mean[0]/res);
-		mmm[1]=(uint8_t)(mean[1]/res);
-		mmm[2]=(uint8_t)(mean[2]/res);
-		mmm[3]=vmin[0];
-		mmm[4]=vmin[1];
-		mmm[5]=vmin[2];
-		mmm[6]=vmax[0];
-		mmm[7]=vmax[1];
-		mmm[8]=vmax[2];
-#endif
 #endif
 		streamptr=stream;
 		streamend=stream+usize;
