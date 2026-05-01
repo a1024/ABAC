@@ -43,8 +43,7 @@
 //	#define FIFOVAL
 #endif
 
-//	#define LEARN_UNTIL_CORRECT	//X
-	#define USE_MEANMINMAX
+	#define SUB_LUMAMEAN
 //	#define USE_TABLES
 	#define USE_COUNTERS
 
@@ -117,9 +116,9 @@
 	PRED(WWW+dW)\
 	PRED(WWWW)\
 	PRED(2*W-WW+dW)\
-	PRED(W+NE-N)\
-	PRED(W+NEE-NE)\
-	PRED(W+NW-NWW)\
+	PRED(W+NE-N+dN)\
+	PRED(W+NEE-NE+dNE)\
+	PRED(W+NW-NWW-dNW)\
 	PRED(3*(N-NN)+NNN)\
 	PRED(3*(W-WW)+WWW)\
 	PRED(NW+dNW)\
@@ -221,6 +220,7 @@ enum
 {
 	RCT_BITS=3,
 	ADDBITS=2,
+//	GAIN3=4,
 	
 	L1SH_LOSSY=18,
 	L1SH=20,
@@ -948,10 +948,10 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 					dWW	=rows[0][2-2*NCH*NROWS*NVAL],
 					dW	=rows[0][2-1*NCH*NROWS*NVAL];
 				int64_t pred;
-				int32_t upred2, pred0;
+				int32_t pred0, upred2;
 				int32_t error;
 				int32_t nbypass, nbypass0;
-				int32_t nzeros=-1, grflag;
+				int32_t nzeros=0, grflag;
 				int32_t tidx=0;
 				Cell_t *statsptr;
 				int32_t bit=0;
@@ -976,6 +976,7 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 						j=0;
 						PREDLIST_LOSSY;
 #undef  PRED
+					//	pred3=(int32_t)(pred*GAIN3>>L1SH_LOSSY);
 						upred2=(int32_t)(pred>>(L1SH_LOSSY-ADDBITS));
 						pred>>=L1SH_LOSSY;
 					}
@@ -986,11 +987,13 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 						j=0;
 						PREDLIST;
 #undef  PRED
+					//	pred3=(int32_t)(pred*GAIN3>>L1SH);
 						upred2=(int32_t)(pred>>(L1SH-ADDBITS));
 					//	pred>>=L1SH;
 					}
 				}
 				pred0=upred2>>ADDBITS;
+			//	pred3+=offset0*GAIN3>>RCT_BITS;
 				upred2+=offset0<<ADDBITS>>RCT_BITS;
 				CLAMP2(upred2, 0, (256<<ADDBITS)-1);
 				pred=upred2>>ADDBITS;
@@ -1276,7 +1279,7 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 
 					for(;kb>=0;--kb)
 					{
-						if(fwd)
+						//if(fwd)
 							bit=error>>kb&1;
 #ifdef ESTIMATE_BITSIZE
 						eidx=GRLIMIT+8-nbypass+kb;
@@ -1380,10 +1383,11 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 				}
 				{
 					int32_t curr=yuv[kc]-offset;
-					int32_t k, e;
+					int32_t j;
 
+					rows[0][2]=(yuv[kc]<<ADDBITS)-upred2;
+				//	rows[0][2]=yuv[kc]*GAIN3-pred3;
 					error=yuv[kc]-(int32_t)pred;
-					rows[0][2]=error;
 					if(lossy)
 						error=abs(error);
 					else
@@ -1394,66 +1398,23 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 				//	rows[0][1]=(16*eW+7*(error<<GRBITS)+9*(eNEE>eNEEE?eNEE:eNEEE))>>5;
 				//	rows[0][1]=(2*eW+(error<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
 
-				//	rows[0][2]=curr-W;//gx
-				//	rows[0][3]=curr-N;//gy
-
-					e=(curr>pred0)-(curr<pred0);
+					error=(curr>pred0)-(curr<pred0);
 
 					if(lossy)
 					{
 						//currw[L1NPREDS_LOSSY]+=e;
-#define PRED(EXPR) lcoeffs[kc][k]+=e*preds[k]; ++k;
-						k=0;
+#define PRED(EXPR) lcoeffs[kc][j]+=error*preds[j]; ++j;
+						j=0;
 						PREDLIST_LOSSY;
 #undef  PRED
 					}
 					else
 					{
-#ifdef LEARN_UNTIL_CORRECT
-						int it=0;
-						curr=NEE;
-						do
-						{
-							int32_t
-							//	NNNN	=rows[(0+?)&3][0+(2+0)*NCH*NROWS*NVAL],
-								NNN	=rows[(3+1)&3][0+(2+0)*NCH*NROWS*NVAL],
-								NNW	=rows[(2+1)&3][0+(2-1)*NCH*NROWS*NVAL],
-								NN	=rows[(2+1)&3][0+(2+0)*NCH*NROWS*NVAL],
-								NNE	=rows[(2+1)&3][0+(2+1)*NCH*NROWS*NVAL],
-								NWW	=rows[(1+1)&3][0+(2-2)*NCH*NROWS*NVAL],
-								NW	=rows[(1+1)&3][0+(2-1)*NCH*NROWS*NVAL],
-								N	=rows[(1+1)&3][0+(2+0)*NCH*NROWS*NVAL],
-								NE	=rows[(1+1)&3][0+(2+1)*NCH*NROWS*NVAL],
-								NEE	=rows[(1+1)&3][0+(2+2)*NCH*NROWS*NVAL],
-								NEEE	=rows[(1+1)&3][0+(2+3)*NCH*NROWS*NVAL],
-								NEEEE	=rows[(1+1)&3][0+(2+4)*NCH*NROWS*NVAL],
-								WWWW	=rows[(0+1)&3][0+(2-4)*NCH*NROWS*NVAL],
-								WWW	=rows[(0+1)&3][0+(2-3)*NCH*NROWS*NVAL],
-								WW	=rows[(0+1)&3][0+(2-2)*NCH*NROWS*NVAL],
-								W	=rows[(0+1)&3][0+(2-1)*NCH*NROWS*NVAL];
-
-							bias[kc]+=e<<8;
-#define PRED(EXPR) coeffs[kc][k]+=e*preds[k]; ++k;
-							k=0;
-							PREDLIST;
-#undef  PRED
-
-							pred=bias[kc];
-#define PRED(EXPR) preds[k]=EXPR; pred+=coeffs[kc][k]*preds[k]; ++k;
-							k=0;
-							PREDLIST;
-#undef  PRED
-							pred>>=L1SH;
-							e=(curr>pred0)-(curr<pred0);
-							++it;
-						}while(e&&it<2);
-#else
-						bias[kc]+=e<<8;
-#define PRED(EXPR) coeffs[kc][k]+=e*preds[k]; ++k;
-						k=0;
+						bias[kc]+=error<<8;
+#define PRED(EXPR) coeffs[kc][j]+=error*preds[j]; ++j;
+						j=0;
 						PREDLIST;
 #undef  PRED
-#endif
 					}
 				}
 				rows[0]+=NROWS*NVAL;
@@ -1625,9 +1586,8 @@ int c12_codec(int argc, char **argv)
 		0, 0xFFFFFFFFFFFF, 0,
 		0, 0,
 	};
-#ifdef USE_MEANMINMAX
+#ifdef SUB_LUMAMEAN
 	uint8_t lumamean=0;
-	//uint8_t mmm[9]={0};
 #endif
 #ifdef LOUD
 	double t=time_sec2();
@@ -1830,7 +1790,7 @@ int c12_codec(int argc, char **argv)
 			fread(&rctinfo.cu0, 1, 2, fsrc);
 			fread(&rctinfo.cv0, 1, 2, fsrc);
 			fread(&rctinfo.cv1, 1, 2, fsrc);
-#ifdef USE_MEANMINMAX
+#ifdef SUB_LUMAMEAN
 			fread(&lumamean, 1, 1, fsrc);
 #endif
 			fread(&dist, 1, 1, fsrc);
@@ -2192,7 +2152,7 @@ int c12_codec(int argc, char **argv)
 #endif
 		}
 		
-#ifdef USE_MEANMINMAX
+#ifdef SUB_LUMAMEAN
 		int64_t mean=0;
 		for(imptr=image;imptr<imend;imptr+=3)
 			mean+=*imptr;
@@ -2382,7 +2342,7 @@ int c12_codec(int argc, char **argv)
 			dstsize+=fwrite(&rctinfo.cu0, 1, 2, fdst);
 			dstsize+=fwrite(&rctinfo.cv0, 1, 2, fdst);
 			dstsize+=fwrite(&rctinfo.cv1, 1, 2, fdst);
-#ifdef USE_MEANMINMAX
+#ifdef SUB_LUMAMEAN
 			dstsize+=fwrite(&lumamean, 1, 1, fdst);
 #endif
 			dstsize+=fwrite(&dist, 1, 1, fdst);
