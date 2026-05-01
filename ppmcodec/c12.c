@@ -103,19 +103,18 @@
 #define PREDLIST\
 	PRED(N)\
 	PRED(N+dN)\
-	PRED(NN)\
-	PRED(NNN)\
+	PRED(NN+dN)\
+	PRED(NNN+dN)\
 	PRED(NNNN)\
 	PRED(2*N-NN+dN)\
-	PRED(N+NE-NNE)\
+	PRED(N+NE-NNE+dNE)\
 	PRED(N+NW-NNW)\
 	PRED(N+W-NW)\
 	PRED(N+W-NW+dNW)\
-	PRED(NEEEE)\
 	PRED(W)\
 	PRED(W+dW)\
-	PRED(WW)\
-	PRED(WWW)\
+	PRED(WW+dW)\
+	PRED(WWW+dW)\
 	PRED(WWWW)\
 	PRED(2*W-WW+dW)\
 	PRED(W+NE-N)\
@@ -124,8 +123,11 @@
 	PRED(3*(N-NN)+NNN)\
 	PRED(3*(W-WW)+WWW)\
 	PRED(NW+dNW)\
-	PRED(NE)\
+	PRED(NE+dNE)\
+	PRED(NEE+dNEE)\
 	PRED(NEEE)\
+	PRED(NEEEE)\
+	PRED(NNNN-WWWW+NE+dNNNN+dWWWW)\
 
 #endif
 #if 0
