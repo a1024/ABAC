@@ -102,6 +102,36 @@
 #define PREDLIST\
 	PRED(N)\
 	PRED(N+dN)\
+	PRED(NN)\
+	PRED(NNN)\
+	PRED(NNNN)\
+	PRED(2*N-NN+dN)\
+	PRED(N+NE-NNE)\
+	PRED(N+NW-NNW)\
+	PRED(N+W-NW)\
+	PRED(N+W-NW+dNW)\
+	PRED(NEEEE)\
+	PRED(W)\
+	PRED(W+dW)\
+	PRED(WW)\
+	PRED(WWW)\
+	PRED(WWWW)\
+	PRED(2*W-WW+dW)\
+	PRED(W+NE-N)\
+	PRED(W+NEE-NE)\
+	PRED(W+NW-NWW)\
+	PRED(3*(N-NN)+NNN)\
+	PRED(3*(W-WW)+WWW)\
+	PRED(NW+dNW)\
+	PRED(NE)\
+	PRED(NEE+dNEE)\
+	PRED(NEEE)\
+
+#endif
+#if 0
+#define PREDLIST\
+	PRED(N)\
+	PRED(N+dN)\
 	PRED(NN+dN)\
 	PRED(NNN+dN)\
 	PRED(NNNN)\
@@ -126,7 +156,7 @@
 	PRED(NEE+dNEE)\
 	PRED(NEEE)\
 	PRED(NEEEE)\
-	PRED(NNNN-WWWW+NE+dNNNN+dWWWW)\
+	PRED(NNNN-WWWW+NE+dN+dW)\
 
 #endif
 #if 0
@@ -220,7 +250,6 @@ enum
 {
 	RCT_BITS=3,
 	ADDBITS=2,
-//	GAIN3=4,
 	
 	L1SH_LOSSY=18,
 	L1SH=20,
@@ -976,7 +1005,6 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 						j=0;
 						PREDLIST_LOSSY;
 #undef  PRED
-					//	pred3=(int32_t)(pred*GAIN3>>L1SH_LOSSY);
 						upred2=(int32_t)(pred>>(L1SH_LOSSY-ADDBITS));
 						pred>>=L1SH_LOSSY;
 					}
@@ -987,13 +1015,11 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 						j=0;
 						PREDLIST;
 #undef  PRED
-					//	pred3=(int32_t)(pred*GAIN3>>L1SH);
 						upred2=(int32_t)(pred>>(L1SH-ADDBITS));
 					//	pred>>=L1SH;
 					}
 				}
 				pred0=upred2>>ADDBITS;
-			//	pred3+=offset0*GAIN3>>RCT_BITS;
 				upred2+=offset0<<ADDBITS>>RCT_BITS;
 				CLAMP2(upred2, 0, (256<<ADDBITS)-1);
 				pred=upred2>>ADDBITS;
@@ -1384,22 +1410,22 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 				{
 					int32_t curr=yuv[kc]-offset;
 					int32_t j;
+					
+					rows[0][0]=curr;
 
-					rows[0][2]=(yuv[kc]<<ADDBITS)-upred2;
-				//	rows[0][2]=yuv[kc]*GAIN3-pred3;
+					error=(yuv[kc]<<ADDBITS)-upred2;
+					rows[0][2]=error;
+
 					error=yuv[kc]-(int32_t)pred;
 					if(lossy)
 						error=abs(error);
 					else
 						error=error<<1^error>>31;
-					rows[0][0]=curr;
-
 					rows[0][1]=(eW+(eW<eNE?eW:eNE)+(error<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
 				//	rows[0][1]=(16*eW+7*(error<<GRBITS)+9*(eNEE>eNEEE?eNEE:eNEEE))>>5;
 				//	rows[0][1]=(2*eW+(error<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
 
 					error=(curr>pred0)-(curr<pred0);
-
 					if(lossy)
 					{
 						//currw[L1NPREDS_LOSSY]+=e;
@@ -1410,7 +1436,7 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 					}
 					else
 					{
-						bias[kc]+=error<<8;
+						bias[kc]+=error<<9;
 #define PRED(EXPR) coeffs[kc][j]+=error*preds[j]; ++j;
 						j=0;
 						PREDLIST;
