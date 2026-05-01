@@ -110,7 +110,6 @@
 	PRED(N+NW-NNW)\
 	PRED(N+W-NW)\
 	PRED(N+W-NW+dNW)\
-	PRED(NEEEE)\
 	PRED(W)\
 	PRED(W+dW)\
 	PRED(WW)\
@@ -123,9 +122,10 @@
 	PRED(3*(N-NN)+NNN)\
 	PRED(3*(W-WW)+WWW)\
 	PRED(NW+dNW)\
-	PRED(NE)\
+	PRED(NE+dNE)\
 	PRED(NEE+dNEE)\
 	PRED(NEEE)\
+	PRED(NEEEE)\
 
 #endif
 #if 0
