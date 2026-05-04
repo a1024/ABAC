@@ -80,15 +80,15 @@ c12m:
 	gcc $(FLAGS) -DCODEC_EXT=c12 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c12m.c codec.c util.c  -o c12 $(LIBS)
 
 c12:
-#	gcc -Wall -O2 -s -Dc12_codec=main -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS2) c12.c  -o c12 $(LIBS)
 	clang -Wall -O3 -s -Dc12_codec=main -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS2) c12.c  -o c12 $(LIBS)
+#	gcc -Wall -O2 -s -Dc12_codec=main -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS2) c12.c  -o c12 $(LIBS)
 #	gcc $(FLAGS) -masm=intel -Dc12_codec=main -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS2) c12.c  -o c12 $(LIBS)
 
-c12debug:
-	clang -Wall -g -D_DEBUG -DLOUD -DCODEC_EXT=c12 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c12.c codec.c  -o c12 $(LIBS)
+#c12debug:
+#	clang -Wall -g -D_DEBUG -DLOUD -DCODEC_EXT=c12 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c12.c codec.c  -o c12 $(LIBS)
 
-c12s:
-	gcc -Wall -O3 -s -DCODEC_EXT=c12 -mavx2 -mbmi -mlzcnt  c12.c codec.c  -o c12 $(LIBS)
+#c12s:
+#	gcc -Wall -O3 -s -DCODEC_EXT=c12 -mavx2 -mbmi -mlzcnt  c12.c codec.c  -o c12 $(LIBS)
 
 c13:
 	gcc $(FLAGS) -DCODEC_EXT=c13 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c13.c codec.c util.c  -o c13 $(LIBS)

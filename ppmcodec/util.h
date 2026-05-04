@@ -56,7 +56,7 @@ extern "C"
 #define ROTATE3(A, B, C, TEMP) TEMP=A, A=B, B=C, C=TEMP
 #define MINVAR(A, B) ((A)<(B)?(A):(B))
 #define MAXVAR(A, B) ((A)>(B)?(A):(B))
-#define CLAMP2(X, LO, HI) X=X>LO?X:LO, X=X<HI?X:HI
+#define CLAMP2(X, LO, HI) X=X>(LO)?X:LO, X=X<(HI)?X:HI
 
 //clobbers A B C
 #define MEDIAN3V_CLOB(M, A, B, C)\

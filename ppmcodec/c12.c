@@ -30,18 +30,30 @@
 	#define LOUD
 	#define ESTIMATE_BITSIZE
 //	#define PRINT_STATS
-	#define PRINT_RCT
+//	#define PRINT_RCT
 //	#define PRINTBITS
 //	#define PRINTBITS2
-	#define PRINTBITS3
+//	#define PRINTBITS3
 //	#define EXPERIMENT
 //	#define PRINT_ERRORCOUNTS
-	#define PRINT_ANALYSISSPEED
-	#define PRINT_CTXHIST
+//	#define PRINT_ANALYSISSPEED
+//	#define PRINT_L1WEIGHTS
+//	#define PRINT_CTXHIST
+//	#define ANALYZE_CTXHIST
+//	#define PRINT_STATS2
 
 	#define ENABLE_GUIDE
 //	#define FIFOVAL
 #endif
+
+//	#define USE_RCPTABLE	//X  slow
+//	#define USE_DIV		//X  slow
+
+//	#define AC_LOHI		//X  slow
+
+//	#define MYSTERYCTX
+//	#define PASSPREVBIT
+//	#define STORE_PREVBIT
 
 	#define SUB_LUMAMEAN
 //	#define USE_TABLES
@@ -72,29 +84,6 @@
 	PRED(NEEEE)\
 
 #endif
-#if 0
-#define PREDLIST_LOSSY\
-	PRED(N)\
-	PRED(NNN)\
-	PRED(NNNN)\
-	PRED(N+yN)\
-	PRED(N+yNE)\
-	PRED(N+yNW)\
-	PRED(N+yW)\
-	PRED(W)\
-	PRED(WWW)\
-	PRED(WWWW)\
-	PRED(W+xW)\
-	PRED(W+xNE)\
-	PRED(W+xNEE)\
-	PRED(W+xNW)\
-	PRED(N+2*yN-yNN)\
-	PRED(W+2*xW-xWW)\
-	PRED(NE)\
-	PRED(NEEE)\
-	PRED(NEEEE)\
-
-#endif
 
 
 //lossless estims
@@ -115,7 +104,6 @@
 	PRED(WW)\
 	PRED(WWW)\
 	PRED(WWWW)\
-	PRED(2*W-WW+dW)\
 	PRED(W+NE-N)\
 	PRED(W+NEE-NE)\
 	PRED(W+NW-NWW)\
@@ -126,106 +114,7 @@
 	PRED(NEE+dNEE)\
 	PRED(NEEE)\
 	PRED(NEEEE)\
-
-#endif
-#if 0
-#define PREDLIST\
-	PRED(N)\
-	PRED(N+dN)\
-	PRED(NN+dN)\
-	PRED(NNN+dN)\
-	PRED(NNNN)\
-	PRED(2*N-NN+dN)\
-	PRED(N+NE-NNE+dNE)\
-	PRED(N+NW-NNW)\
-	PRED(N+W-NW)\
-	PRED(N+W-NW+dNW)\
-	PRED(W)\
-	PRED(W+dW)\
-	PRED(WW+dW)\
-	PRED(WWW+dW)\
-	PRED(WWWW)\
-	PRED(2*W-WW+dW)\
-	PRED(W+NE-N+dN)\
-	PRED(W+NEE-NE+dNE)\
-	PRED(W+NW-NWW-dNW)\
-	PRED(3*(N-NN)+NNN)\
-	PRED(3*(W-WW)+WWW)\
-	PRED(NW+dNW)\
-	PRED(NE+dNE)\
-	PRED(NEE+dNEE)\
-	PRED(NEEE)\
-	PRED(NEEEE)\
-	PRED(NNNN-WWWW+NE+dN+dW)\
-
-#endif
-#if 0
-#define PREDLIST\
-	PRED(N)\
-	PRED(NNN)\
-	PRED(NNNN)\
-	PRED(N+yN)\
-	PRED(N+yNE)\
-	PRED(N+yNW)\
-	PRED(N+yW)\
-	PRED(NEEEE)\
-	PRED(W)\
-	PRED(WWW)\
-	PRED(WWWW)\
-	PRED(W+xW)\
-	PRED(W+xNE)\
-	PRED(W+xNEE)\
-	PRED(W+xNW)\
-	PRED(W+2*xW-xWW)\
-
-#endif
-#if 0
-#define PREDLIST\
-	PRED(NNNN	)\
-	PRED(NNN	)\
-	PRED(NN		)\
-	PRED(NNE	)\
-	PRED(NW		)\
-	PRED(N		)\
-	PRED(NE		)\
-	PRED(NEE	)\
-	PRED(NEEE	)\
-	PRED(NEEEE	)\
-	PRED(WWWW	)\
-	PRED(WWW	)\
-	PRED(WW		)\
-	PRED(W		)\
-	PRED(xNW	)\
-	PRED(xNE	)\
-	PRED(xNEE	)\
-	PRED(xNEEE	)\
-	PRED(xWW	)\
-	PRED(xW		)\
-	PRED(yNN	)\
-	PRED(yNW	)\
-	PRED(yN		)\
-	PRED(yNE	)\
-	PRED(yW		)\
-
-#endif
-#if 0
-#define PREDLIST\
-	PRED(N)\
-	PRED(W)\
-	PRED(NNN)\
-	PRED(WWW)\
-	PRED(NNNN)\
-	PRED(WWWW)\
-	PRED(NEEE)\
-	PRED(NEEEE)\
-	PRED(N+yN)\
-	PRED(W+xW)\
-	PRED(N+yW)\
-	PRED(W+xNE)\
-	PRED(W+xNEE)\
-	PRED(N+yNE)\
-	PRED(N+yNW)\
-	PRED(W+xNW)\
+	PRED(NN+WW-NW)\
 
 #endif
 #if 0
@@ -244,6 +133,7 @@
 	PRED(N+NE-NNE)\
 	PRED(N+NW-NNW)\
 	PRED(W+NW-NWW)\
+	PRED(2*W-WW+dW)\
 
 #endif
 enum
@@ -258,35 +148,57 @@ enum
 	L1NPREDS_LOSSY=PREDLIST_LOSSY,
 #undef  PRED
 
-	GRBITS=6,
 	NCTX=24,
+	GRBITS=6,
 	GRLIMIT=16,
+
+	PROBBITS_USE=14,
 #ifdef USE_COUNTERS
-	PROBBITS_USE=12,
-	
 	CTRBITS=9,
 	CTRMASK=(1<<CTRBITS)-1,
-	
+#else
 	PROBBITS_STORE=24,
 	PROBSHIFT=PROBBITS_STORE-PROBBITS_USE,
-
-//	HISTBITS=22,// <= 64-CTRBITS*2
-//	HISTMASK=(1<<HISTBITS)-1,
-//	CTRFBITS=(32-CTRBITS)>>1,
-//	CTRFBITS=4,
-//	CTRFMASK=(1<<CTRFBITS)-1,
-#else
-	PROBBITS_STORE=15,
-	PROBBITS_USE=14,
-//	PROBBITS_STORE=17,
-//	PROBBITS_USE=12,
-	PROBSHIFT=PROBBITS_STORE-PROBBITS_USE,
 #endif
+
 	XPAD=8,
 	NCH=3,
 	NROWS=4,
 	NVAL=3,
 };
+#ifdef PRINT_L1WEIGHTS
+static const char *prednames[]=
+{
+#define PRED(E) #E,
+	PREDLIST
+#undef  PRED
+};
+static void print_weights(int32_t *weights)
+{
+	const int norm=9;
+	int32_t vmin=0;
+	for(int kp=0;kp<L1NPREDS;++kp)
+	{
+		if(vmin>weights[kp])
+			vmin=weights[kp];
+	}
+	vmin>>=(L1SH-norm);
+	for(int kp=0;kp<L1NPREDS;++kp)
+	{
+		int32_t w=weights[kp];
+		int nstars=w>>(L1SH-norm);
+		printf("%4d  %-20s  %9d  ", kp, prednames[kp], w);
+		for(int k2=vmin, np=0;k2<nstars&&k2<0&&np<1<<norm;++k2, ++np)
+			printf(" ");
+		for(int k2=nstars, np=0;k2<0&&np<1<<norm;++k2, ++np)
+			printf("-");
+		for(int k2=0, np=0;k2<nstars&&np<1<<norm;++k2, ++np)
+			printf("+");
+		printf("\n");
+	}
+	printf("\n");
+}
+#endif
 
 
 
@@ -622,17 +534,24 @@ static void crct_get(RCTInfo *rct, int c0, int c1, int c2)
 }
 #endif
 
-#ifdef USE_COUNTERS
+#if defined USE_COUNTERS && !defined USE_DIV && !defined USE_RCPTABLE
 static uint64_t ctrtable[1<<CTRBITS*2];//{p1, next_0(n0, n1}, next_1(n0, n1)}
 #endif
-#ifdef PRINT_CTXHIST
-static uint32_t ctxhist[256<<ADDBITS][NCTX];
+#ifdef USE_RCPTABLE
+static uint32_t rcptable[2<<CTRBITS];
 #endif
 typedef uint32_t Cell_t;
 static Cell_t stats1[3][256<<ADDBITS][NCTX][GRLIMIT];//unary
 static Cell_t stats2[3][256<<ADDBITS][256];//remainder
 static Cell_t stats3[3][8][256];//bypass on GRLIMIT
 static const size_t memusage=sizeof(stats1)+sizeof(stats2)+sizeof(stats3);
+#ifdef ANALYZE_CTXHIST
+static uint8_t a_history[3][256<<ADDBITS][NCTX];
+static int32_t a_ctxhist[3][256<<ADDBITS][NCTX][2*2];//unary
+#endif
+#ifdef PRINT_CTXHIST
+static uint32_t ctxhist[256<<ADDBITS][NCTX];//unary
+#endif
 typedef struct _ACState
 {
 	uint64_t low, range, code;
@@ -700,15 +619,103 @@ static double bitestim(int32_t *bitcounts)
 	return csize/8;
 }
 #endif
-INLINE void codebit(ACState *ac, Cell_t *pcell, int32_t *bit, const int fwd, int unary)
+#ifdef AC_LOHI
+	//static int32_t renormctr=0;//
+#endif
+INLINE void codebit(ACState *ac, Cell_t *pcell, int32_t *bit, const int fwd, int unary, int mysteryctx, int prevbit)
 {
-	uint64_t r2, mid;
-	int rbit, sh;
-	uint64_t entry=ctrtable[*pcell];
+	int rbit;
+	Cell_t cell=*pcell;
+#ifdef STORE_PREVBIT
+	int prevbit=cell&1;
+	cell>>=1;
+#endif
+#ifdef USE_RCPTABLE
+	int n[]={cell&CTRMASK, cell>>CTRBITS};
+	int sum=n[0]+n[1];
+	int rcp=rcptable[sum];
+	int num=(n[1]+1)<<PROBBITS_USE;
+	int32_t p1=(uint32_t)((uint64_t)num*rcp>>30);
+	p1+=p1<1<<PROBBITS_USE>>1;
+	//CLAMP2(p1, 1, ((1<<PROBBITS_USE)-1));
+#elif defined USE_DIV
+	int n[]={cell&CTRMASK, cell>>CTRBITS};
+	int m[]={n[0]*8+19, n[1]*8+19};
+	int den=m[0]+m[1];
+	int num=(m[1]<<PROBBITS_USE)+(den>>1);
+	int32_t p1=(uint32_t)num/(uint32_t)den;
+	CLAMP2(p1, 1, ((1<<PROBBITS_USE)-1));
+#elif defined USE_COUNTERS
+	int sh;
+	uint64_t entry=ctrtable[cell];
 	int32_t p1=(int32_t)(entry&((1ULL<<PROBBITS_USE)-1));
+#else
+	int32_t p1=cell>>PROBSHIFT;
+	p1+=p1<1<<PROBBITS_USE>>1;
+	//if(p1<1)
+	//	p1=1;
+#endif
+#ifdef MYSTERYCTX
+	if(prevbit==mysteryctx)
+		p1+=((1<<PROBBITS_USE>>1)-p1)>>5;
+#endif
 #ifdef _MSC_VER
+	if((uint32_t)(p1-1)>(uint32_t)((1<<PROBBITS_USE)-2))
+		CRASH("Invalid p1 0x%08X / %d bit", p1, PROBBITS_USE);
 	++ac->bitidx;
 #endif
+#ifdef AC_LOHI
+	//if(fifoidx==724849||fifoidx2==724849)//
+	//if(fifoidx==9705951||fifoidx2==9705951)//
+	//if(fifoidx==4501546||fifoidx2==4501546)//
+	//	printf("");
+	if(ac->range-ac->low<=0xFFFF)
+	{
+	//renorm:
+		//if(renormctr==285293)//
+		//	printf("");
+		if(ac->ptr>=ac->end)
+		{
+#ifdef _MSC_VER
+			CRASH("inflation  %d/%d  %8.4lf%%\n"
+				, (int32_t)ac->bitidx
+				, (int32_t)ac->totalbits
+				, 100.*ac->totalbits/ac->bitidx
+			);
+#endif
+			exit(1);
+		}
+		if(fwd)
+			*(uint32_t*)ac->ptr=(uint32_t)(ac->low>>32);
+		else
+			ac->code=ac->code<<32|*(uint32_t*)ac->ptr;
+		ac->ptr+=4;
+		ac->low<<=32;
+		ac->range=ac->range<<32|0xFFFFFFFF;
+	//	++renormctr;//
+		if(ac->range<ac->low)
+		{
+			ac->range=0xFFFFFFFFFFFFFFFF;
+			if(ac->range-ac->low>0xFFFFFFFF)
+				ac->range=ac->low+0xFFFFFFFF;
+		}
+		//if(ac->range<ac->low)
+		//	goto renorm;
+	}
+	{
+		uint64_t mid=ac->low+((ac->range-ac->low)*(uint32_t)p1>>PROBBITS_USE);
+		rbit=*bit;
+		rbit=fwd?rbit:ac->code<mid;
+		*bit=rbit;
+#ifdef FIFOVAL
+		if(fwd)
+			fifoval_enqueue(rbit<<24^p1);
+		else
+			fifoval_check(rbit<<24^p1);
+#endif
+		*(rbit?&ac->range:&ac->low)=mid-rbit;
+	}
+#else
 	if(ac->range<=0xFFFF)
 	{
 		if(ac->ptr>=ac->end)
@@ -732,26 +739,46 @@ INLINE void codebit(ACState *ac, Cell_t *pcell, int32_t *bit, const int fwd, int
 		if(ac->range>~ac->low)
 			ac->range=~ac->low;
 	}
-	r2=ac->range*(uint32_t)p1>>PROBBITS_USE;
-	mid=ac->low+r2;
-	ac->range-=r2;
-	--r2;
-	rbit=*bit;
-	rbit=fwd?rbit:ac->code<mid;
-	*bit=rbit;
-#ifdef FIFOVAL
-	if(p1<1||p1>(1<<PROBBITS_USE)-1)
-		CRASH("");
-	if(fwd)
-		fifoval_enqueue(rbit<<PROBBITS_STORE^p1);
-	else
-		fifoval_check(rbit<<PROBBITS_STORE^p1);
-#endif
-	ac->range=rbit?r2:ac->range;
-	ac->low=rbit?ac->low:mid;
+	{
+		uint64_t r2, mid;
 
+		r2=ac->range*(uint32_t)p1>>PROBBITS_USE;
+		mid=ac->low+r2;
+		rbit=*bit;
+		rbit=fwd?rbit:ac->code<mid;
+		*bit=rbit;
+#ifdef FIFOVAL
+		if(fwd)
+			fifoval_enqueue(rbit<<24^p1);
+		else
+			fifoval_check(rbit<<24^p1);
+#endif
+		//*(rbit?&ac->hi:&ac->lo)=mid-bit;
+		ac->range-=r2;
+		--r2;
+		ac->range=rbit?r2:ac->range;
+		ac->low=rbit?ac->low:mid;
+	}
+#endif
+	
+#if defined USE_DIV || defined USE_RCPTABLE
+	if(n[rbit]>=CTRMASK)
+	{
+		n[0]>>=1;
+		n[1]>>=1;
+	}
+	++n[rbit];
+	cell=n[1]<<CTRBITS|n[0];
+#elif defined USE_COUNTERS
 	sh=rbit?PROBBITS_USE+CTRBITS*2:PROBBITS_USE;
-	*pcell=(Cell_t)(entry>>sh&((1ULL<<CTRBITS*2)-1));
+	cell=(Cell_t)(entry>>sh&((1ULL<<CTRBITS*2)-1));
+#else
+	cell+=(int32_t)((rbit<<PROBBITS_STORE)-cell+(1<<7>>1))>>7;
+#endif
+#ifdef STORE_PREVBIT
+	cell=cell<<1|rbit;
+#endif
+	*pcell=cell;
 #ifdef ESTIMATE_BITSIZE
 	bitsizes[ekc][eidx]+=shannontable[rbit?p1:(1<<PROBBITS_USE)-p1];
 	++bitctr[ekc][eidx][rbit];
@@ -799,6 +826,9 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 	int64_t unarysum=0, unarycount=0;
 	uint32_t statctr[GRLIMIT+1][2]={0};
 #endif
+#ifdef AC_LOHI
+	//renormctr=0;//
+#endif
 	
 	//srand(10);
 	(void)memusage;
@@ -816,13 +846,14 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 	memset(stats1, 0, sizeof(stats1));
 	memset(stats2, 0, sizeof(stats2));
 	memset(stats3, 0, sizeof(stats3));
-	//memset(hist1, 0xAA, sizeof(hist1));
-	//memset(hist2, 0xAA, sizeof(hist2));
-	//memset(hist3, 0xAA, sizeof(hist3));
 #else
 	FILLMEM_S((uint32_t*)stats1, 1<<PROBBITS_STORE>>1, sizeof(stats1), sizeof(int32_t));
 	FILLMEM_S((uint32_t*)stats2, 1<<PROBBITS_STORE>>1, sizeof(stats2), sizeof(int32_t));
 	FILLMEM_S((uint32_t*)stats3, 1<<PROBBITS_STORE>>1, sizeof(stats3), sizeof(int32_t));
+#endif
+#ifdef ANALYZE_CTXHIST
+	memset(a_history, 0, sizeof(a_history));
+	memset(a_ctxhist, 0, sizeof(a_ctxhist));
 #endif
 #ifdef PRINT_CTXHIST
 	memset(ctxhist, 0, sizeof(ctxhist));
@@ -867,7 +898,11 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 		ctxtable[k][1]=nbypass;
 	}
 #endif
-#ifdef USE_COUNTERS
+#ifdef USE_RCPTABLE
+	for(int k=0;k<2<<CTRBITS;++k)
+		rcptable[k]=(1<<30)/(k+2);
+#endif
+#if defined USE_COUNTERS && !defined USE_DIV && !defined USE_RCPTABLE
 	for(int k=0;k<1<<CTRBITS*2;++k)//MSB {next_1(n0, n1), next_0(n0, n1}, p1} LSB
 	{
 		int32_t n[]={k&CTRMASK, k>>CTRBITS&CTRMASK};
@@ -1006,7 +1041,7 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 						PREDLIST_LOSSY;
 #undef  PRED
 						upred2=(int32_t)(pred>>(L1SH_LOSSY-ADDBITS));
-						pred>>=L1SH_LOSSY;
+					//	pred>>=L1SH_LOSSY;
 					}
 					else
 					{
@@ -1165,6 +1200,21 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 				else
 					error=0;
 				statsptr=stats1[kc][upred2][ctx];
+				int mysteryctx=2;
+#ifdef MYSTERYCTX
+				if(ctx==3)
+					mysteryctx=0;
+				if(ctx==14)
+					mysteryctx=1;
+				//if((uint32_t)(ctx-1)<6-1||ctx==15)//1,2,3,4,5,15  ->  0 is uncertain
+				//	mysteryctx=0;
+				//else if(ctx==14||ctx==16||ctx==22)//14,16,22  ->  1 is uncertain
+				//	mysteryctx=1;
+#endif
+#ifdef ANALYZE_CTXHIST
+				uint8_t *historyptr=a_history[kc][upred2]+ctx;
+				int32_t *ctxptr=a_ctxhist[kc][upred2][ctx];
+#endif
 #ifdef PRINT_CTXHIST
 				if(fwd&&kc==0)
 					++ctxhist[upred2][ctx];
@@ -1173,6 +1223,7 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 #ifdef ESTIMATE_BITSIZE
 				ekc=kc;
 #endif
+				int prevbit=1;
 				do
 				{
 					bit=tidx>=nzeros;
@@ -1180,7 +1231,7 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 					eidx=tidx;
 					++unary_count;
 #endif
-					codebit(ac, statsptr+tidx, &bit, fwd, 1);
+					codebit(ac, statsptr+tidx, &bit, fwd, 1, mysteryctx, prevbit);
 #ifdef PRINT_STATS
 					++statctr[tidx][bit];
 #endif
@@ -1227,15 +1278,27 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 //#ifdef _MSC_VER
 //					++unary_count;
 //#endif
+#ifdef ANALYZE_CTXHIST
+					if(fwd)
+					{
+						*historyptr=*historyptr<<1|bit;
+					//	++ctxptr[*historyptr&3];
+						++ctxptr[prevbit<<1|bit];
+					}
+#endif
+					prevbit=bit;
 #ifdef PRINTBITS3
-				//	if(fwd&&kc==0&&upred2==8&&ctx==11)//strongest
-				//	if(fwd&&kc==0&&upred2==8&&ctx==10)//strong
-				//	if(fwd&&kc==0&&upred2==20&&ctx==9)//average
-				//	if(fwd&&kc==0&&upred2==20&&ctx==8)//weak
+				//	if(fwd&&kc==0&&upred2==8&&ctx==11)//strongest	<12
+				//	if(fwd&&kc==0&&upred2==8&&ctx==10)//strong	<12
+				//	if(fwd&&kc==0&&upred2==20&&ctx==9)//average	<12
+				//	if(fwd&&kc==0&&upred2==20&&ctx==8)//weak	<12
+				//	if(fwd&&kc==0&&upred2==8&&ctx==13)//weak	>12
+				//	if(fwd&&kc==0&&upred2==48*4&&ctx==12)
 					{
 						static int hist=0;
 						++g_hist[hist&((1<<HISTBITS3)-1)][bit];
-						hist=hist<<1|bit;
+						hist=bit<<3|hist>>1;
+					//	hist=hist<<1|bit;
 					//	printf("%d", bit);
 						++g_n[bit];
 					}
@@ -1244,46 +1307,6 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 						break;
 					++tidx;
 				}while(tidx<GRLIMIT);
-#ifndef USE_COUNTERS
-				{
-					static const uint8_t shifttable[GRLIMIT+1]=
-					{//	0	1	2	3	4	5	6	7	8	9
-						7+4,	7+4,	7+4,	7+4,	7+4,	7+4,	7+4,	7+4,	7+4,	7+4,
-						7+4,	7+4,	7+4,	7+4,	7+4,	7+4,	7+4,	7+4,	4+4,
-					};
-					static const int16_t gaintable[GRLIMIT]=//<256!
-					{
-						8,	15,	20,	36,	52,	64,	72,	80,	96,	128,
-						192,	192,	192,	192,	192,	192,	192,	192,
-					};
-					int sh=shifttable[tidx];
-					for(int k=0;k<tidx+(tidx<GRLIMIT);++k)
-					//	statsptr[k]+=(int32_t)(((k>=tidx)<<PROBBITS_STORE)-statsptr[k])*gaintable[kc*(GRLIMIT+1)+k]>>sh;
-						statsptr[k]+=(int32_t)(((k>=tidx)<<PROBBITS_STORE)-statsptr[k])*gaintable[k]>>sh;
-				}
-#endif
-				//if(tidx<GRLIMIT)
-				//{
-				//	for(int k=0;k<tidx+(tidx<GRLIMIT);++k)
-				//	{
-				//		//int sh=shift_unary[k]+5;
-				//		//statsptr[k]+=(int32_t)(((k>=tidx)<<PROBBITS_STORE)-statsptr[k])*(k-tidx+50)>>sh;
-				//
-				//		//statsptr[k]+=(int32_t)(((k>=tidx)<<PROBBITS_STORE)-statsptr[k])>>shift_unary[k];
-				//		//statsptr[k]+=(int32_t)(((k>=tidx)<<PROBBITS_STORE)-statsptr[k])>>7;
-				//		
-				//		//statsptr[k]+=(int32_t)((bits[k]<<PROBBITS_STORE)-statsptr[k])*(80-tidx)>>(7+6);
-				//		statsptr[k]+=(int32_t)(((k>=tidx)<<PROBBITS_STORE)-statsptr[k])>>7;
-				//
-				//		//if(statsptr[k]<1||statsptr[k]>(1<<PROBBITS_STORE)-1)
-				//		//	CRASH("");
-				//	}
-				//}
-				//else
-				//{
-				//	for(int k=0;k<tidx+(tidx<GRLIMIT);++k)
-				//		statsptr[k]+=(int32_t)(((k>=tidx)<<PROBBITS_STORE)-statsptr[k])>>1;
-				//}
 				nbypass0=nbypass;
 				grflag=tidx==GRLIMIT;
 				if(grflag)
@@ -1311,7 +1334,7 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 						eidx=GRLIMIT+8-nbypass+kb;
 						++binary_count;
 #endif
-						codebit(ac, statsptr+tidx, &bit, fwd, 0);
+						codebit(ac, statsptr+tidx, &bit, fwd, 0, 2, 1);
 #ifndef USE_COUNTERS
 						statsptr[tidx]+=(int32_t)((bit<<PROBBITS_STORE)-statsptr[tidx])>>7;
 #endif
@@ -1413,9 +1436,6 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 					
 					rows[0][0]=curr;
 
-					error=(yuv[kc]<<ADDBITS)-upred2;
-					rows[0][2]=error;
-
 					error=yuv[kc]-(int32_t)pred;
 					if(lossy)
 						error=abs(error);
@@ -1425,6 +1445,16 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 				//	rows[0][1]=(16*eW+7*(error<<GRBITS)+9*(eNEE>eNEEE?eNEE:eNEEE))>>5;
 				//	rows[0][1]=(2*eW+(error<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
 
+					error=(yuv[kc]<<ADDBITS)-upred2;
+					rows[0][2]=error;
+					
+//#ifdef PRINT_L1WEIGHTS
+//					if(fwd&&ky==ih/2&&kx==iw/2&&kc==0)
+//						print_weights(coeffs[0]);
+//#endif
+
+				//	if(curr!=pred0)
+				//	{
 					error=(curr>pred0)-(curr<pred0);
 					if(lossy)
 					{
@@ -1442,6 +1472,14 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 						PREDLIST;
 #undef  PRED
 					}
+				//	}
+//#ifdef PRINT_L1WEIGHTS
+//					if(fwd&&ky==ih/2&&kx==iw/2&&kc==0)
+//					{
+//						printf("curr %d  pred %d\n", curr, pred0);
+//						print_weights(coeffs[0]);
+//					}
+//#endif
 				}
 				rows[0]+=NROWS*NVAL;
 				rows[1]+=NROWS*NVAL;
@@ -1470,6 +1508,150 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 		}
 	}
 	free(pixels);
+#ifdef PRINT_STATS2
+	if(fwd)
+	{
+		int kc=0;
+		for(int kp=0;kp<256<<ADDBITS;++kp)
+		{
+			printf("%6.2lf  ", (double)kp/(1<<ADDBITS));
+			for(int ctx=0;ctx<NCTX;++ctx)
+			{
+#if 0
+				int plane=0;//
+				int val=stats1[kc][kp][ctx][plane];
+				int32_t n[]={val&CTRMASK, val>>CTRBITS};
+				double cs=bitestim(n);
+				double us=(n[0]+n[1])/8.;
+				printf(" %3.0lf "
+					, us?100.*cs/us:0
+				);
+				if(n[0]>=256||n[1]>=256)
+					printf(" ...|");
+				else
+					printf("%4d|", n[0]+n[1]);
+
+				//printf(" %3d %3d|", n[0], n[1]);
+
+				//int p1=(int)(ctrtable[val]&((1LL<<PROBBITS_USE)-1));
+				//printf(" %03X", p1>>(PROBBITS_USE-12));
+#endif
+				int k=(ctx>>1)-GRBITS;
+				CLAMP2(k, 0, 7);
+				printf("%d ", k);
+				for(int plane=0;plane<GRLIMIT;++plane)
+				{
+					int val=stats1[kc][kp][ctx][plane];
+					int32_t n[]={val&CTRMASK, val>>CTRBITS};
+					double cs=bitestim(n);
+					double us=(n[0]+n[1])/8.;
+					printf("%X"
+						, (int)(us?9.*cs/us:0)+(us!=0)
+					);
+				}
+				printf("|");
+			}
+			printf("\n");
+		}
+	}
+#endif
+#ifdef ANALYZE_CTXHIST
+	if(fwd)
+	{
+		int flags[3][NCTX][2]={0};
+		double ccond=0, craw=0;
+		for(int kc=0;kc<3;++kc)
+		{
+			//printf("%c:      ", "YUV"[kc]);
+			////printf("%8s", "");
+			//for(int ctx=0;ctx<NCTX;++ctx)
+			//	printf("%12d", ctx);
+			//printf("\n\n");
+			for(int kp=0;kp<256<<ADDBITS;++kp)
+			{
+				printf("%6.2lf  ", (double)kp/(1<<ADDBITS));
+#if 0
+				for(int ctx=0;ctx<NCTX;++ctx)
+				{
+					int32_t *p=a_ctxhist[kc][kp][ctx];
+					double csizeprev0=bitestim(p+0*2);
+					double csizeprev1=bitestim(p+1*2);
+					//double cs=csizeprev0>csizeprev1?csizeprev0:csizeprev1;
+					//double us=(csizeprev0>csizeprev1?p[0]+p[1]:p[2]+p[3])/8.;
+					//if(!isfinite(csizeprev0)||!isfinite(csizeprev1))
+					//	printf("");
+					//printf("  %10.2lf %10.2lf"
+					//	, csizeprev0
+					//	, csizeprev1
+					//);
+					//printf("  %8.4lf%% %c"
+					//	, us?100.*cs/us:0
+					//	, '0'+(csizeprev0<csizeprev1)
+					//);
+					printf("%c"
+						, '0'+(csizeprev0<csizeprev1)
+					);
+				}
+#endif
+				//for(int ctx=0;ctx<NCTX;++ctx)
+				//{
+				//	int32_t *p=a_ctxhist[kc][kp][ctx];
+				//	printf("%6d"
+				//		, p[0]+p[1]+p[2]+p[3]
+				//	);
+				//}
+				for(int ctx=0;ctx<NCTX;++ctx)
+				{
+					int32_t *p=a_ctxhist[kc][kp][ctx];
+					double csizeprev0=bitestim(p+0*2);
+					double csizeprev1=bitestim(p+1*2);
+					int32_t counts[]={p[0]+p[2], p[1]+p[3]};
+					double raw=bitestim(counts);
+					double us0=(p[0]+p[1])/8.;
+					double us1=(p[2]+p[3])/8.;
+					//if((us0?ceil(100.*csizeprev0/us0):0)>100||(us1?ceil(100.*csizeprev1/us1):0)>100)
+					//	printf("");
+					printf("%2d %3.0lf %3.0lf|"
+						, 32-_lzcnt_u32(p[0]+p[1]+p[2]+p[3])
+						, us0?100.*csizeprev0/us0:0
+						, us1?100.*csizeprev1/us1:0
+					);
+					ccond+=csizeprev0+csizeprev1;
+					craw+=raw;
+					flags[kc][ctx][0]+=(us0?100.*csizeprev0/us0:0)>99;
+					flags[kc][ctx][1]+=(us1?100.*csizeprev1/us1:0)>99;
+				}
+				printf("\n");
+			}
+			printf("\n\n");
+		}
+		for(int kc=0;kc<3;++kc)
+		{
+			for(int ctx=0;ctx<NCTX;++ctx)
+			{
+				const int width=128;
+				int sum0=flags[kc][ctx][0];
+				int sum1=flags[kc][ctx][1];
+				int nstars=sum0+sum1?sum0*width/(sum0+sum1):width/2;
+				int nbypass=(ctx>>1)-GRBITS;
+				CLAMP2(nbypass, 0, 7);
+				printf("C%d CTX%3d k%d  %9d %9d  "
+					, kc
+					, ctx
+					, nbypass
+					, flags[kc][ctx][0]
+					, flags[kc][ctx][1]
+				);
+				for(int k2=0;k2<width;++k2)
+					printf("%c", '0'+(k2>nstars));
+				printf("\n");
+			}
+			printf("\n");
+		}
+		printf("Unary static cond  %12.2lf\n", ccond);
+		printf("Unary static raw   %12.2lf\n", craw);
+	}
+#endif
 #ifdef PRINT_CTXHIST
 	if(fwd)
 	{
@@ -1552,6 +1734,14 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 		//}
 	}
 #endif
+#ifdef PRINT_L1WEIGHTS
+	if(fwd)
+	{
+		print_weights(coeffs[0]);
+		print_weights(coeffs[1]);
+		print_weights(coeffs[2]);
+	}
+#endif
 #ifdef PRINT_ERRORCOUNTS
 	if(fwd)
 	{
@@ -1606,12 +1796,7 @@ int c12_codec(int argc, char **argv)
 	uint8_t *image=0, *imptr=0, *imend=0, *stream=0, *streamptr=0, *streamend=0;
 	ptrdiff_t streamsize=0;
 	RCTInfo rctinfo={0};
-//	int bestrct=0;
-	ACState ac=
-	{
-		0, 0xFFFFFFFFFFFF, 0,
-		0, 0,
-	};
+	ACState ac={0};
 #ifdef SUB_LUMAMEAN
 	uint8_t lumamean=0;
 #endif
@@ -1715,6 +1900,8 @@ int c12_codec(int argc, char **argv)
 	if(dist!=1)
 		CLAMP2(dist, 3, 17);
 	
+//	ac.range=0xFFFFFFFFFFFFFFFF;
+	ac.range=0xFFFFFFFFFFFF;
 #ifdef ESTIMATE_BITSIZE
 	for(int k=0;k<1<<PROBBITS_USE;++k)
 	{
@@ -1805,11 +1992,9 @@ int c12_codec(int argc, char **argv)
 		{
 			iw=0;
 			ih=0;
-		//	bestrct=0;
 			dist=1;
 			fread(&iw, 1, 3, fsrc);
 			fread(&ih, 1, 3, fsrc);
-		//	fread(&bestrct, 1, 1, fsrc);
 			fread(&rctinfo.perm[0], 1, 1, fsrc);
 			fread(&rctinfo.perm[1], 1, 1, fsrc);
 			fread(&rctinfo.perm[2], 1, 1, fsrc);
@@ -2215,26 +2400,6 @@ int c12_codec(int argc, char **argv)
 		if(fwd)
 #if 0
 		{
-			int64_t bestsize=0;
-			ACState ac2=ac;
-			for(int kt=0;kt<RCT_COUNT;++kt)
-			{
-				ac=ac2;
-				mainloop(iw, ih, kt, dist, image, stream, &ac, 0, 1);
-				int64_t csize=ac.ptr-stream;
-				if(!kt||bestsize>csize)
-					bestsize=csize, bestrct=kt;
-#ifdef LOUD
-				printf("%03d %s %12lld%s\n", kt, rct_names[kt], csize, bestrct==kt?" <-":"");
-#endif
-			}
-			mainloop(iw, ih, bestrct, dist, image, stream, &ac, 0, 1);
-#ifdef LOUD
-			printf("\nRCT %03d %s is best at %12lld\n", bestrct, rct_names[bestrct], bestsize);
-#endif
-		}
-#elif 0
-		{
 			const int perms[]=
 			{
 				0, 1, 2,
@@ -2361,7 +2526,6 @@ int c12_codec(int argc, char **argv)
 			dstsize+=fwrite(&tag, 1, 2, fdst);
 			dstsize+=fwrite(&iw, 1, 3, fdst);
 			dstsize+=fwrite(&ih, 1, 3, fdst);
-		//	dstsize+=fwrite(&bestrct, 1, 1, fdst);
 			dstsize+=fwrite(&rctinfo.perm[0], 1, 1, fdst);
 			dstsize+=fwrite(&rctinfo.perm[1], 1, 1, fdst);
 			dstsize+=fwrite(&rctinfo.perm[2], 1, 1, fdst);
@@ -2491,6 +2655,8 @@ int c12_codec(int argc, char **argv)
 	(void)dstsize;
 	(void)csize;
 	(void)&time_sec2;
+	//(void)prednames;
+	//(void)&print_weights;
 	//(void)&squash;
 #ifdef PROFILER
 	prof_end(prof_ctx);
