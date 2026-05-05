@@ -90,17 +90,17 @@
 #if 1
 #define PREDLIST\
 	PRED(N)\
-	PRED(N+dN)\
+	PRED(N - dN)\
 	PRED(NN)\
 	PRED(NNN)\
 	PRED(NNNN)\
-	PRED(2*N-NN+dN)\
+	PRED(2*N-NN + dN)\
 	PRED(N+NE-NNE)\
 	PRED(N+NW-NNW)\
 	PRED(N+W-NW)\
-	PRED(N+W-NW+dNW)\
+	PRED(N+W-NW + dNW)\
 	PRED(W)\
-	PRED(W+dW)\
+	PRED(W + dW)\
 	PRED(WW)\
 	PRED(WWW)\
 	PRED(WWWW)\
@@ -108,10 +108,10 @@
 	PRED(W+NEE-NE)\
 	PRED(W+NW-NWW)\
 	PRED(3*(N-NN)+NNN)\
-	PRED(3*(W-WW)+WWW)\
+	PRED(2*W-WW - dWW)\
 	PRED(NW+dNW)\
 	PRED(NE+dNE)\
-	PRED(NEE+dNEE)\
+	PRED(NEE + dNEE)\
 	PRED(NEEE)\
 	PRED(NEEEE)\
 	PRED(NN+WW-NW)\
