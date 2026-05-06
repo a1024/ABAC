@@ -46,8 +46,7 @@
 //	#define FIFOVAL
 #endif
 
-//	#define USE_RCPTABLE	//X  slow
-//	#define USE_DIV		//X  slow
+//	#define L1_SCALED_WIP
 
 //	#define AC_LOHI		//X  slow
 
@@ -57,6 +56,9 @@
 
 	#define SUB_LUMAMEAN
 //	#define USE_TABLES
+
+//	#define USE_RCPTABLE	//X  slow
+//	#define USE_DIV		//X  slow
 	#define USE_COUNTERS
 
 	#define UNSIGNED_PIXEL
@@ -91,7 +93,11 @@
 #define PREDLIST\
 	PRED(N)\
 	PRED(N - dN)\
+	PRED(NNWW)\
+	PRED(NNW)\
 	PRED(NN)\
+	PRED(NNE)\
+	PRED(NNEE)\
 	PRED(NNN)\
 	PRED(NNNN)\
 	PRED(2*N-NN + dN)\
@@ -105,17 +111,49 @@
 	PRED(WWW)\
 	PRED(WWWW)\
 	PRED(W+NE-N)\
-	PRED(W+NEE-NE)\
+	PRED(W+NE-dNE)\
 	PRED(W+NW-NWW)\
 	PRED(3*(N-NN)+NNN)\
 	PRED(2*W-WW - dWW)\
-	PRED(NW+dNW)\
-	PRED(NE+dNE)\
+	PRED(NWWW)\
+	PRED(NWW)\
+	PRED(NW + dNW)\
+	PRED(NE + dNE)\
 	PRED(NEE + dNEE)\
 	PRED(NEEE)\
 	PRED(NEEEE)\
 	PRED(NN+WW-NW)\
 
+#ifdef L1_SCALED_WIP
+#define PREDLIST2\
+	PRED(1*(N))\
+	PRED(1*(N - dN))\
+	PRED(1*(NN))\
+	PRED(1*(NNN))\
+	PRED(1*(NNNN))\
+	PRED(1*(2*N-NN + dN))\
+	PRED(1*(N+NE-NNE))\
+	PRED(1*(N+NW-NNW))\
+	PRED(1*(N+W-NW))\
+	PRED(1*(N+W-NW + dNW))\
+	PRED(1*(W))\
+	PRED(1*(W + dW))\
+	PRED(1*(WW))\
+	PRED(1*(WWW))\
+	PRED(1*(WWWW))\
+	PRED(1*(W+NE-N))\
+	PRED(1*(W+NEE-NE))\
+	PRED(1*(W+NW-NWW))\
+	PRED(1*(3*(N-NN)+NNN))\
+	PRED(1*(2*W-WW - dWW))\
+	PRED(1*(NW + dNW))\
+	PRED(1*(NE + dNE))\
+	PRED(1*(NEE + dNEE))\
+	PRED(1*(NEEE))\
+	PRED(1*(NEEEE))\
+	PRED(1*(NN+WW-NW))\
+
+#endif
 #endif
 #if 0
 #define PREDLIST\
@@ -648,7 +686,7 @@ INLINE void codebit(ACState *ac, Cell_t *pcell, int32_t *bit, const int fwd, int
 #elif defined USE_COUNTERS
 	int sh;
 	uint64_t entry=ctrtable[cell];
-	int32_t p1=(int32_t)(entry&((1ULL<<PROBBITS_USE)-1));
+	//int32_t p1=(int32_t)(entry&((1ULL<<PROBBITS_USE)-1));
 #else
 	int32_t p1=cell>>PROBSHIFT;
 	p1+=p1<1<<PROBBITS_USE>>1;
@@ -658,11 +696,6 @@ INLINE void codebit(ACState *ac, Cell_t *pcell, int32_t *bit, const int fwd, int
 #ifdef MYSTERYCTX
 	if(prevbit==mysteryctx)
 		p1+=((1<<PROBBITS_USE>>1)-p1)>>5;
-#endif
-#ifdef _MSC_VER
-	if((uint32_t)(p1-1)>(uint32_t)((1<<PROBBITS_USE)-2))
-		CRASH("Invalid p1 0x%08X / %d bit", p1, PROBBITS_USE);
-	++ac->bitidx;
 #endif
 #ifdef AC_LOHI
 	//if(fifoidx==724849||fifoidx2==724849)//
@@ -739,9 +772,16 @@ INLINE void codebit(ACState *ac, Cell_t *pcell, int32_t *bit, const int fwd, int
 		if(ac->range>~ac->low)
 			ac->range=~ac->low;
 	}
+#ifdef USE_COUNTERS
+	int32_t p1=(int32_t)(entry&((1ULL<<PROBBITS_USE)-1));
+#endif
+#ifdef _MSC_VER
+	if((uint32_t)(p1-1)>(uint32_t)((1<<PROBBITS_USE)-2))
+		CRASH("Invalid p1 0x%08X / %d bit", p1, PROBBITS_USE);
+	++ac->bitidx;
+#endif
 	{
 		uint64_t r2, mid;
-
 		r2=ac->range*(uint32_t)p1>>PROBBITS_USE;
 		mid=ac->low+r2;
 		rbit=*bit;
@@ -782,7 +822,7 @@ INLINE void codebit(ACState *ac, Cell_t *pcell, int32_t *bit, const int fwd, int
 #ifdef ESTIMATE_BITSIZE
 	bitsizes[ekc][eidx]+=shannontable[rbit?p1:(1<<PROBBITS_USE)-p1];
 	++bitctr[ekc][eidx][rbit];
-	winctr[ekc][eidx]+=rbit==(p1>=1<<PROBBITS_USE);
+	winctr[ekc][eidx]+=rbit==(p1>=1<<PROBBITS_USE>>1);
 #endif
 #ifdef PRINT_ERRORCOUNTS
 	if(unary)
@@ -816,7 +856,11 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 	int32_t ky, kx;
 	int32_t psize=0;
 	int16_t *pixels=0;
-	ALIGN(32) int32_t lcoeffs[3][L1NPREDS_LOSSY+1]={0}, coeffs[3][L1NPREDS]={0}, bias[3]={0};
+	ALIGN(32) int32_t lcoeffs[3][L1NPREDS_LOSSY+1]={0};
+	ALIGN(32) int32_t coeffs[3][L1NPREDS]={0}, bias[3]={0};
+#ifdef L1_SCALED_WIP
+	ALIGN(32) int32_t coeffs2[3][L1NPREDS]={0}, bias2[3]={0};
+#endif
 	int32_t invdist=((1<<16)+dist-1)/dist;
 	uint8_t *imptr=image;
 #ifdef PRINTBITS
@@ -868,6 +912,12 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 		bias[0]=1<<L1SH>>1;
 		bias[1]=1<<L1SH>>1;
 		bias[2]=1<<L1SH>>1;
+#ifdef L1_SCALED_WIP
+		FILLMEM_S((int32_t*)coeffs2, (1<<L1SH)/L1NPREDS, sizeof(coeffs2), sizeof(int32_t));
+		bias2[0]=1<<L1SH>>1;
+		bias2[1]=1<<L1SH>>1;
+		bias2[2]=1<<L1SH>>1;
+#endif
 	}
 #ifdef USE_TABLES
 	uint8_t *const epredptr=epredtable;
@@ -974,9 +1024,12 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 				int32_t
 					NNNN	=rows[0][0+0*NCH*NROWS*NVAL],
 					NNN	=rows[3][0+0*NCH*NROWS*NVAL],
+					NNWW	=rows[2][0-2*NCH*NROWS*NVAL],
 					NNW	=rows[2][0-1*NCH*NROWS*NVAL],
 					NN	=rows[2][0+0*NCH*NROWS*NVAL],
 					NNE	=rows[2][0+1*NCH*NROWS*NVAL],
+					NNEE	=rows[2][0+2*NCH*NROWS*NVAL],
+					NWWW	=rows[1][0-3*NCH*NROWS*NVAL],
 					NWW	=rows[1][0-2*NCH*NROWS*NVAL],
 					NW	=rows[1][0-1*NCH*NROWS*NVAL],
 					N	=rows[1][0+0*NCH*NROWS*NVAL],
@@ -997,9 +1050,12 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 					
 					dNNNN	=rows[0][2+0*NCH*NROWS*NVAL],
 					dNNN	=rows[3][2+0*NCH*NROWS*NVAL],
+					dNNWW	=rows[2][2-2*NCH*NROWS*NVAL],
 					dNNW	=rows[2][2-1*NCH*NROWS*NVAL],
 					dNN	=rows[2][2+0*NCH*NROWS*NVAL],
 					dNNE	=rows[2][2+1*NCH*NROWS*NVAL],
+					dNNEE	=rows[2][2+2*NCH*NROWS*NVAL],
+					dNWWW	=rows[1][2-3*NCH*NROWS*NVAL],
 					dNWW	=rows[1][2-2*NCH*NROWS*NVAL],
 					dNW	=rows[1][2-1*NCH*NROWS*NVAL],
 					dN	=rows[1][2+0*NCH*NROWS*NVAL],
@@ -1021,6 +1077,9 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 				int32_t bit=0;
 				int32_t ctx;
 				ALIGN(32) int32_t preds[L1NPREDS>L1NPREDS_LOSSY?L1NPREDS:L1NPREDS_LOSSY];
+#ifdef L1_SCALED_WIP
+				ALIGN(32) int preds2[L1NPREDS];
+#endif
 				int epred;
 				
 				if(kc==0)
@@ -1045,13 +1104,24 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 					}
 					else
 					{
-						pred=bias[kc];
+						pred=(int64_t)bias[kc];
 #define PRED(EXPR) preds[j]=EXPR; pred+=coeffs[kc][j]*preds[j]; ++j;
 						j=0;
 						PREDLIST;
 #undef  PRED
 						upred2=(int32_t)(pred>>(L1SH-ADDBITS));
 					//	pred>>=L1SH;
+
+#ifdef L1_SCALED_WIP
+						int64_t pred2=bias2[kc];
+#define PRED(EXPR) preds2[j]=EXPR; pred2+=coeffs2[kc][j]*preds2[j]; ++j;
+						j=0;
+						PREDLIST2;
+#undef  PRED
+						pred2=(int32_t)(pred2>>(L1SH-ADDBITS));
+						if(upred2!=pred2)
+							CRASH("");
+#endif
 					}
 				}
 				pred0=upred2>>ADDBITS;
@@ -1076,9 +1146,12 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 #if 1
 				(void)NNNN	;
 				(void)NNN	;
+				(void)NNWW	;
 				(void)NNW	;
 				(void)NN	;
 				(void)NNE	;
+				(void)NNEE	;
+				(void)NWWW	;
 				(void)NWW	;
 				(void)NW	;
 				(void)N		;
@@ -1099,9 +1172,12 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 
 				(void)dNNNN	;
 				(void)dNNN	;
+				(void)dNNWW	;
 				(void)dNNW	;
 				(void)dNN	;
 				(void)dNNE	;
+				(void)dNNEE	;
+				(void)dNWWW	;
 				(void)dNWW	;
 				(void)dNW	;
 				(void)dN	;
@@ -1471,6 +1547,14 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 						j=0;
 						PREDLIST;
 #undef  PRED
+
+#ifdef L1_SCALED_WIP
+						bias2[kc]+=error<<9;
+#define PRED(EXPR) coeffs2[kc][j]+=error*preds2[j]; ++j;
+						j=0;
+						PREDLIST2;
+#undef  PRED
+#endif
 					}
 				//	}
 //#ifdef PRINT_L1WEIGHTS
