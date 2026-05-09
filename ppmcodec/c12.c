@@ -51,7 +51,7 @@
 //lossless estims
 #if 1
 #define PREDLIST\
-	PRED(dN-14*dW)\
+	PRED(2*dN-14*dW)\
 	PRED(NNWW)\
 	PRED(NNW)\
 	PRED(NN)\
@@ -70,7 +70,7 @@
 	PRED(N+W-NW + 5*dN)\
 	PRED(N+W-NW + 2*dNE)\
 	PRED(N+W-NW + 5*dW)\
-	PRED(dW-14*dN)\
+	PRED(2*dW-14*dN)\
 	PRED(WW)\
 	PRED(WWW)\
 	PRED(WWWW)\
