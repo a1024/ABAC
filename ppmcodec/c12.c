@@ -51,8 +51,7 @@
 //lossless estims
 #if 1
 #define PREDLIST\
-	PRED(N)\
-	PRED(N - dN)\
+	PRED(N - 4*dW)\
 	PRED(NNWW)\
 	PRED(NNW)\
 	PRED(NN)\
@@ -60,20 +59,27 @@
 	PRED(NNEE)\
 	PRED(NNN)\
 	PRED(NNNN)\
+	PRED(NNNNN)\
+	PRED(NNNNNN)\
+	PRED(NNNNNNN)\
+	PRED(3*(N-NN)+NNN)\
 	PRED(2*N-NN - dNW)\
-	PRED(2*(N+NE-NNE))\
+	PRED(N+NE-NNE)\
 	PRED(N+NW-NNW)\
-	PRED(2*(N+W-NW))\
-	PRED(N+W-NW + dNW)\
-	PRED(W)\
-	PRED(W + dW)\
+	PRED(N+W-NW + 2*dNW)\
+	PRED(N+W-NW + 5*dN)\
+	PRED(N+W-NW + 2*dNE)\
+	PRED(N+W-NW + 5*dW)\
+	PRED(W - 4*dN)\
 	PRED(WW)\
 	PRED(WWW)\
 	PRED(WWWW)\
+	PRED(WWWWW)\
+	PRED(WWWWWW)\
+	PRED(WWWWWWW)\
 	PRED(W+NE-N)\
 	PRED(W+NE - dNE)\
 	PRED(W+NW-NWW)\
-	PRED(3*(N-NN)+NNN)\
 	PRED(2*W-WW - dWW)\
 	PRED(3*WW-2*WWW)\
 	PRED(4*WWW-3*WWWW)\
@@ -86,6 +92,8 @@
 	PRED(NEE + dNEE)\
 	PRED(NEEE)\
 	PRED(NEEEE)\
+	PRED(NEEEEE)\
+	PRED(NEEEEEE)\
 	PRED(NN+WW-NW)\
 	PRED(8*(dN+dW+dNW+dNE))\
 
@@ -161,7 +169,7 @@ enum
 
 	XPAD=8,
 	NCH=3,
-	NROWS=4,
+	NROWS=8,
 	NVAL=4,
 };
 
@@ -785,6 +793,10 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 			pixels+(XPAD*NCH*NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
 			pixels+(XPAD*NCH*NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
 			pixels+(XPAD*NCH*NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS+(ky-4LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS+(ky-5LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS+(ky-6LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS+(ky-7LL+NROWS)%NROWS)*NVAL,
 		};
 		for(kx=0;kx<iw;++kx, imptr+=3)
 		{
@@ -807,13 +819,20 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 			for(kc=0;kc<3;++kc)
 			{
 				int32_t
-					NNNN	=rows[0][0+0*NCH*NROWS*NVAL],
+					NNNNNNN	=rows[7][0+0*NCH*NROWS*NVAL],
+					NNNNNN	=rows[6][0+0*NCH*NROWS*NVAL],
+					NNNNN	=rows[5][0+0*NCH*NROWS*NVAL],
+					NNNN	=rows[4][0+0*NCH*NROWS*NVAL],
+					NNNNEE	=rows[4][0+2*NCH*NROWS*NVAL],
+					NNNW	=rows[3][0-1*NCH*NROWS*NVAL],
 					NNN	=rows[3][0+0*NCH*NROWS*NVAL],
+					NNNE	=rows[3][0+1*NCH*NROWS*NVAL],
 					NNWW	=rows[2][0-2*NCH*NROWS*NVAL],
 					NNW	=rows[2][0-1*NCH*NROWS*NVAL],
 					NN	=rows[2][0+0*NCH*NROWS*NVAL],
 					NNE	=rows[2][0+1*NCH*NROWS*NVAL],
 					NNEE	=rows[2][0+2*NCH*NROWS*NVAL],
+					NWWWWW	=rows[1][0-5*NCH*NROWS*NVAL],
 					NWWWW	=rows[1][0-4*NCH*NROWS*NVAL],
 					NWWW	=rows[1][0-3*NCH*NROWS*NVAL],
 					NWW	=rows[1][0-2*NCH*NROWS*NVAL],
@@ -823,13 +842,17 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 					NEE	=rows[1][0+2*NCH*NROWS*NVAL],
 					NEEE	=rows[1][0+3*NCH*NROWS*NVAL],
 					NEEEE	=rows[1][0+4*NCH*NROWS*NVAL],
+					NEEEEE	=rows[1][0+5*NCH*NROWS*NVAL],
+					NEEEEEE	=rows[1][0+6*NCH*NROWS*NVAL],
+					WWWWWWW	=rows[0][0-7*NCH*NROWS*NVAL],
+					WWWWWW	=rows[0][0-6*NCH*NROWS*NVAL],
 					WWWWW	=rows[0][0-5*NCH*NROWS*NVAL],
 					WWWW	=rows[0][0-4*NCH*NROWS*NVAL],
 					WWW	=rows[0][0-3*NCH*NROWS*NVAL],
 					WW	=rows[0][0-2*NCH*NROWS*NVAL],
 					W	=rows[0][0-1*NCH*NROWS*NVAL],
 					
-					dNNNN	=rows[0][1+0*NCH*NROWS*NVAL],
+					dNNNN	=rows[4][1+0*NCH*NROWS*NVAL],
 					dNNN	=rows[3][1+0*NCH*NROWS*NVAL],
 					dNNWW	=rows[2][1-2*NCH*NROWS*NVAL],
 					dNNW	=rows[2][1-1*NCH*NROWS*NVAL],
@@ -921,13 +944,20 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 					ctx=NCTX-1;
 #endif
 #if 1
+				(void)NNNNNNN	;
+				(void)NNNNNN	;
+				(void)NNNNN	;
 				(void)NNNN	;
+				(void)NNNNEE	;
+				(void)NNNW	;
 				(void)NNN	;
+				(void)NNNE	;
 				(void)NNWW	;
 				(void)NNW	;
 				(void)NN	;
 				(void)NNE	;
 				(void)NNEE	;
+				(void)NWWWWW	;
 				(void)NWWWW	;
 				(void)NWWW	;
 				(void)NWW	;
@@ -937,6 +967,10 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 				(void)NEE	;
 				(void)NEEE	;
 				(void)NEEEE	;
+				(void)NEEEEE	;
+				(void)NEEEEEE	;
+				(void)WWWWWWW	;
+				(void)WWWWWW	;
 				(void)WWWWW	;
 				(void)WWWW	;
 				(void)WWW	;
@@ -992,6 +1026,8 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 #endif
 				if(fwd)
 				{
+					//if(ky==ih/2&&kx==iw/2&&kc==0)//
+					//	printf("");
 					if(lossy)
 					{
 						int pixel;
@@ -1257,6 +1293,10 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 				rows[1]+=NROWS*NVAL;
 				rows[2]+=NROWS*NVAL;
 				rows[3]+=NROWS*NVAL;
+				rows[4]+=NROWS*NVAL;
+				rows[5]+=NROWS*NVAL;
+				rows[6]+=NROWS*NVAL;
+				rows[7]+=NROWS*NVAL;
 #ifdef _MSC_VER
 				++ac->byteidx;
 #endif
