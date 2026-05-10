@@ -31,7 +31,8 @@
 	#define ESTIMATE_BITSIZE
 //	#define PRINT_RCT
 //	#define PRINT_ANALYSISSPEED
-	#define PRINTBITS4 2
+	#define PRINTBITS4 0xFF
+	#define NBYPASS_NZEROS_HIST
 
 	#define ENABLE_GUIDE
 //	#define FIFOVAL
@@ -51,7 +52,7 @@
 //lossless estims
 #if 1
 #define PREDLIST\
-	PRED(2*dN-14*dW)\
+	PRED(3*dN-14*dW)\
 	PRED(NNWW)\
 	PRED(NNW)\
 	PRED(NN)\
@@ -70,7 +71,7 @@
 	PRED(N+W-NW + 5*dN)\
 	PRED(N+W-NW + 2*dNE)\
 	PRED(N+W-NW + 5*dW)\
-	PRED(2*dW-14*dN)\
+	PRED(3*dW-14*dN)\
 	PRED(WW)\
 	PRED(WWW)\
 	PRED(WWWW)\
@@ -94,6 +95,8 @@
 	PRED(NEEEEE)\
 	PRED(NEEEEEE)\
 	PRED(NN+WW-NW)\
+	PRED(dNW-4*dNE)\
+	PRED(dNE-4*dNW)\
 
 #if 0
 	PRED(8*(dN+dW+dNW+dNE))\
@@ -515,6 +518,9 @@ static void crct_get(RCTInfo *rct, int c0, int c1, int c2)
 }
 #endif
 
+#ifdef NBYPASS_NZEROS_HIST
+int32_t bzhist[3][64];
+#endif
 #if defined USE_COUNTERS && !defined USE_DIV && !defined USE_RCPTABLE
 static uint64_t ctrtable[1<<CTRBITS*2];//{p1, next_0(n0, n1}, next_1(n0, n1)}
 #endif
@@ -792,6 +798,9 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 	memset(bitctr, 0, sizeof(bitctr));
 	memset(winctr, 0, sizeof(winctr));
 #endif
+#ifdef NBYPASS_NZEROS_HIST
+	memset(bzhist, 0, sizeof(bzhist));
+#endif
 	for(ky=0;ky<ih;++ky)
 	{
 		int yuv[3]={0};
@@ -946,7 +955,9 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 				ctx=31-_lzcnt_u32(xW*xW+1);
 			//	ctx=31-_lzcnt_u32(xW*yW+1);
 			//	ctx=31-_lzcnt_u32(xN*yW+1);
+			//	ctx=63-_lzcnt_u64((uint64_t)xW*xW*xW+1);
 				nbypass=(ctx>>1)-GRBITS;
+			//	nbypass=ctx/3-GRBITS;
 				CLAMP2(nbypass, 0, 7);
 				if(ctx>NCTX-1)
 					ctx=NCTX-1;
@@ -1096,7 +1107,12 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 							error=e2;
 #endif
 					}
+					//nbypass=32-_lzcnt_u32(error);
+
 					nzeros=error>>nbypass;
+#ifdef NBYPASS_NZEROS_HIST
+					++bzhist[kc][8*nbypass+32-_lzcnt_u32(error)];
+#endif
 				}
 				else
 					error=0;
@@ -1114,7 +1130,7 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 #endif
 					codebit(ac, statsptr+tidx, &bit, fwd);
 #ifdef PRINTBITS4
-					if(fwd&&!kc&&(uint32_t)(printidx-100000)<100000&&nbypass==PRINTBITS4)//
+					if(fwd&&!kc&&(uint32_t)(printidx-100000)<100000&&(1<<nbypass&PRINTBITS4))//
 						printf("%c", '0'+bit);
 #endif
 					if(bit)
@@ -1145,7 +1161,7 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 					statsptr=stats2[kc][upred2];
 				tidx+=256>>nbypass;//bit coding:  tidx=2*tidx+bit  tidx=0b1XX
 #ifdef PRINTBITS4
-				if(fwd&&!kc&&(uint32_t)(printidx-100000)<100000&&nbypass&&nbypass==PRINTBITS4)//
+				if(fwd&&!kc&&(uint32_t)(printidx-100000)<100000&&nbypass&&(1<<nbypass&PRINTBITS4))//
 					printf(" ");
 #endif
 				{
@@ -1161,14 +1177,14 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 #endif
 						codebit(ac, statsptr+tidx, &bit, fwd);
 #ifdef PRINTBITS4
-						if(fwd&&!kc&&(uint32_t)(printidx-100000)<100000&&nbypass==PRINTBITS4)//
+						if(fwd&&!kc&&(uint32_t)(printidx-100000)<100000&&(1<<nbypass&PRINTBITS4))//
 							printf("%c", bit?'T':'F');
 #endif
 						tidx=2*tidx+bit;
 					}
 				}
 #ifdef PRINTBITS4
-				if(fwd&&!kc&&(uint32_t)(printidx-100000)<100000&&nbypass==PRINTBITS4)//
+				if(fwd&&!kc&&(uint32_t)(printidx-100000)<100000&&(1<<nbypass&PRINTBITS4))//
 					printf("%c", printidx&63?' ':'\n');
 				printidx+=!kc;
 #endif
@@ -1274,6 +1290,7 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 				//	rows[0][3]=yNE+((error-yNE)>>2);
 				//	rows[0][2]=(16*eW+7*(error<<GRBITS)+9*(eNEE>eNEEE?eNEE:eNEEE))>>5;
 				//	rows[0][2]=(2*eW+(error<<GRBITS)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
+				//	rows[0][2]=error;
 
 					//if(curr-pred0!=yuv[kc]-(int32_t)pred)//
 					//	printf("");
@@ -1327,6 +1344,40 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, int dist, uint8_t *image, uin
 		}
 	}
 	free(pixels);
+#ifdef NBYPASS_NZEROS_HIST
+	if(fwd)
+	{
+		printf("\n");
+		for(int kc=0;kc<3;++kc)
+		{
+			printf("\n");
+			for(int kb=0;kb<8;++kb)
+				printf("%12sE%d", "", kb);
+			printf("\n\n");
+			for(int kb=0;kb<8;++kb)
+			{
+				printf("B%d", kb);
+				for(int kz=0;kz<8;++kz)
+					printf("  %12d", bzhist[kc][8*kb+kz]);
+				printf("\n");
+			}
+			printf("\n");
+		}
+	}
+#endif
+#ifdef _MSC_VER
+	//if(fwd)
+	//{
+	//	printf("\n");
+	//	for(int kc=0;kc<3;++kc)
+	//	{
+	//		int32_t sum=0;
+	//		for(int k=0;k<L1NPREDS;++k)
+	//			sum+=coeffs[kc][k];
+	//		printf("%12.6lf\n", (double)sum/(1<<L1SH));
+	//	}
+	//}
+#endif
 }
 int c12_codec(int argc, char **argv)
 {
