@@ -1949,7 +1949,44 @@ dec command template
 			, decthreads
 #endif
 		);
-		if(selfrival)
+		{//print rank
+			const char *msg=0;
+			int bestbelow=-1, worstabove=-1;
+			int64_t cbestbelow=0, cworstabove=0;
+			for(int k2=0;k2<(int)besttestidxs->count;++k2)
+			{
+				int idx=*(int*)array_at(&besttestidxs, k2);
+				TestInfo *rival=(TestInfo*)array_at(&testinfo, idx);
+				CellInfo *cell2=array_at(&rival->cells, k);
+				if(cell2->csize<currcell->csize)//ranked above current codec
+				{
+					if(worstabove==-1||cell2->csize>cworstabove)
+						worstabove=idx, cworstabove=cell2->csize;
+				}
+				if(cell2->csize>currcell->csize)//ranked below current codec
+				{
+					if(bestbelow==-1||cell2->csize<cbestbelow)
+						bestbelow=idx, cbestbelow=cell2->csize;
+				}
+			}
+
+			msg="-";
+			if(worstabove!=-1)
+			{
+				TestInfo *rival=(TestInfo*)array_at(&testinfo, worstabove);
+				msg=(char*)rival->codecname->data;
+			}
+			printf(" %-10s", msg);
+
+			msg="-";
+			if(bestbelow!=-1)
+			{
+				TestInfo *rival=(TestInfo*)array_at(&testinfo, bestbelow);
+				msg=(char*)rival->codecname->data;
+			}
+			printf(" < %-10s", msg);
+		}
+		if(selfrival)//print improvement
 		{
 			CellInfo *cell2=array_at(&selfrival->cells, k);
 #if 1
