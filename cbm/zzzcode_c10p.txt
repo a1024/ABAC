@@ -1,0 +1,2 @@
+c10p *.ppm *.c10p
+c10p *.c10p *.ppm

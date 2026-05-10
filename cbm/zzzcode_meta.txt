@@ -1,0 +1,2 @@
+meta *.ppm *.meta
+meta *.meta *.ppm

@@ -1,0 +1,2 @@
+flic64 c *.flic *.ppm
+flic64 d *.flic *.ppm

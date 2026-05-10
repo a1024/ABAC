@@ -1,0 +1,2 @@
+copy2 *.ppm *.copy
+copy2 *.copy *.ppm

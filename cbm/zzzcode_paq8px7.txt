@@ -1,2 +1,2 @@
-paq8px -7 *.ppm *.paq8px208fix1
-paq8px -d *.paq8px208fix1 *.ppm
+paq8px -7 *.ppm *.paq8px213
+paq8px -d *.paq8px213 *.ppm

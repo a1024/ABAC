@@ -1,0 +1,2 @@
+brotli -q 11 *.ppm -o *.br
+brotli -d *.br -o *.ppm

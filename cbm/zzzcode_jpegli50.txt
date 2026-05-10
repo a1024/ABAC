@@ -1,0 +1,2 @@
+cjpegli *.ppm *.jpg -q 50
+djpegli *.jpg *.ppm

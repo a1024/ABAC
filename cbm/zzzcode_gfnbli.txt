@@ -1,0 +1,2 @@
+fnbli -f *.pgm -o *.fnbli
+fnbli -f *.fnbli -o *.pgm

@@ -1,0 +1,2 @@
+fpc *.ppm *.fpc
+fpc -d *.fpc *.ppm

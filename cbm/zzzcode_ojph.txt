@@ -1,0 +1,2 @@
+ojph_compress -reversible true -colour_trans true -i *.ppm -o *.jp2
+ojph_expand -i *.jp2 -o *.ppm

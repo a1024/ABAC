@@ -1,0 +1,2 @@
+loco_ans_codec 0 *.pgm *.locoans
+loco_ans_codec 1 *.locoans *.pgm

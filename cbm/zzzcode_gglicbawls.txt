@@ -1,0 +1,2 @@
+glicbawls *.pgm *.glic
+glicbawls *.glic *.pgm

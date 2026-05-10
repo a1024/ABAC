@@ -1,0 +1,2 @@
+gaia *.pgm *.gaia
+gaia *.gaia *.pgm

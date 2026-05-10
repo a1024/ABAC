@@ -1,0 +1,2 @@
+LLRICE_encoder_avx2 *.ppm *.llr
+LLRICE_decoder_avx2 *.llr *.ppm

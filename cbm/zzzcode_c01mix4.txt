@@ -1,0 +1,2 @@
+c01mix4 *.ppm *.c01mix4
+c01mix4 *.c01mix4 *.ppm

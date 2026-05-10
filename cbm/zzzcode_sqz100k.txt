@@ -1,0 +1,2 @@
+sqz c *.ppm *.sqz 100000
+sqz d *.sqz *.ppm

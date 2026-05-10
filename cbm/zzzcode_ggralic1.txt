@@ -1,0 +1,2 @@
+gralic1d c *.gra1 *.pgm
+gralic1d d *.gra1 *.pgm

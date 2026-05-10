@@ -1,0 +1,2 @@
+zstd -f -T0 --ultra -22 *.ppm -o *.zst
+zstd -f -T0 --ultra -d *.zst -o *.ppm

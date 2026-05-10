@@ -1,0 +1,2 @@
+clea6 *.ppm *.lea6
+dlea6 *.lea6 *.ppm

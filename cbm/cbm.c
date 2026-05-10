@@ -22,6 +22,11 @@ static const char file[]=__FILE__;
 
 #define CBM_DELAY 7000
 
+
+	#define CALCSCORE(CSIZE, ENC, DEC) ((CSIZE)+(ENC)+2*(DEC))
+//	#define CALCSCORE(CSIZE, ENC, DEC) ((CSIZE)*(1./(1024*1024))+(ENC)+(DEC)*2)	//GDCC score
+
+
 static char g_buf2[8192]={0};
 
 typedef union _DateTime
@@ -655,8 +660,6 @@ static void measure_psnr_16bit(const char *fn0, const char *fn1, long long csize
 	array_free(&data1);
 }
 
-//GDCC score
-#define CALCSCORE(CSIZE, ENC, DEC) ((CSIZE)*(1./(1024*1024))+(ENC)+(DEC)*2)
 
 typedef struct _UInfo
 {
@@ -1519,7 +1522,7 @@ dec command template
 			for(;;)
 			{
 				printf("Define %s path:  ", datasetname);
-				len=acme_getline(g_buf, sizeof(g_buf), stdin);
+				len=acme_getline(g_buf, sizeof(g_buf)-1, stdin);
 				srcpath=filter_path(g_buf, len);
 				size=get_filesize((char*)srcpath->data);
 				if(size==FSIZE_FOLDER)
@@ -1529,7 +1532,7 @@ dec command template
 			for(;;)
 			{
 				printf("Extension:  ");
-				len=acme_getline(g_buf, sizeof(g_buf), stdin);
+				len=acme_getline(g_buf, sizeof(g_buf)-1, stdin);
 				if(!len)
 					continue;
 				int valid=1;
@@ -1640,10 +1643,10 @@ dec command template
 			printf("\n");
 			printf("  Use \"*.extension\" as filename placeholders.\n");
 			printf("Define %s encode:  ", codecname);
-			len=acme_getline(g_buf, sizeof(g_buf), stdin);
+			len=acme_getline(g_buf, sizeof(g_buf)-1, stdin);
 			STR_COPY(enccmd.format, g_buf, len);
 			printf("Define %s decode:  ", codecname);
-			len=acme_getline(g_buf, sizeof(g_buf), stdin);
+			len=acme_getline(g_buf, sizeof(g_buf)-1, stdin);
 			STR_COPY(deccmd.format, g_buf, len);
 			STR_COPY(enc0, enccmd.format->data, enccmd.format->count);
 			STR_COPY(dec0, deccmd.format->data, deccmd.format->count);
@@ -1837,6 +1840,17 @@ dec command template
 		UInfo *info=(UInfo*)array_at(&uinfo, k);
 		usize+=info->usize;
 	}
+	TestInfo *selfrival=0;
+	for(int k=0;k<(int)besttestidxs->count;++k)
+	{
+		int idx=*(int*)array_at(&besttestidxs, k);
+		TestInfo *rival=(TestInfo*)array_at(&testinfo, idx);
+		if(!strcmp((const char*)rival->codecname->data, codecname))
+		{
+			selfrival=rival;
+			break;
+		}
+	}
 	TestInfo *currtest=(TestInfo*)ARRAY_APPEND(testinfo, 0, 1, 1, 0);
 	STR_COPY(currtest->codecname, codecname, strlen(codecname));
 	ARRAY_ALLOC(CellInfo, currtest->cells, 0, uinfo->count, 0, 0);
@@ -1921,7 +1935,7 @@ dec command template
 		
 		//Print 3:  dtime espeed dspeed emem dmem  rivals
 		printf(
-			" %12.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB "
+			" %12.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB"
 #ifdef TRACK_THREADS
 			"%2d %2d "
 #endif
@@ -1935,6 +1949,26 @@ dec command template
 			, decthreads
 #endif
 		);
+		if(selfrival)
+		{
+			CellInfo *cell2=array_at(&selfrival->cells, k);
+#if 1
+			colorprintf(
+				currcell->csize<cell2->csize
+				?	0x00FF00
+				:currcell->csize>cell2->csize
+				?	0x0000FF
+				:	0x808080
+				, COLORPRINTF_BK_DEFAULT
+				, " %+10lld"
+				, currcell->csize-cell2->csize
+			);
+#else
+			printf(" %+10lld"
+				, currcell->csize-cell2->csize
+			);
+#endif
+		}
 		if(flags/CMDFLAG_PRINT_RIVALS)
 			print_rivals_v2(besttestidxs, testinfo, k, currcell, info->usize);
 

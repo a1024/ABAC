@@ -1,0 +1,2 @@
+cpik *.ppm *.pik --num_threads=0 --lossless
+dpik *.pik *.ppm --num_threads=0
