@@ -15,7 +15,7 @@ static const char file[]=__FILE__;
 
 
 //	#define ESTIMATE_SIZE
-	#define ENABLE_EXTENDED_RCT
+//	#define ENABLE_EXTENDED_RCT//ebench.h
 
 
 #if 0
@@ -720,7 +720,7 @@ void pred_mixN(Image *src, int fwd)
 		XPAD=8,
 		NROWS=4,
 		NCH=4,
-		NVAL=1,
+		NVAL=2,
 	};
 	ALIGN(16) int32_t coeffs[4][MIXPREDS]={0}, bias[4]={1<<SHIFT>>1}, estims[MIXPREDS]={0};
 
@@ -813,7 +813,9 @@ void pred_mixN(Image *src, int fwd)
 					WWWW	=rows[0][0-4*NCH*NROWS*NVAL],
 					WWW	=rows[0][0-3*NCH*NROWS*NVAL],
 					WW	=rows[0][0-2*NCH*NROWS*NVAL],
-					W	=rows[0][0-1*NCH*NROWS*NVAL];
+					W	=rows[0][0-1*NCH*NROWS*NVAL],
+					cN	=rows[1][1+0*NCH*NROWS*NVAL],
+					cW	=rows[0][1-1*NCH*NROWS*NVAL];
 				//	eN	=rows[1][1+0*NCH*NROWS*NVAL],
 				//	eNE	=rows[1][1+1*NCH*NROWS*NVAL],
 				//	eW	=rows[0][1-1*NCH*NROWS*NVAL];
@@ -915,13 +917,13 @@ void pred_mixN(Image *src, int fwd)
 				)>>SHIFT);
 				int pred=p1;
 				
-				int vmax=N, vmin=W;
-				if(N<W)vmin=N, vmax=W;
-				if(vmin>NE)vmin=NE;
-				if(vmax<NE)vmax=NE;
-				if(vmin>NEEE)vmin=NEEE;
-				if(vmax<NEEE)vmax=NEEE;
-				CLAMP2(pred, vmin, vmax);
+				//int vmax=N, vmin=W;
+				//if(N<W)vmin=N, vmax=W;
+				//if(vmin>NE)vmin=NE;
+				//if(vmax<NE)vmax=NE;
+				//if(vmin>NEEE)vmin=NEEE;
+				//if(vmax<NEEE)vmax=NEEE;
+				//CLAMP2(pred, vmin, vmax);
 
 				//cheat
 #if 0
@@ -1151,6 +1153,289 @@ void pred_mixN(Image *src, int fwd)
 }
 
 #if 1
+static void bestN_analysis4(Image *src, uint8_t *masks)
+{
+	int fwd=1;//
+	
+	enum
+	{
+		NITER=100,
+
+		MIXPREDS=4,
+
+		SHIFT=18+6,
+
+		XPAD=8,
+		NROWS=4,
+		NCH=4,
+		NVAL=1,
+	};
+	int amin[]=
+	{
+		-(1<<src->depth[0]>>1),
+		-(1<<src->depth[1]>>1),
+		-(1<<src->depth[2]>>1),
+		-(1<<src->depth[3]>>1),
+	};
+	int amax[]=
+	{
+		(1<<src->depth[0]>>1)-1,
+		(1<<src->depth[1]>>1)-1,
+		(1<<src->depth[2]>>1)-1,
+		(1<<src->depth[3]>>1)-1,
+	};
+	int rmin[]=
+	{
+		amin[0]/g_dist,
+		amin[1]/g_dist,
+		amin[2]/g_dist,
+		amin[3]/g_dist,
+	};
+	int rmax[]=
+	{
+		amax[0]/g_dist,
+		amax[1]/g_dist,
+		amax[2]/g_dist,
+		amax[3]/g_dist,
+	};
+	int invdist=((1<<16)+g_dist-1)/g_dist;
+
+	enum
+	{
+		CTXBITS=7,
+		MIXNCTX=0x4000,
+	};
+	int cosize=sizeof(int32_t[MIXNCTX*NCH*(MIXPREDS+1)]);
+	int32_t *coeffs=(int32_t*)malloc(cosize);
+	int psize=(src->iw+2*XPAD)*(int)sizeof(int32_t[NROWS*NCH*NVAL]);
+	int32_t *pixels=(int32_t*)_mm_malloc(psize, sizeof(__m128i));
+
+	if(!coeffs||!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	FILLMEM((int32_t*)coeffs, (1<<SHIFT)/MIXPREDS, sizeof(int32_t[MIXPREDS]), sizeof(int32_t));
+	coeffs[MIXPREDS]=1<<SHIFT>>1;
+	for(int k=0;k<MIXNCTX*NCH;++k)
+		memcpy(coeffs+(MIXPREDS+1)*k, coeffs, sizeof(int32_t[MIXPREDS+1]));
+	for(int it=0;it<NITER;++it)
+	{
+		memset(pixels, 0, psize);
+		for(int ky=0, idx=0;ky<src->ih;++ky)
+		{
+			int32_t *rows[]=
+			{
+				pixels+(XPAD*NCH*NROWS-NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,//sub 1 channel for pre-increment
+				pixels+(XPAD*NCH*NROWS-NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
+				pixels+(XPAD*NCH*NROWS-NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
+				pixels+(XPAD*NCH*NROWS-NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
+			};
+			for(int kx=0;kx<src->iw;++kx)
+			{
+				for(int kc=0;kc<4;++kc, ++idx)
+				{
+					rows[0]+=NROWS*NVAL;
+					rows[1]+=NROWS*NVAL;
+					rows[2]+=NROWS*NVAL;
+					rows[3]+=NROWS*NVAL;
+					if(!src->depth[kc])
+						continue;
+					int32_t
+						NNN	=rows[3][0+0*NCH*NROWS*NVAL],
+						NNWW	=rows[2][0-2*NCH*NROWS*NVAL],
+						NNW	=rows[2][0-1*NCH*NROWS*NVAL],
+						NN	=rows[2][0+0*NCH*NROWS*NVAL],
+						NNE	=rows[2][0+1*NCH*NROWS*NVAL],
+						NNEE	=rows[2][0+2*NCH*NROWS*NVAL],
+						NWW	=rows[1][0-2*NCH*NROWS*NVAL],
+						NW	=rows[1][0-1*NCH*NROWS*NVAL],
+						N	=rows[1][0+0*NCH*NROWS*NVAL],
+						NE	=rows[1][0+1*NCH*NROWS*NVAL],
+						NEE	=rows[1][0+2*NCH*NROWS*NVAL],
+						NEEE	=rows[1][0+3*NCH*NROWS*NVAL],
+						NEEEE	=rows[1][0+4*NCH*NROWS*NVAL],
+						WWWW	=rows[0][0-4*NCH*NROWS*NVAL],
+						WWW	=rows[0][0-3*NCH*NROWS*NVAL],
+						WW	=rows[0][0-2*NCH*NROWS*NVAL],
+						W	=rows[0][0-1*NCH*NROWS*NVAL];
+					int curr=src->data[idx];
+
+				//	int ctx=0;
+				//	ctx=ctx<<5|((N	-amin[kc])>>(src->depth[kc]-5)&31);
+				//	ctx=ctx<<5|((W	-amin[kc])>>(src->depth[kc]-5)&31);
+				//	ctx=ctx<<5|((NW	-amin[kc])>>(src->depth[kc]-5)&31);
+				//	ctx=NCH*ctx+kc;
+				//	int32_t *c2=coeffs+(MIXPREDS+1)*ctx;
+
+					int ctx=0;
+					ctx=ctx<<CTXBITS|((N-NW-amin[kc])>>(src->depth[kc]-CTXBITS)&((1<<CTXBITS)-1));
+					ctx=ctx<<CTXBITS|((W-NW-amin[kc])>>(src->depth[kc]-CTXBITS)&((1<<CTXBITS)-1));
+					ctx=NCH*ctx+kc;
+					int32_t *c2=coeffs+(MIXPREDS+1)*ctx;
+
+				//	int32_t *c2=coeffs+(MIXPREDS+1)*(NCH*((N-W-amin[kc])>>(src->depth[kc]-8)&255)+kc);
+
+					int estim[MIXPREDS];
+					int j=0;
+					//		NN
+					//	NW	N	NE
+					//	W	?
+					estim[j++]=W;
+					estim[j++]=NE;
+					estim[j++]=2*N-NN;
+					estim[j++]=N+W-NW;
+					int p1=(int)((c2[4]
+						+(int64_t)c2[0]*estim[0]
+						+(int64_t)c2[1]*estim[1]
+						+(int64_t)c2[2]*estim[2]
+						+(int64_t)c2[3]*estim[3]
+					)>>SHIFT);
+					int pred=p1;
+				
+					int vmax=N, vmin=W;
+					if(N<W)vmin=N, vmax=W;
+					if(vmin>NE)vmin=NE;
+					if(vmax<NE)vmax=NE;
+					if(vmin>NEEE)vmin=NEEE;
+					if(vmax<NEEE)vmax=NEEE;
+					CLAMP2(pred, vmin, vmax);
+					rows[0][0]=curr;
+					int e=(curr>p1)-(curr<p1);//L1
+					c2[0]+=(int16_t)((int16_t)e*(int16_t)estim[0]);//casts prevent pmulld
+					c2[1]+=(int16_t)((int16_t)e*(int16_t)estim[1]);
+					c2[2]+=(int16_t)((int16_t)e*(int16_t)estim[2]);
+					c2[3]+=(int16_t)((int16_t)e*(int16_t)estim[3]);
+					c2[4]+=e;
+				}
+			}
+		}
+	}
+	memset(pixels, 0, psize);
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		int32_t *rows[]=
+		{
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,//sub 1 channel for pre-increment
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
+		};
+		for(int kx=0;kx<src->iw;++kx)
+		{
+			for(int kc=0;kc<4;++kc, ++idx)
+			{
+				rows[0]+=NROWS*NVAL;
+				rows[1]+=NROWS*NVAL;
+				rows[2]+=NROWS*NVAL;
+				rows[3]+=NROWS*NVAL;
+				if(!src->depth[kc])
+					continue;
+				int32_t
+					NNN	=rows[3][0+0*NCH*NROWS*NVAL],
+					NNWW	=rows[2][0-2*NCH*NROWS*NVAL],
+					NNW	=rows[2][0-1*NCH*NROWS*NVAL],
+					NN	=rows[2][0+0*NCH*NROWS*NVAL],
+					NNE	=rows[2][0+1*NCH*NROWS*NVAL],
+					NNEE	=rows[2][0+2*NCH*NROWS*NVAL],
+					NWW	=rows[1][0-2*NCH*NROWS*NVAL],
+					NW	=rows[1][0-1*NCH*NROWS*NVAL],
+					N	=rows[1][0+0*NCH*NROWS*NVAL],
+					NE	=rows[1][0+1*NCH*NROWS*NVAL],
+					NEE	=rows[1][0+2*NCH*NROWS*NVAL],
+					NEEE	=rows[1][0+3*NCH*NROWS*NVAL],
+					NEEEE	=rows[1][0+4*NCH*NROWS*NVAL],
+					WWWW	=rows[0][0-4*NCH*NROWS*NVAL],
+					WWW	=rows[0][0-3*NCH*NROWS*NVAL],
+					WW	=rows[0][0-2*NCH*NROWS*NVAL],
+					W	=rows[0][0-1*NCH*NROWS*NVAL];
+				int curr=src->data[idx];
+				
+			//	int ctx=0;
+			//	ctx=ctx<<5|((N	-amin[kc])>>(src->depth[kc]-5)&31);
+			//	ctx=ctx<<5|((W	-amin[kc])>>(src->depth[kc]-5)&31);
+			//	ctx=ctx<<5|((NW	-amin[kc])>>(src->depth[kc]-5)&31);
+			//	ctx=NCH*ctx+kc;
+			//	int32_t *c2=coeffs+(MIXPREDS+1)*ctx;
+
+				int ctx=0;
+				ctx=ctx<<CTXBITS|((N-NW-amin[kc])>>(src->depth[kc]-CTXBITS)&((1<<CTXBITS)-1));
+				ctx=ctx<<CTXBITS|((W-NW-amin[kc])>>(src->depth[kc]-CTXBITS)&((1<<CTXBITS)-1));
+				ctx=NCH*ctx+kc;
+				int32_t *c2=coeffs+(MIXPREDS+1)*ctx;
+
+			//	int32_t *c2=coeffs+(MIXPREDS+1)*(NCH*((N-W+amin[kc])>>(src->depth[kc]-8)&255)+kc);
+
+				int estim[MIXPREDS];
+				int j=0;
+				//		NN
+				//	NW	N	NE
+				//	W	?
+				estim[j++]=W;
+				estim[j++]=NE;
+				estim[j++]=2*N-NN;
+				estim[j++]=N+W-NW;
+				int p1=(int)((c2[4]
+					+(int64_t)c2[0]*estim[0]
+					+(int64_t)c2[1]*estim[1]
+					+(int64_t)c2[2]*estim[2]
+					+(int64_t)c2[3]*estim[3]
+				)>>SHIFT);
+				int pred=p1;
+				
+				int vmax=N, vmin=W;
+				if(N<W)vmin=N, vmax=W;
+				if(vmin>NE)vmin=NE;
+				if(vmax<NE)vmax=NE;
+				if(vmin>NEEE)vmin=NEEE;
+				if(vmax<NEEE)vmax=NEEE;
+				CLAMP2(pred, vmin, vmax);
+				if(g_dist>1)
+				{
+					if(fwd)
+					{
+						curr-=(int)pred;
+						curr=(curr*invdist>>16)-(curr>>31);
+						CLAMP2(curr, rmin[kc], rmax[kc]);
+						src->data[idx]=curr;
+					}
+					curr=g_dist*curr+(int)pred;
+					CLAMP2(curr, amin[kc], amax[kc]);
+					if(!fwd)
+						src->data[idx]=curr;
+				}
+				else
+				{
+					if(fwd)
+					{
+						int error=curr-pred;
+						error<<=32-src->depth[kc];
+						error>>=32-src->depth[kc];
+						src->data[idx]=error;
+					}
+					else
+					{
+						curr+=pred;
+						curr<<=32-src->depth[kc];
+						curr>>=32-src->depth[kc];
+						src->data[idx]=curr;
+					}
+				}
+				rows[0][0]=curr;
+				int e=(curr>p1)-(curr<p1);//L1
+				c2[0]+=(int16_t)((int16_t)e*(int16_t)estim[0]);//casts prevent pmulld
+				c2[1]+=(int16_t)((int16_t)e*(int16_t)estim[1]);
+				c2[2]+=(int16_t)((int16_t)e*(int16_t)estim[2]);
+				c2[3]+=(int16_t)((int16_t)e*(int16_t)estim[3]);
+				c2[4]+=e;
+			}
+		}
+	}
+	_mm_free(pixels);
+	free(coeffs);
+}
+#endif
+#if 0
 static void bestN_analysis3(Image *src, uint8_t *masks)
 {
 	int fwd=1;//
@@ -1269,8 +1554,7 @@ static void bestN_analysis3(Image *src, uint8_t *masks)
 					int j=0;
 					//		NN
 					//	NW	N	NE
-					//	W	?		216 MB/s  4.49 ms/MB  i7-13700KF
-
+					//	W	?
 					estims[j++]=W;
 					estims[j++]=NE;
 					estims[j++]=2*N-NN;
@@ -1703,7 +1987,7 @@ void pred_bestN(Image *src, int fwd)
 {
 	if(fwd)
 	{
-		bestN_analysis3(src, 0);
+		bestN_analysis4(src, 0);
 		return;
 	}
 	int amin[]=
@@ -2155,9 +2439,124 @@ void pred_rls(Image *src, int fwd)
 	_mm_free(pixels);
 }
 
+enum
+{
+	HISTMATCHNORM=8192,
+};
+static void normalize(int32_t *hist, int nlevels, int res)
+{
+	for(int ks=0, c=0;ks<nlevels;++ks)
+	{
+		int freq=hist[ks];
+		hist[ks]=(int)((int64_t)c*HISTMATCHNORM/res);
+		c+=freq;
+	}
+}
+void ct_histmatch(Image *image, int fwd)
+{
+	if(!fwd)
+		return;
+	int hsize=(int)sizeof(int32_t[256+512+512+HISTMATCHNORM*3]);
+	int32_t *hist=(int32_t*)malloc(hsize);
+	if(!hist)
+	{
+		LOG_ERROR("Alloc error");
+		return;
+	}
+	int32_t *CDF_G=hist;
+	int32_t *CDF1=CDF_G+256;
+	int32_t *CDF2=CDF1+512;
+	int32_t *invCDF_R=CDF2+512;
+	int32_t *invCDF_G=invCDF_R+HISTMATCHNORM;
+	int32_t *invCDF_B=invCDF_G+HISTMATCHNORM;
+	int32_t h2[256];
+	memset(hist, 0, hsize);
+	for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
+	{
+		int r=image->data[k+0], g=image->data[k+1], b=image->data[k+2];
+		++CDF_G   [(uint8_t)(g+128)];
+		++invCDF_R[(uint8_t)(r+128)];
+		++invCDF_B[(uint8_t)(b+128)];
+	}
+	int res=image->iw*image->ih;
+	normalize(CDF_G, 256, res);
+
+	memcpy(h2, invCDF_R, sizeof(h2));
+	normalize(h2, 256, res);
+	for(int ks=0;;)
+	{
+		int x1=h2[ks], x2=ks<255?h2[ks+1]:HISTMATCHNORM;
+		int mid=(x1+x2+1)>>1;
+		for(int k=x1;k<mid;++k)
+			invCDF_R[k]=ks;
+		++ks;
+		if(ks>=256)
+		{
+			for(int k=mid;k<x2;++k)
+				invCDF_R[k]=255;
+			break;
+		}
+		for(int k=mid;k<x2;++k)
+			invCDF_R[k]=ks;
+	}
+
+	memcpy(h2, invCDF_B, sizeof(h2));
+	normalize(h2, 256, res);
+	for(int ks=0;;)
+	{
+		int x1=h2[ks], x2=ks<255?h2[ks+1]:HISTMATCHNORM;
+		int mid=(x1+x2+1)>>1;
+		for(int k=x1;k<mid;++k)
+			invCDF_B[k]=ks;
+		++ks;
+		if(ks>=256)
+		{
+			for(int k=mid;k<x2;++k)
+				invCDF_B[k]=255;
+			break;
+		}
+		for(int k=mid;k<x2;++k)
+			invCDF_B[k]=ks;
+	}
+
+	for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
+	{
+		int r=image->data[k+0], g=image->data[k+1], b=image->data[k+2];
+		int ug=CDF_G[(uint8_t)(g+128)];
+		r-=invCDF_R[ug]-128;
+		b-=invCDF_B[ug]-128;
+	//	++CDF1[(r+256)&511];
+	//	++CDF2[(b+256)&511];
+		image->data[k+0]=g;
+		image->data[k+1]=b;
+		image->data[k+2]=r;
+	}
+#if 0
+	normalize(CDF1, 512, res);
+	normalize(CDF2, 512, res);
+	for(int ks=0;ks<256;++ks)
+	{
+		int x1=CDF_G[ks], x2=ks<256-1?CDF_G[ks+1]:HISTMATCHNORM;
+		for(int k=x1;k<x2;++k)//ZOH
+			invCDF_G[k]=ks;
+	}
+	for(ptrdiff_t k=0, len=(ptrdiff_t)image->iw*image->ih*4;k<len;k+=4)
+	{
+		int r=image->data[k+0], g=image->data[k+1], b=image->data[k+2];
+		g+=invCDF_G[(CDF1[(r+256)&511]+CDF2[(b+256)&511])>>2]-128;
+		image->data[k+0]=g;
+		image->data[k+1]=b;
+		image->data[k+2]=r;
+	}
+#endif
+	free(hist);
+	image->depth[0]=8;
+	image->depth[1]=9;
+	image->depth[2]=9;
+}
 int crct_analysis(Image *src)
 {
-	long long counters[OCH_COUNT]={0};
+	int64_t counters[OCH_COUNT]={0};
 	int prev[OCH_COUNT]={0};
 	for(ptrdiff_t k=0, len=(ptrdiff_t)src->iw*src->ih*4;k<len;k+=4)
 	{
@@ -2210,11 +2609,12 @@ int crct_analysis(Image *src)
 #endif
 	}
 	int bestrct=0;
-	long long minerr=0;
+	int64_t minerr=0;
+	//console_start();//
 	for(int kt=0;kt<RCT_COUNT;++kt)
 	{
 		const unsigned char *rct=rct_combinations[kt];
-		long long currerr=
+		int64_t currerr=
 			+counters[rct[0]]
 			+counters[rct[1]]
 			+counters[rct[2]]
@@ -2224,6 +2624,118 @@ int crct_analysis(Image *src)
 			minerr=currerr;
 			bestrct=kt;
 		}
+	//	console_log("RCT %2d %s  %12lld%s\n", kt, rct_names[kt], currerr, bestrct==kt?" <-":"");//
+	}
+	return bestrct;
+}
+static int32_t crct2_hist[OCH_COUNT][256];
+int crct_analysis2(Image *src)
+{
+	enum
+	{
+		XPAD=8,
+		NROWS=2,
+		NCH=OCH_COUNT,
+		NVAL=1,
+	};
+	int psize=(src->iw+2*XPAD)*(int)sizeof(int16_t[NROWS*NCH*NVAL]);
+	int16_t *pixels=(int16_t*)_mm_malloc(psize, sizeof(__m128i));
+	if(!pixels)
+	{
+		LOG_ERROR("Alloc error");
+		return 0;
+	}
+	memset(pixels, 0, psize);
+	memset(crct2_hist, 0, sizeof(crct2_hist));
+	for(int ky=0, idx=0;ky<src->ih;++ky)
+	{
+		short *rows[]=
+		{
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS-NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
+		};
+		for(int kx=0;kx<src->iw;++kx, idx+=4)
+		{
+			int offset=0;
+			int r=src->data[idx+0];
+			int g=src->data[idx+1];
+			int b=src->data[idx+2];
+			int rg=r-g;
+			int gb=g-b;
+			int br=b-r;
+			int yuv[OCH_COUNT]=
+			{
+				r,
+				g,
+				b,
+				rg,
+				gb,
+				br,
+				rg+(gb>>2),//r-(3*g+b)/4 = r-g-(b-g)/4
+				rg+(br>>2),//g-(3*r+b)/4 = g-r-(b-r)/4
+				br+(rg>>2),//b-(3*r+g)/4 = b-r-(g-r)/4
+				br+(gb>>2),//r-(g+3*b)/4 = r-b-(g-b)/4
+				gb+(br>>2),//g-(r+3*b)/4 = g-b-(r-b)/4
+				gb+(gb>>2),//b-(r+3*g)/4 = b-g-(r-g)/4
+				(rg-br)>>1,//r-(g+b)/2 = (r-g + r-b)/2
+				(rg-gb)>>1,//g-(r+b)/2 = (g-r + g-b)/2
+				(br-gb)>>1,//b-(r+g)/2 = (b-r + b-g)/2
+			};
+			for(int kc=0;kc<OCH_COUNT;++kc)
+			{
+				rows[0]+=NROWS*NVAL;
+				rows[1]+=NROWS*NVAL;
+				rows[2]+=NROWS*NVAL;
+				rows[3]+=NROWS*NVAL;
+				int
+					NW	=rows[1][0-1*NCH*NROWS*NVAL],
+					N	=rows[1][0+0*NCH*NROWS*NVAL],
+					W	=rows[0][0-1*NCH*NROWS*NVAL];
+				int pred;
+				MEDIAN3_CMOV(pred, N, W, N+W-NW);
+				//int pred=(N+W)>>1;
+				++crct2_hist[kc][(uint8_t)(yuv[kc]-pred+128)];
+				rows[0][0]=yuv[kc];
+			}
+		}
+	}
+	_mm_free(pixels);
+	double csizes[OCH_COUNT]={0};
+	for(int kc=0;kc<OCH_COUNT;++kc)
+	{
+		int32_t *hist=crct2_hist[kc], sum=0;
+		double e=0, norm;
+
+		for(int ks=0;ks<256;++ks)
+			sum+=hist[ks];
+		norm=1./sum;
+		for(int ks=0;ks<256;++ks)
+		{
+			int freq=hist[ks];
+			if(freq)
+				e-=freq*log2(freq*norm);
+		}
+		csizes[kc]=e/8;
+	}
+	int bestrct=0;
+	double minerr=0;
+	//console_start();//
+	for(int kt=0;kt<RCT_COUNT;++kt)
+	{
+		const unsigned char *rct=rct_combinations[kt];
+		double currerr=
+			+csizes[rct[0]]
+			+csizes[rct[1]]
+			+csizes[rct[2]]
+		;
+		if(!kt||minerr>currerr)
+		{
+			minerr=currerr;
+			bestrct=kt;
+		}
+	//	console_log("RCT %2d %s  %12.2lf%s\n", kt, rct_names[kt], currerr, bestrct==kt?" <-":"");//
 	}
 	return bestrct;
 }
@@ -2288,7 +2800,7 @@ void pred_l1crct(Image *src, int fwd)
 	int16_t *pixels=(int16_t*)_mm_malloc(psize, sizeof(__m128i));
 	int invdist=((1<<16)+g_dist-1)/g_dist;
 	if(fwd)
-		src->rct=crct_analysis(src);
+		src->rct=crct_analysis2(src);
 	const unsigned char *combination=rct_combinations[src->rct];
 	int
 		yidx=combination[II_PERM_Y],
@@ -2529,7 +3041,7 @@ void pred_l1crct(Image *src, int fwd)
 					int freq=hcurr[ks];
 					if(freq)
 					{
-						int prob=(int)((long long)freq*(0x1000LL-count)/sum)+1;
+						int prob=(int)((int64_t)freq*(0x1000LL-count)/sum)+1;
 						csize-=freq*log2(prob*(1./0x1000));
 					}
 				}

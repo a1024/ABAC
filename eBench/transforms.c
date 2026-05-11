@@ -1639,6 +1639,8 @@ void rct_custom_optimize(Image const *image, short *params)
 	++call_idx;
 	if(call_idx==1)
 		DisableProcessWindowsGhosting();
+	int loud=loud_transforms;
+	loud_transforms=0;
 
 	im2=0;
 	image_copy(&im2, image);
@@ -1722,8 +1724,8 @@ void rct_custom_optimize(Image const *image, short *params)
 			memcpy(loss_prev, loss_curr, sizeof(loss_prev));
 			watchdog=0;
 		}
-
-		if(loud_transforms)
+		
+		//if(loud_transforms)
 			set_window_title(
 				"%d %4d/%4d,%d/%d: %lf%% RGB %lf %lf %lf%s",
 				call_idx,
@@ -1741,9 +1743,12 @@ void rct_custom_optimize(Image const *image, short *params)
 		//preview
 #if 1
 		{
-			ch_entropy[0]=(float)(loss_bestsofar[0]*image->src_depth[0]);
-			ch_entropy[1]=(float)(loss_bestsofar[1]*image->src_depth[1]);
-			ch_entropy[2]=(float)(loss_bestsofar[2]*image->src_depth[2]);
+			ch_entropy[0]=(float)loss_bestsofar[0];
+			ch_entropy[1]=(float)loss_bestsofar[1];
+			ch_entropy[2]=(float)loss_bestsofar[2];
+		//	ch_entropy[0]=(float)(loss_bestsofar[0]*image->src_depth[0]);
+		//	ch_entropy[1]=(float)(loss_bestsofar[1]*image->src_depth[1]);
+		//	ch_entropy[2]=(float)(loss_bestsofar[2]*image->src_depth[2]);
 			ch_entropy[3]=0;
 			//ch_entropy[3]=(float)(loss_bestsofar[3]*image->src_depth[1]);//X
 			//unsigned char *ptr;
@@ -1754,6 +1759,7 @@ void rct_custom_optimize(Image const *image, short *params)
 		}
 #endif
 	}
+	loud_transforms=loud;
 	memcpy(params, params2, sizeof(params2));
 #undef  CALC_LOSS
 	free(hist);
@@ -12086,9 +12092,12 @@ void pred_custom_optimize(Image const *image, int *params, int reach)
 		//preview
 #if 1
 		{
-			ch_entropy[0]=(float)(loss_bestsofar[0]*image->src_depth[0]);
-			ch_entropy[1]=(float)(loss_bestsofar[1]*image->src_depth[1]);
-			ch_entropy[2]=(float)(loss_bestsofar[2]*image->src_depth[2]);
+			ch_entropy[0]=(float)loss_bestsofar[0];
+			ch_entropy[1]=(float)loss_bestsofar[1];
+			ch_entropy[2]=(float)loss_bestsofar[2];
+			//ch_entropy[0]=(float)(loss_bestsofar[0]*image->src_depth[0]);
+			//ch_entropy[1]=(float)(loss_bestsofar[1]*image->src_depth[1]);
+			//ch_entropy[2]=(float)(loss_bestsofar[2]*image->src_depth[2]);
 			ch_entropy[3]=0;
 			//ch_entropy[3]=(float)(loss_bestsofar[3]*image->src_depth[3]);//X
 			//unsigned char *ptr;

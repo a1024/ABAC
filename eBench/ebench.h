@@ -695,6 +695,7 @@ void colortransform_J2K2(Image *image, int fwd);
 void rct_yrgb_v1(Image *image, int fwd);
 void rct_yrgb_v2(Image *image, int fwd);
 void ct_cmyk_fwd(Image *image);
+void ct_histmatch(Image *image, int fwd);
 
 void colortransform_lossy_YCbCr(Image *image, int fwd);
 void colortransform_lossy_XYB(Image *image, int fwd);
@@ -867,6 +868,7 @@ static const char *rct_names[]=
 #undef  RCT
 };
 int crct_analysis(Image *src);
+int crct_analysis2(Image *src);
 #endif
 
 

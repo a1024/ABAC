@@ -217,6 +217,7 @@ typedef enum TransformTypeEnum
 	CT_FWD_XYB,		CT_INV_XYB,	//LOSSY	(2021) JPEG XL
 	CT_FWD_CUSTOM,		CT_INV_CUSTOM,
 	CT_FWD_PCA,		CT_INV_PCA,
+	CT_FWD_HISTMATCH,	CT_INV_HISTMATCH,
 //	CT_FWD_ADAPTIVE,	CT_INV_ADAPTIVE,
 
 	CST_COMPARE,		CST_INV_SEPARATOR,
@@ -3056,6 +3057,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case CT_INV_CUSTOM:		a="C  Inv CUSTOM";		break;
 	case CT_FWD_PCA:		a="C  Fwd PCA";			break;
 	case CT_INV_PCA:		a="C  Inv PCA";			break;
+	case CT_FWD_HISTMATCH:		a="C  Fwd HistMatch";		break;
+	case CT_INV_HISTMATCH:		a="C  Inv HistMatch";		break;
 //	case CT_FWD_QUAD:		a="C  Fwd Quad";		break;
 //	case CT_INV_QUAD:		a="C  Inv Quad";		break;
 
@@ -4283,8 +4286,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 //	case CT_INV_ADAPTIVE:		colortransform_adaptive((char*)image, iw, ih, 0);	break;
 	case CT_FWD_CUSTOM:		rct_custom(image, 1, rct_custom_params);		break;
 	case CT_INV_CUSTOM:		rct_custom(image, 0, rct_custom_params);		break;
-	case CT_FWD_PCA:		colortransform_lossy_pca(image, 1);			break;
-	case CT_INV_PCA:		colortransform_lossy_pca(image, 0);			break;
+	case CT_FWD_HISTMATCH:		ct_histmatch(image, 1);					break;
+	case CT_INV_HISTMATCH:		ct_histmatch(image, 0);					break;
 //	case CT_FWD_QUAD:		colortransform_quad((char*)image, iw, ih, 1);		break;
 //	case CT_INV_QUAD:		colortransform_quad((char*)image, iw, ih, 1);		break;
 
@@ -5969,6 +5972,30 @@ int io_init(int argc, char **argv)//return false to abort
 	memcpy(&cam0, &cam, sizeof(cam));
 
 	set_bk_color(0xA0808080);
+#if 1
+	{
+		const char *str=
+
+			"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+
+		;
+		int len=(int)strlen(str);
+		Image *im2=image_load(str, len);
+		if(im2)
+		{
+			STR_COPY(fn, str, len);
+			filesize=get_filesize((char*)fn->data);
+
+			if(im0)
+				free(im0);
+			im0=im2;
+			set_window_title("%s - eBench", (char*)fn->data);
+			update_image();
+			if(imagecentered)
+				center_image();
+		}
+	}
+#endif
 	return 1;
 }
 
@@ -8758,6 +8785,22 @@ static void draw_profile_y(int comp, int color)//vertical cross-section profile
 		draw_2d_flush(vertices_2d, color, GL_LINE_STRIP);
 	}
 }
+static void draw_profile_xy(int comp1, int comp2, int color)//horizontal cross-section profile		to see the color/spatial correlation
+{
+	int iy=screen2image_y_int(my);
+	if((unsigned)iy<(unsigned)im1->ih)
+	{
+		int *row1=im1->data+(im1->iw*iy<<2|comp1);
+		int *row2=im1->data+(im1->iw*iy<<2|comp2);
+		int ix=screen2image_x_int(mx);
+		for(int k=ix-10;k<=ix+10;++k)
+		{
+			if((uint32_t)k<(uint32_t)im1->iw)
+				draw_curve_enqueue(&vertices_2d, wndw*0.5f+2*(float)row1[k<<2], wndh*0.5f+2*(float)row2[k<<2]);
+		}
+		draw_2d_flush(vertices_2d, color, GL_LINE_STRIP);
+	}
+}
 
 #if 0
 #define DSP_REACH 5
@@ -10471,6 +10514,9 @@ void io_render(void)
 			draw_profile(1, 0xFF00FF00);
 			draw_profile(2, 0xFFFF0000);
 			draw_profile(3, 0xFF000000);
+			draw_profile_xy(0, 1, 0xFF00FFFF);
+			draw_profile_xy(1, 2, 0xFFFFFF00);
+			draw_profile_xy(2, 0, 0xFFFF00FF);
 		}
 	}
 

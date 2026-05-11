@@ -84,6 +84,8 @@ Image* image_load(const char *fn, int fnlen)
 	Image *image;
 	int iw=0, ih=0, nch=0;
 	ptrdiff_t res;
+	if(!fnlen)
+		fnlen=(int)strlen(fn);
 	if(!_stricmp(fn+fnlen-4, ".PPM"))//shortcut to load PPMs fast
 	{
 		ArrayHandle src;
