@@ -1299,11 +1299,12 @@ int main(int argc, char **argv)
 	int flags=CMDFLAG_VERIFY_BITEXACT;
 //#ifndef _DEBUG
 #ifdef __GNUC__
-	if(argc!=3&&argc!=4)
+	if(argc!=2&&argc!=3&&argc!=4)
 	{
 		printf(
-			"Usage:    \"%s\"  DATASET  CODEC  [FLAGS]\n"
+			"Usage:    \"%s\"  DATASET  [CODEC]  [FLAGS]\n"
 			"You will be prompted to define DATASET and CODEC.\n"
+			"Calling without the CODEC just prints the previous results.\n"
 			"[FLAGS] (optional):\n"
 			"  [0]  Verify files (default).\n"
 			"  [1]  Don't verify bit-exact decodes.\n"
@@ -1313,10 +1314,10 @@ int main(int argc, char **argv)
 			"  [5]  7-second delays between calls to avoid SSD choking at high throughputs.\n"
 			"  [6]  Print rivals. It\'s recommended to zoom out the terminal. Can be added to other flags.\n"
 			"Examples:\n"
-			"  %s  div2k  jxl7        Verifies that the decoded files are bit-exact.\n"
-			"  %s  div2k  j2k    %d    Doesn't verify files.\n"
-			"  %s  div2k  c32n   %d    Measures 8-bit PSNR.\n"
-			"  %s  div2k  c32n   %d    Measures 8-bit SSIM.\n"
+			"  \"%s\"  div2k  jxl7        Verifies that the decoded files are bit-exact.\n"
+			"  \"%s\"  div2k  j2k    %d    Doesn't verify files.\n"
+			"  \"%s\"  div2k  c32n   %d    Measures 8-bit PSNR.\n"
+			"  \"%s\"  div2k  c32n   %d    Measures 8-bit SSIM.\n"
 			, argv[0]
 			, argv[0]
 			, argv[0], CMDFLAG_NOP
@@ -1326,7 +1327,7 @@ int main(int argc, char **argv)
 		return 0;
 	}
 	datasetname=argv[1];
-	codecname=argv[2];
+	codecname=argc<3?0:argv[2];
 	flags=argc==4?atoi(argv[3]):CMDFLAG_VERIFY_BITEXACT;
 #else
 	datasetname="div2k";
@@ -1365,6 +1366,7 @@ int main(int argc, char **argv)
 	}
 
 	//2. get temp filenames
+	if(codecname)
 	{
 		int len, val;
 #ifdef __GNUC__
@@ -1558,7 +1560,9 @@ dec command template
 			ARRAY_ALLOC(TestInfo, testinfo, 0, 0, 0, free_testinfo);
 		}
 	}
-	int titlecolwidth=(int)strlen(codecname);
+	int titlecolwidth=0;
+	if(codecname)
+		titlecolwidth=(int)strlen(codecname);
 	for(int k=0;k<(int)uinfo->count;++k)//get filetitle column width
 	{
 		UInfo *info=(UInfo*)array_at(&uinfo, k);
@@ -1622,6 +1626,18 @@ dec command template
 				test1=test2;
 			}
 		}
+	}
+
+	if(!codecname)
+	{
+		uint64_t usize=0;
+		for(int k=0;k<(int)uinfo->count;++k)
+		{
+			UInfo *info=(UInfo*)array_at(&uinfo, k);
+			usize+=info->usize;
+		}
+		print_summary(besttestidxs, testinfo, usize, -1, flags/CMDFLAG_PRINT_RIVALS);
+		return 0;
 	}
 
 	//4. get command templates
