@@ -1330,8 +1330,10 @@ int main(int argc, char **argv)
 	codecname=argc<3?0:argv[2];
 	flags=argc==4?atoi(argv[3]):CMDFLAG_VERIFY_BITEXACT;
 #else
-	datasetname="div2k";
-	codecname="c32";
+	datasetname="bandcamp";
+	codecname="aupk01";
+	//datasetname="div2k";
+	//codecname="c32";
 #endif
 	const char placeholdertag[]="*.";
 	const int placeholderlen=sizeof(placeholdertag)-1;
@@ -1857,14 +1859,17 @@ dec command template
 		usize+=info->usize;
 	}
 	TestInfo *selfrival=0;
-	for(int k=0;k<(int)besttestidxs->count;++k)
+	if(testinfo->count)
 	{
-		int idx=*(int*)array_at(&besttestidxs, k);
-		TestInfo *rival=(TestInfo*)array_at(&testinfo, idx);
-		if(!strcmp((const char*)rival->codecname->data, codecname))
+		for(int k=0;k<(int)besttestidxs->count;++k)
 		{
-			selfrival=rival;
-			break;
+			int idx=*(int*)array_at(&besttestidxs, k);
+			TestInfo *rival=(TestInfo*)array_at(&testinfo, idx);
+			if(!strcmp((const char*)rival->codecname->data, codecname))
+			{
+				selfrival=rival;
+				break;
+			}
 		}
 	}
 	TestInfo *currtest=(TestInfo*)ARRAY_APPEND(testinfo, 0, 1, 1, 0);

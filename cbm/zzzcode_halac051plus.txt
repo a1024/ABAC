@@ -1,0 +1,2 @@
+HALAC_ENCODE_0.5.1_AVX2.exe *.wav *.halac -plus
+HALAC_DECODE_0.5.1_AVX.exe *.halac *.wav

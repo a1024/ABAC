@@ -1,0 +1,2 @@
+aupk01 *.wav *.aupk01 a
+aupk01 *.aupk01 *.wav

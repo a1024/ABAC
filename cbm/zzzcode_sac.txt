@@ -1,0 +1,2 @@
+sac *.wav *.sac
+sac --decode *.sac *.wav

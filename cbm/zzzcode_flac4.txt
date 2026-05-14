@@ -1,0 +1,2 @@
+flac -4 *.wav -o *.flac
+flac -d *.flac -o *.wav
