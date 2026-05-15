@@ -709,20 +709,24 @@ void pred_mixN(Image *src, int fwd)
 		amax[3]/g_dist,
 	};
 	int invdist=((1<<16)+g_dist-1)/g_dist;
-
+	
+//	#define PERMCCMIX4
+//	#define CCMIXN
 	enum
 	{
 	//	MIXPREDS=2,
 		MIXPREDS=4,
 
-		SHIFT=18+6,
+		SHIFT=20,
 
 		XPAD=8,
 		NROWS=4,
 		NCH=4,
 		NVAL=2,
+#ifdef PERMCCMIX4
+		ADDBITS=5,
+#endif
 	};
-	ALIGN(16) int32_t coeffs[4][MIXPREDS]={0}, bias[4]={1<<SHIFT>>1}, estims[MIXPREDS]={0};
 
 	//int32_t mixnum[4][MIXPREDS]={0}, mixden[4]={0};
 	//mixden[3]=mixden[2]=mixden[1]=mixden[0]=4;
@@ -774,20 +778,621 @@ void pred_mixN(Image *src, int fwd)
 		LOG_ERROR("Alloc error");
 		return;
 	}
+#ifdef PERMCCMIX4
+	ALIGN(16) int64_t coeffs[4][MIXPREDS*3]={0};
+	ALIGN(16) int32_t bias[1+3+4]={1<<SHIFT>>1};
+	ALIGN(16) int32_t estim0[MIXPREDS*3]={0};
+	ALIGN(16) int32_t estims[MIXPREDS*3]={0};
+	int32_t rctcoeffs1[2]={(1<<SHIFT)/2, (1<<SHIFT)/2};
+	int32_t rctcoeffs2[3]={(1<<SHIFT)/3, (1<<SHIFT)/3, (1<<SHIFT)/3};
+	FILLMEM((int64_t*)coeffs, (1<<SHIFT)/MIXPREDS, sizeof(coeffs), sizeof(int64_t));
+#if 1
+	if(fwd)
+		src->rct=crct_analysis(src);
+	const unsigned char *combination=rct_combinations[src->rct];
+	int
+		yidx=combination[II_PERM_Y],
+		uidx=combination[II_PERM_U],
+		vidx=combination[II_PERM_V],
+		uc0=combination[II_COEFF_U_SUB_Y],
+		vc0=combination[II_COEFF_V_SUB_Y],
+		vc1=combination[II_COEFF_V_SUB_U];
+#endif
+#elif defined CCMIXN
+	ALIGN(16) int64_t coeffs[4][MIXPREDS*3]={0};
+	ALIGN(16) int32_t bias[1+3+4]={1<<SHIFT>>1};
+	ALIGN(16) int32_t estim0[MIXPREDS*3]={0};
+	ALIGN(16) int32_t estims[MIXPREDS*3]={0};
+	int32_t rctcoeffs1[2]={(1<<SHIFT)/2, (1<<SHIFT)/2};
+	int32_t rctcoeffs2[3]={(1<<SHIFT)/3, (1<<SHIFT)/3, (1<<SHIFT)/3};
+	FILLMEM((int64_t*)coeffs, (1<<SHIFT)/MIXPREDS, sizeof(coeffs), sizeof(int64_t));
+	//FILLMEM((int32_t*)coeffs[0], (1<<SHIFT)/(MIXPREDS*1), sizeof(coeffs[0]), sizeof(int32_t));
+	//FILLMEM((int32_t*)coeffs[1], (1<<SHIFT)/(MIXPREDS*2), sizeof(coeffs[1]), sizeof(int32_t));
+	//FILLMEM((int32_t*)coeffs[2], (1<<SHIFT)/(MIXPREDS*3), sizeof(coeffs[2]), sizeof(int32_t));
+#else
+	ALIGN(16) int32_t coeffs[4][MIXPREDS*3]={0}, bias[4]={1<<SHIFT>>1}, estims[MIXPREDS*3]={0};
 	FILLMEM((int32_t*)coeffs, (1<<SHIFT)/MIXPREDS, sizeof(coeffs), sizeof(int32_t));
+#endif
 	bias[3]=bias[2]=bias[1]=bias[0];
 	memset(pixels, 0, psize);
 	for(int ky=0, idx=0;ky<src->ih;++ky)
 	{
 		int32_t *rows[]=
 		{
+#ifdef CCMIXN
+			pixels+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
+			pixels+(XPAD*NCH*NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
+#else
 			pixels+(XPAD*NCH*NROWS-NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,//sub 1 channel for pre-increment
 			pixels+(XPAD*NCH*NROWS-NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
 			pixels+(XPAD*NCH*NROWS-NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
 			pixels+(XPAD*NCH*NROWS-NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
+#endif
 		};
 		for(int kx=0;kx<src->iw;++kx)
 		{
+#ifdef PERMCCMIX4
+			int j=0, p0, p1, p2, pred0, pred1, pred2;
+
+			{
+				int
+					NN	=rows[2][0+(0+0*NCH)*NROWS*NVAL],
+					NW	=rows[1][0+(0-1*NCH)*NROWS*NVAL],
+					N	=rows[1][0+(0+0*NCH)*NROWS*NVAL],
+					NE	=rows[1][0+(0+1*NCH)*NROWS*NVAL],
+					W	=rows[0][0+(0-1*NCH)*NROWS*NVAL];
+				
+				estims[j++]=W;
+				estims[j++]=NE;
+				estims[j++]=2*N-NN;
+				estims[j++]=N+W-NW;
+			}
+			{
+				int
+					NN	=rows[2][0+(1+0*NCH)*NROWS*NVAL],
+					NW	=rows[1][0+(1-1*NCH)*NROWS*NVAL],
+					N	=rows[1][0+(1+0*NCH)*NROWS*NVAL],
+					NE	=rows[1][0+(1+1*NCH)*NROWS*NVAL],
+					W	=rows[0][0+(1-1*NCH)*NROWS*NVAL];
+				
+				estims[j++]=W;
+				estims[j++]=NE;
+				estims[j++]=2*N-NN;
+				estims[j++]=N+W-NW;
+			}
+			{
+				int
+					NN	=rows[2][0+(2+0*NCH)*NROWS*NVAL],
+					NW	=rows[1][0+(2-1*NCH)*NROWS*NVAL],
+					N	=rows[1][0+(2+0*NCH)*NROWS*NVAL],
+					NE	=rows[1][0+(2+1*NCH)*NROWS*NVAL],
+					W	=rows[0][0+(2-1*NCH)*NROWS*NVAL];
+				
+				estims[j++]=W;
+				estims[j++]=NE;
+				estims[j++]=2*N-NN;
+				estims[j++]=N+W-NW;
+			}
+			p0=(int)((bias[0]
+				+(int64_t)coeffs[0][0]*estims[0+0*MIXPREDS]
+				+(int64_t)coeffs[0][1]*estims[1+0*MIXPREDS]
+				+(int64_t)coeffs[0][2]*estims[2+0*MIXPREDS]
+				+(int64_t)coeffs[0][3]*estims[3+0*MIXPREDS]
+			)>>SHIFT);
+			p1=(int)((bias[1]
+				+(int64_t)coeffs[1][0]*estims[0+1*MIXPREDS]
+				+(int64_t)coeffs[1][1]*estims[1+1*MIXPREDS]
+				+(int64_t)coeffs[1][2]*estims[2+1*MIXPREDS]
+				+(int64_t)coeffs[1][3]*estims[3+1*MIXPREDS]
+			)>>SHIFT);
+			p2=(int)((bias[2]
+				+(int64_t)coeffs[2][0]*estims[0+2*MIXPREDS]
+				+(int64_t)coeffs[2][1]*estims[1+2*MIXPREDS]
+				+(int64_t)coeffs[2][2]*estims[2+2*MIXPREDS]
+				+(int64_t)coeffs[2][3]*estims[3+2*MIXPREDS]
+			)>>SHIFT);
+#if 0
+			pred0=p2;
+			pred1=p0;
+			pred2=p1;
+			pred1-=(pred0+pred2)>>2;
+			pred2+=pred1;
+			pred0+=pred1;
+			pred0=(pred0+(1<<ADDBITS>>1))>>ADDBITS;
+			pred1=(pred1+(1<<ADDBITS>>1))>>ADDBITS;
+			pred2=(pred2+(1<<ADDBITS>>1))>>ADDBITS;
+#endif
+#if 0
+			pred0=p0;
+			pred1=p1;
+			pred2=p2;
+			//if(vc0+vc1)
+			//	pred0-=pred2>>2;
+			//if(uc0)
+			//	pred0-=pred1>>2;
+			pred1+=(uc0*pred0>>2);
+			pred2+=((vc0*pred0+vc1*pred1)>>2);
+			int comp[3];
+			comp[yidx]=pred0;
+			comp[uidx]=pred1;
+			comp[vidx]=pred2;
+			pred0=comp[0];
+			pred1=comp[1];
+			pred2=comp[2];
+			pred0=(pred0+(1<<ADDBITS>>1))>>ADDBITS;
+			pred1=(pred1+(1<<ADDBITS>>1))>>ADDBITS;
+			pred2=(pred2+(1<<ADDBITS>>1))>>ADDBITS;
+#endif
+		//	pred0=(int32_t)_mm_cvtsd_si64(_mm_set_sd((1./(1<<ADDBITS))*(p0+1.402*p2)));
+		//	pred1=(int32_t)_mm_cvtsd_si64(_mm_set_sd((1./(1<<ADDBITS))*(p0-0.344136*p1-0.714136*p2)));
+		//	pred2=(int32_t)_mm_cvtsd_si64(_mm_set_sd((1./(1<<ADDBITS))*(p0+1.772*p1)));
+			
+			pred0=(p0+(1<<ADDBITS>>1))>>ADDBITS;
+			pred1=(p1+(1<<ADDBITS>>1))>>ADDBITS;
+			pred2=(p2+(1<<ADDBITS>>1))>>ADDBITS;
+
+			//if(ky==src->ih/2&&kx==src->iw/2)//
+			//	printf("");
+
+			CLAMP2(pred0, amin[yidx], amax[yidx]);
+			CLAMP2(pred1, amin[uidx], amax[uidx]);
+			CLAMP2(pred2, amin[vidx], amax[vidx]);
+			int r, g, b;
+			if(g_dist>1)
+			{
+				r=src->data[idx+0];
+				g=src->data[idx+1];
+				b=src->data[idx+2];
+				if(fwd)
+				{
+					r=src->data[idx+yidx];
+					g=src->data[idx+uidx];
+					b=src->data[idx+vidx];
+					r-=(int)pred0;
+					g-=(int)pred1;
+					b-=(int)pred2;
+
+					r=(r*invdist>>16)-(r>>31);//curr/=g_dist
+					g=(g*invdist>>16)-(g>>31);
+					b=(b*invdist>>16)-(b>>31);
+					CLAMP2(r, rmin[0], rmax[0]);
+					CLAMP2(g, rmin[1], rmax[1]);
+					CLAMP2(b, rmin[2], rmax[2]);
+					src->data[idx+0]=r;
+					src->data[idx+1]=g;
+					src->data[idx+2]=b;
+				}
+				r=g_dist*r+(int)pred0;
+				g=g_dist*g+(int)pred1;
+				b=g_dist*b+(int)pred2;
+				CLAMP2(r, amin[0], amax[0]);
+				CLAMP2(g, amin[1], amax[1]);
+				CLAMP2(b, amin[2], amax[2]);
+				if(!fwd)
+				{
+					src->data[idx+yidx]=r;
+					src->data[idx+uidx]=g;
+					src->data[idx+vidx]=b;
+				}
+			}
+			else
+			{
+				if(fwd)
+				{
+					r=src->data[idx+yidx];
+					g=src->data[idx+uidx];
+					b=src->data[idx+vidx];
+					pred1+=uc0*(r-pred0)>>2;
+					CLAMP2(pred1, amin[uidx], amax[uidx]);
+					pred2+=(vc0*(r-pred0)+vc1*(g-pred1))>>2;
+					CLAMP2(pred2, amin[vidx], amax[vidx]);
+					int e0=r-pred0;
+					int e1=g-pred1;
+					int e2=b-pred2;
+					e0<<=32-src->depth[yidx];
+					e1<<=32-src->depth[uidx];
+					e2<<=32-src->depth[vidx];
+					e0>>=32-src->depth[yidx];
+					e1>>=32-src->depth[uidx];
+					e2>>=32-src->depth[vidx];
+					src->data[idx+0]=e0;
+					src->data[idx+1]=e1;
+					src->data[idx+2]=e2;
+				}
+				else
+				{
+					r=src->data[idx+0];
+					g=src->data[idx+1];
+					b=src->data[idx+2];
+					r+=pred0;
+					r<<=32-src->depth[yidx];
+					r>>=32-src->depth[yidx];
+					pred1+=uc0*(r-pred0)>>2;
+					CLAMP2(pred1, amin[uidx], amax[uidx]);
+					g+=pred1;
+					g<<=32-src->depth[uidx];
+					g>>=32-src->depth[uidx];
+					pred2+=(vc0*(r-pred0)+vc1*(g-pred1))>>2;
+					CLAMP2(pred2, amin[vidx], amax[vidx]);
+					b+=pred2;
+					b<<=32-src->depth[vidx];
+					b>>=32-src->depth[vidx];
+					src->data[idx+yidx]=r;
+					src->data[idx+uidx]=g;
+					src->data[idx+vidx]=b;
+				}
+			}
+			r<<=ADDBITS;
+			g<<=ADDBITS;
+			b<<=ADDBITS;
+#if 0
+			r-=g;
+			b-=g;
+			g+=(r+b)>>2;
+			int y=g;
+			int u=b;
+			int v=r;
+#endif
+#if 0
+			comp[0]=r;
+			comp[1]=g;
+			comp[2]=b;
+			int y=comp[yidx];
+			int u=comp[uidx];
+			int v=comp[vidx];
+			v-=(vc0*y+vc1*u)>>2;
+			u-=(uc0*y)>>2;
+			//if(vc0+vc1)
+			//	y+=v>>2;
+			//if(uc0)
+			//	y+=u>>2;
+#endif
+			//int y=(int32_t)_mm_cvtsd_si64(_mm_set_sd(0.299*r+0.587*g+0.114*b));
+			//int u=(int32_t)_mm_cvtsd_si64(_mm_set_sd(-0.168736*r-0.331264*g+0.5*b));
+			//int v=(int32_t)_mm_cvtsd_si64(_mm_set_sd(0.5*r-0.418688*g-0.081312*b));
+			int y=r;
+			int u=g;
+			int v=b;
+
+			rows[0][0+(0+0*NCH)*NROWS*NVAL]=y;
+			rows[0][0+(1+0*NCH)*NROWS*NVAL]=u;
+			rows[0][0+(2+0*NCH)*NROWS*NVAL]=v;
+			y=(y+(1<<ADDBITS>>1))>>ADDBITS;
+			u=(u+(1<<ADDBITS>>1))>>ADDBITS;
+			v=(v+(1<<ADDBITS>>1))>>ADDBITS;
+			p0=(p0+(1<<ADDBITS>>1))>>ADDBITS;
+			p1=(p1+(1<<ADDBITS>>1))>>ADDBITS;
+			p2=(p2+(1<<ADDBITS>>1))>>ADDBITS;
+			p0=(y>p0)-(y<p0);
+			p1=(u>p1)-(u<p1);
+			p2=(v>p2)-(v<p2);
+			bias[0]+=p0;
+			coeffs[0][0]+=(int16_t)((int16_t)p0*(int16_t)estims[0+0*4]>>ADDBITS);
+			coeffs[0][1]+=(int16_t)((int16_t)p0*(int16_t)estims[1+0*4]>>ADDBITS);
+			coeffs[0][2]+=(int16_t)((int16_t)p0*(int16_t)estims[2+0*4]>>ADDBITS);
+			coeffs[0][3]+=(int16_t)((int16_t)p0*(int16_t)estims[3+0*4]>>ADDBITS);
+			bias[1]+=p1;
+			coeffs[1][0]+=(int16_t)((int16_t)p1*(int16_t)estims[0+1*4]>>ADDBITS);
+			coeffs[1][1]+=(int16_t)((int16_t)p1*(int16_t)estims[1+1*4]>>ADDBITS);
+			coeffs[1][2]+=(int16_t)((int16_t)p1*(int16_t)estims[2+1*4]>>ADDBITS);
+			coeffs[1][3]+=(int16_t)((int16_t)p1*(int16_t)estims[3+1*4]>>ADDBITS);
+			bias[2]+=p2;
+			coeffs[2][0]+=(int16_t)((int16_t)p2*(int16_t)estims[0+2*4]>>ADDBITS);
+			coeffs[2][1]+=(int16_t)((int16_t)p2*(int16_t)estims[1+2*4]>>ADDBITS);
+			coeffs[2][2]+=(int16_t)((int16_t)p2*(int16_t)estims[2+2*4]>>ADDBITS);
+			coeffs[2][3]+=(int16_t)((int16_t)p2*(int16_t)estims[3+2*4]>>ADDBITS);
+
+			idx+=4;
+			rows[0]+=NROWS*NVAL*NCH;
+			rows[1]+=NROWS*NVAL*NCH;
+			rows[2]+=NROWS*NVAL*NCH;
+			rows[3]+=NROWS*NVAL*NCH;
+
+#elif defined CCMIXN
+			int j, kc;
+			int p1, p2, p3, pp, pred, curr;
+			
+			//if(ky==2&&kx==src->iw/2)//
+			//if(ky==src->ih/2&&kx==src->iw/2)//
+			//	printf("");
+			
+			j=0;
+			kc=0;
+			{
+				int
+					NN	=rows[2][0+(0+0*NCH)*NROWS*NVAL],
+					NW	=rows[1][0+(0-1*NCH)*NROWS*NVAL],
+					N	=rows[1][0+(0+0*NCH)*NROWS*NVAL],
+					NE	=rows[1][0+(0+1*NCH)*NROWS*NVAL],
+					W	=rows[0][0+(0-1*NCH)*NROWS*NVAL];
+				
+				estim0[j]=estims[j]=W;		++j;
+				estim0[j]=estims[j]=NE;		++j;
+				estim0[j]=estims[j]=2*N-NN;	++j;
+				estim0[j]=estims[j]=N+W-NW;	++j;
+			}
+			p1=(int)((bias[0]
+				+(int64_t)coeffs[kc][0]*estims[0]
+				+(int64_t)coeffs[kc][1]*estims[1]
+				+(int64_t)coeffs[kc][2]*estims[2]
+				+(int64_t)coeffs[kc][3]*estims[3]
+			)>>SHIFT);
+			pred=p1;
+			CLAMP2(pred, amin[kc], amax[kc]);
+#if 1
+			curr=src->data[idx+kc];
+			if(g_dist>1)
+			{
+				if(fwd)
+				{
+					curr-=(int)pred;
+
+					curr=(curr*invdist>>16)-(curr>>31);//curr/=g_dist
+					CLAMP2(curr, rmin[kc], rmax[kc]);
+					src->data[idx+kc]=curr;
+				}
+				curr=g_dist*curr+(int)pred;
+				CLAMP2(curr, amin[kc], amax[kc]);
+				if(!fwd)
+					src->data[idx+kc]=curr;
+			}
+			else
+			{
+				if(fwd)
+				{
+					int error=curr-pred;
+					error<<=32-src->depth[kc];
+					error>>=32-src->depth[kc];
+					src->data[idx+kc]=error;
+				}
+				else
+				{
+					curr+=pred;
+					curr<<=32-src->depth[kc];
+					curr>>=32-src->depth[kc];
+					src->data[idx+kc]=curr;
+				}
+			}
+#endif
+			rows[0][0+(kc+0*NCH)*NROWS*NVAL]=curr;
+			p1=(curr>p1)-(curr<p1);
+			bias[0]+=p1;
+			coeffs[kc][0]+=(int16_t)((int16_t)p1*(int16_t)estims[0]);
+			coeffs[kc][1]+=(int16_t)((int16_t)p1*(int16_t)estims[1]);
+			coeffs[kc][2]+=(int16_t)((int16_t)p1*(int16_t)estims[2]);
+			coeffs[kc][3]+=(int16_t)((int16_t)p1*(int16_t)estims[3]);
+			
+			kc=1;
+			{
+				int
+				//	NN1	=rows[2][0+(0+0*NCH)*NROWS*NVAL],
+				//	NW1	=rows[1][0+(0-1*NCH)*NROWS*NVAL],
+				//	N1	=rows[1][0+(0+0*NCH)*NROWS*NVAL],
+				//	NE1	=rows[1][0+(0+1*NCH)*NROWS*NVAL],
+				//	W1	=rows[0][0+(0-1*NCH)*NROWS*NVAL],
+					p1	=rows[0][0+(0-1*NCH)*NROWS*NVAL],
+					NW	=rows[1][0+(1-1*NCH)*NROWS*NVAL],
+					NN	=rows[2][0+(1+0*NCH)*NROWS*NVAL],
+					N	=rows[1][0+(1+0*NCH)*NROWS*NVAL],
+					NE	=rows[1][0+(1+1*NCH)*NROWS*NVAL],
+					W	=rows[0][0+(1-1*NCH)*NROWS*NVAL];
+				
+				estim0[j]=estims[j]=W;		estims[j-4]=estims[j]-estim0[j-4]+p1; ++j;
+				estim0[j]=estims[j]=NE;		estims[j-4]=estims[j]-estim0[j-4]+p1; ++j;
+				estim0[j]=estims[j]=2*N-NN;	estims[j-4]=estims[j]-estim0[j-4]+p1; ++j;
+				estim0[j]=estims[j]=N+W-NW;	estims[j-4]=estims[j]-estim0[j-4]+p1; ++j;
+				//estims[0+0]=estims[4+0]-estims[0+0]+p1;
+				//estims[0+1]=estims[4+1]-estims[0+1]+p1;
+				//estims[0+2]=estims[4+2]-estims[0+2]+p1;
+				//estims[0+3]=estims[4+3]-estims[0+3]+p1;
+				//estims[j++]=p1+W-W1;
+				//estims[j++]=p1+NE-NE1;
+				//estims[j++]=p1+2*N-NN-(2*N1-NN1);
+				//estims[j++]=p1+N+W-NW-(N1+W1-NW1);
+			}
+			p1=(int)((bias[1]
+				+(int64_t)coeffs[kc][0]*estims[0]
+				+(int64_t)coeffs[kc][1]*estims[1]
+				+(int64_t)coeffs[kc][2]*estims[2]
+				+(int64_t)coeffs[kc][3]*estims[3]
+			)>>SHIFT);
+			p2=(int)((bias[2]
+				+(int64_t)coeffs[kc][4]*estims[4]
+				+(int64_t)coeffs[kc][5]*estims[5]
+				+(int64_t)coeffs[kc][6]*estims[6]
+				+(int64_t)coeffs[kc][7]*estims[7]
+			)>>SHIFT);
+			pp=(int)((bias[3]
+				+(int64_t)rctcoeffs1[0]*p1
+				+(int64_t)rctcoeffs1[1]*p2
+			)>>SHIFT);
+			pred=pp;
+			CLAMP2(pred, amin[kc], amax[kc]);
+#if 1
+			curr=src->data[idx+kc];
+			if(g_dist>1)
+			{
+				if(fwd)
+				{
+					curr-=(int)pred;
+
+					curr=(curr*invdist>>16)-(curr>>31);//curr/=g_dist
+					CLAMP2(curr, rmin[kc], rmax[kc]);
+					src->data[idx+kc]=curr;
+				}
+				curr=g_dist*curr+(int)pred;
+				CLAMP2(curr, amin[kc], amax[kc]);
+				if(!fwd)
+					src->data[idx+kc]=curr;
+			}
+			else
+			{
+				if(fwd)
+				{
+					int error=curr-pred;
+					error<<=32-src->depth[kc];
+					error>>=32-src->depth[kc];
+					src->data[idx+kc]=error;
+				}
+				else
+				{
+					curr+=pred;
+					curr<<=32-src->depth[kc];
+					curr>>=32-src->depth[kc];
+					src->data[idx+kc]=curr;
+				}
+			}
+#endif
+			rows[0][0+(kc+0*NCH)*NROWS*NVAL]=curr;
+			pp=(curr>pp)-(curr<pp);
+			bias[3]+=pp;
+			rctcoeffs1[0]+=(int16_t)((int16_t)pp*(int16_t)p1);
+			rctcoeffs1[1]+=(int16_t)((int16_t)pp*(int16_t)p2);
+			p1=(curr>p1)-(curr<p1);
+			bias[1]+=p1;
+			coeffs[kc][0]+=(int16_t)((int16_t)p1*(int16_t)estims[0]);
+			coeffs[kc][1]+=(int16_t)((int16_t)p1*(int16_t)estims[1]);
+			coeffs[kc][2]+=(int16_t)((int16_t)p1*(int16_t)estims[2]);
+			coeffs[kc][3]+=(int16_t)((int16_t)p1*(int16_t)estims[3]);
+			p2=(curr>p2)-(curr<p2);
+			bias[2]+=p2;
+			coeffs[kc][4]+=(int16_t)((int16_t)p2*(int16_t)estims[4]);
+			coeffs[kc][5]+=(int16_t)((int16_t)p2*(int16_t)estims[5]);
+			coeffs[kc][6]+=(int16_t)((int16_t)p2*(int16_t)estims[6]);
+			coeffs[kc][7]+=(int16_t)((int16_t)p2*(int16_t)estims[7]);
+			
+			kc=2;
+			{
+				int
+				//	NN2	=rows[2][0+(0+0*NCH)*NROWS*NVAL],
+				//	NW2	=rows[1][0+(0-1*NCH)*NROWS*NVAL],
+				//	N2	=rows[1][0+(0+0*NCH)*NROWS*NVAL],
+				//	NE2	=rows[1][0+(0+1*NCH)*NROWS*NVAL],
+				//	W2	=rows[0][0+(0-1*NCH)*NROWS*NVAL],
+					p2	=rows[0][0+(0-1*NCH)*NROWS*NVAL],
+				//	NN1	=rows[2][0+(1+0*NCH)*NROWS*NVAL],
+				//	NW1	=rows[1][0+(1-1*NCH)*NROWS*NVAL],
+				//	N1	=rows[1][0+(1+0*NCH)*NROWS*NVAL],
+				//	NE1	=rows[1][0+(1+1*NCH)*NROWS*NVAL],
+				//	W1	=rows[0][0+(1-1*NCH)*NROWS*NVAL],
+					p1	=rows[0][0+(1-1*NCH)*NROWS*NVAL],
+					NW	=rows[1][0+(2-1*NCH)*NROWS*NVAL],
+					NN	=rows[2][0+(2+0*NCH)*NROWS*NVAL],
+					N	=rows[1][0+(2+0*NCH)*NROWS*NVAL],
+					NE	=rows[1][0+(2+1*NCH)*NROWS*NVAL],
+					W	=rows[0][0+(2-1*NCH)*NROWS*NVAL];
+				
+				estims[j]=W;		estims[j-8]=estims[j]-estim0[j-8]+p2; estims[j-4]=estims[j]-estim0[j-4]+p1; ++j;
+				estims[j]=NE;		estims[j-8]=estims[j]-estim0[j-8]+p2; estims[j-4]=estims[j]-estim0[j-4]+p1; ++j;
+				estims[j]=2*N-NN;	estims[j-8]=estims[j]-estim0[j-8]+p2; estims[j-4]=estims[j]-estim0[j-4]+p1; ++j;
+				estims[j]=N+W-NW;	estims[j-8]=estims[j]-estim0[j-8]+p2; estims[j-4]=estims[j]-estim0[j-4]+p1; ++j;
+			//	j=0;
+			//	estims[j++]=p2+W-W2;
+			//	estims[j++]=p2+NE-NE2;
+			//	estims[j++]=p2+2*N-NN-(2*N2-NN2);
+			//	estims[j++]=p2+N+W-NW-(N2+W2-NW2);
+			//	estims[j++]=p1+W-W1;
+			//	estims[j++]=p1+NE-NE1;
+			//	estims[j++]=p1+2*N-NN-(2*N1-NN1);
+			//	estims[j++]=p1+N+W-NW-(N1+W1-NW1);
+			//	estims[j++]=W;
+			//	estims[j++]=NE;
+			//	estims[j++]=2*N-NN;
+			//	estims[j++]=N+W-NW;
+			}
+			p1=(int)((bias[4]
+				+(int64_t)coeffs[kc][0x0]*estims[0x0]
+				+(int64_t)coeffs[kc][0x1]*estims[0x1]
+				+(int64_t)coeffs[kc][0x2]*estims[0x2]
+				+(int64_t)coeffs[kc][0x3]*estims[0x3]
+			)>>SHIFT);
+			p2=(int)((bias[5]
+				+(int64_t)coeffs[kc][0x4]*estims[0x4]
+				+(int64_t)coeffs[kc][0x5]*estims[0x5]
+				+(int64_t)coeffs[kc][0x6]*estims[0x6]
+				+(int64_t)coeffs[kc][0x7]*estims[0x7]
+			)>>SHIFT);
+			p3=(int)((bias[6]
+				+(int64_t)coeffs[kc][0x8]*estims[0x8]
+				+(int64_t)coeffs[kc][0x9]*estims[0x9]
+				+(int64_t)coeffs[kc][0xA]*estims[0xA]
+				+(int64_t)coeffs[kc][0xB]*estims[0xB]
+			)>>SHIFT);
+			pp=(int)((bias[7]
+				+(int64_t)rctcoeffs2[0]*p1
+				+(int64_t)rctcoeffs2[1]*p2
+				+(int64_t)rctcoeffs2[2]*p3
+			)>>SHIFT);
+			pred=pp;
+			CLAMP2(pred, amin[kc], amax[kc]);
+#if 1
+			curr=src->data[idx+kc];
+			if(g_dist>1)
+			{
+				if(fwd)
+				{
+					curr-=(int)pred;
+
+					curr=(curr*invdist>>16)-(curr>>31);//curr/=g_dist
+					CLAMP2(curr, rmin[kc], rmax[kc]);
+					src->data[idx+kc]=curr;
+				}
+				curr=g_dist*curr+(int)pred;
+				CLAMP2(curr, amin[kc], amax[kc]);
+				if(!fwd)
+					src->data[idx+kc]=curr;
+			}
+			else
+			{
+				if(fwd)
+				{
+					int error=curr-pred;
+					error<<=32-src->depth[kc];
+					error>>=32-src->depth[kc];
+					src->data[idx+kc]=error;
+				}
+				else
+				{
+					curr+=pred;
+					curr<<=32-src->depth[kc];
+					curr>>=32-src->depth[kc];
+					src->data[idx+kc]=curr;
+				}
+			}
+#endif
+			rows[0][0+(kc+0*NCH)*NROWS*NVAL]=curr;
+			pp=(curr>pp)-(curr<pp);
+			bias[7]+=pp;
+			rctcoeffs2[0]+=(int16_t)((int16_t)pp*(int16_t)p1);
+			rctcoeffs2[1]+=(int16_t)((int16_t)pp*(int16_t)p2);
+			rctcoeffs2[2]+=(int16_t)((int16_t)pp*(int16_t)p3);
+			p1=(curr>p1)-(curr<p1);
+			bias[4]+=p1;
+			coeffs[kc][0x0]+=(int16_t)((int16_t)p1*(int16_t)estims[0x0]);
+			coeffs[kc][0x1]+=(int16_t)((int16_t)p1*(int16_t)estims[0x1]);
+			coeffs[kc][0x2]+=(int16_t)((int16_t)p1*(int16_t)estims[0x2]);
+			coeffs[kc][0x3]+=(int16_t)((int16_t)p1*(int16_t)estims[0x3]);
+			p2=(curr>p2)-(curr<p2);
+			bias[5]+=p2;
+			coeffs[kc][0x4]+=(int16_t)((int16_t)p2*(int16_t)estims[0x4]);
+			coeffs[kc][0x5]+=(int16_t)((int16_t)p2*(int16_t)estims[0x5]);
+			coeffs[kc][0x6]+=(int16_t)((int16_t)p2*(int16_t)estims[0x6]);
+			coeffs[kc][0x7]+=(int16_t)((int16_t)p2*(int16_t)estims[0x7]);
+			p3=(curr>p3)-(curr<p3);
+			bias[6]+=p3;
+			coeffs[kc][0x8]+=(int16_t)((int16_t)p3*(int16_t)estims[0x8]);
+			coeffs[kc][0x9]+=(int16_t)((int16_t)p3*(int16_t)estims[0x9]);
+			coeffs[kc][0xA]+=(int16_t)((int16_t)p3*(int16_t)estims[0xA]);
+			coeffs[kc][0xB]+=(int16_t)((int16_t)p3*(int16_t)estims[0xB]);
+
+			idx+=4;
+			rows[0]+=NROWS*NVAL*NCH;
+			rows[1]+=NROWS*NVAL*NCH;
+			rows[2]+=NROWS*NVAL*NCH;
+			rows[3]+=NROWS*NVAL*NCH;
+#else
 			for(int kc=0;kc<4;++kc, ++idx)
 			{
 				rows[0]+=NROWS*NVAL;
@@ -1147,6 +1752,7 @@ void pred_mixN(Image *src, int fwd)
 				}
 #endif
 			}
+#endif
 		}
 	}
 	_mm_free(pixels);
@@ -2580,7 +3186,7 @@ int crct_analysis(Image *src)
 		prev[4]=gb;
 		prev[5]=br;
 #ifdef ENABLE_EXTENDED_RCT
-#define UPDATE(IDXA, IDXB, IDXC, A0, B0, C0)\
+#define UPDATE(IDXA, A0, IDXB, B0, IDXC, C0)\
 	do\
 	{\
 		int a0=A0, b0=B0, c0=C0;\
@@ -2591,20 +3197,22 @@ int crct_analysis(Image *src)
 		prev[IDXB]=b0;\
 		prev[IDXC]=c0;\
 	}while(0)
-		//r-(3*g+b)/4 = r-g-(b-g)/4
-		//g-(3*r+b)/4 = g-r-(b-r)/4
-		//b-(3*r+g)/4 = b-r-(g-r)/4
-		UPDATE(OCH_CX31, OCH_C3X1, OCH_C31X, rg+(gb>>2), rg+(br>>2), br+(rg>>2));
 
-		//r-(g+3*b)/4 = r-b-(g-b)/4
-		//g-(r+3*b)/4 = g-b-(r-b)/4
-		//b-(r+3*g)/4 = b-g-(r-g)/4
-		UPDATE(OCH_CX13, OCH_C1X3, OCH_C13X, br+(gb>>2), gb+(br>>2), gb+(rg>>2));
-
-		//r-(g+b)/2 = (r-g + r-b)/2
-		//g-(r+b)/2 = (g-r + g-b)/2
-		//b-(r+g)/2 = (b-r + b-g)/2
-		UPDATE(OCH_CX22, OCH_C2X2, OCH_C22X, (rg-br)>>1, (gb-rg)>>1, (br-gb)>>1);
+		UPDATE(
+			OCH_CX31, rg+(gb>>2),//r-(3*g+b)/4 = r-g-(b-g)/4
+			OCH_C3X1, rg+(br>>2),//g-(3*r+b)/4 = g-r-(b-r)/4
+			OCH_C31X, br+(rg>>2) //b-(3*r+g)/4 = b-r-(g-r)/4
+		);
+		UPDATE(
+			OCH_CX13, br+(gb>>2),//r-(g+3*b)/4 = r-b-(g-b)/4
+			OCH_C1X3, gb+(br>>2),//g-(r+3*b)/4 = g-b-(r-b)/4
+			OCH_C13X, gb+(rg>>2) //b-(r+3*g)/4 = b-g-(r-g)/4
+		);
+		UPDATE(
+			OCH_CX22, (rg-br)>>1,//r-(g+b)/2 = (r-g + r-b)/2
+			OCH_C2X2, (gb-rg)>>1,//g-(r+b)/2 = (g-r + g-b)/2
+			OCH_C22X, (br-gb)>>1 //b-(r+g)/2 = (b-r + b-g)/2
+		);
 #undef  UPDATE
 #endif
 	}

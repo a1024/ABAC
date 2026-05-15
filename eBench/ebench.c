@@ -7913,8 +7913,11 @@ int io_keydn(IOKey key, char c)
 			{
 				free(im0);
 				im0=im2;
+				filesize=((size_t)im2->src_depth[0]+im2->src_depth[1]+im2->src_depth[2]+im2->src_depth[3])*im2->iw*im2->ih>>3;
 				set_window_title("From clipboard - eBench");
 				update_image();
+				if(imagecentered)
+					center_image();
 				return 1;
 			}
 		}
