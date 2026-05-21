@@ -81,6 +81,7 @@ c12m:
 
 c12:
 	clang -Wall -O3 -s -Dc12_codec=main -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS2) c12.c  -o c12 $(LIBS)
+#	clang -Wall -O3 -s -Dc12_codec=main -mavx2 -mbmi -mlzcnt  c12.c  -o c12 -static
 #	gcc -Wall -O2 -s -Dc12_codec=main -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS2) c12.c  -o c12 $(LIBS)
 #	gcc $(FLAGS) -masm=intel -Dc12_codec=main -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS2) c12.c  -o c12 $(LIBS)
 

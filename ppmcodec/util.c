@@ -3639,3 +3639,20 @@ void exec_process(char *cmd, const char *currdir, int loud, double *elapsed, lon
 		}
 	}
 }
+
+int copy_to_clipboard(const char *a, int size)
+{
+	char *clipboard=(char*)LocalAlloc(LMEM_FIXED, (size+1)*sizeof(char));
+	if(!clipboard)
+		return 0;
+	//	LOG_ERROR("copy_to_clipboard(): LocalAlloc() error");
+
+	memcpy(clipboard, a, (size+1)*sizeof(char));
+	clipboard[size]='\0';
+
+	OpenClipboard(0);
+	EmptyClipboard();
+	SetClipboardData(CF_OEMTEXT, (void*)clipboard);
+	CloseClipboard();
+	return 1;
+}

@@ -646,6 +646,8 @@ void file_delete(char *fn);
 void get_tmpfn(char *dst);//dst is MAX_PATH
 void exec_process(char *cmd, const char *currdir, int loud, double *elapsed, long long *maxmem);
 
+int copy_to_clipboard(const char *a, int size);
+
 
 #ifdef _MSC_VER
 #pragma warning(pop)

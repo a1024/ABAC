@@ -1,7 +1,11 @@
-﻿#if defined _MSC_VER && !defined _CRT_SECURE_NO_WARNINGS
-#define _CRT_SECURE_NO_WARNINGS
-#endif
+﻿#include"util.h"
+//#if defined _MSC_VER && !defined _CRT_SECURE_NO_WARNINGS
+//#define _CRT_SECURE_NO_WARNINGS
+//#endif
+#include<stdint.h>
+#include<stdio.h>
 
+	#define LPCB_TEST
 //	#define RELEASE
 //	#define PROFILER
 
@@ -137,7 +141,7 @@ int c58_codec(int argc, char **argv);//bit coding with plain histograms (c12)
 #define GLUE(A, B) GLUE_EXPAND(A, B)
 #define CODEC_FUNC GLUE(CODEC_EXT, _codec)
 
-
+int64_t g_csize=0;
 int main(int argc, char **argv)
 {
 	int retcode=0;
@@ -240,10 +244,9 @@ int main(int argc, char **argv)
 	//	"C:/dataset-LPCB-ppm/PIA13914.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13915.ppm"	//false color terrain
 	//	"C:/dataset-LPCB-ppm/sony_a55_11.ppm"	//noisy
-	//	"C:/dataset-LPCB-ppm/STA13843.ppm"	//space clouds
-	//	"C:/dataset-LPCB-ppm/STA13844.ppm"	//space clouds
-	//	"C:/dataset-LPCB-ppm/STA13845.ppm"
-	//	"C:/dataset-LPCB-ppm/STA13845.ppm"	//space clouds
+	//	"C:/dataset-LPCB-ppm/STA13843.ppm"	//space large hard
+	//	"C:/dataset-LPCB-ppm/STA13844.ppm"	//space large medium
+	//	"C:/dataset-LPCB-ppm/STA13845.ppm"	//space large easy
 	//	"C:/dataset-meme-ppm/emoji_u1f628.ppm"
 	//	"C:/dataset-memes-ppm/usa.ppm"
 	//	"C:/dataset-panasonic-ppm/P1000058.ppm"
@@ -309,7 +312,6 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13803.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13882.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/sony_a55_11.ppm"	//noisy, hard
-	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"	//large hard
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13844.ppm"	//large normal
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13845.ppm"	//large easy
@@ -389,10 +391,54 @@ int main(int argc, char **argv)
 		tmpfn,
 		dstfn,
 	};
+#ifdef LPCB_TEST
+	int64_t csize1=0, csize2=0, csize3=0, csize4=0, csize5=0, csize6=0;
+	if(CODEC_FUNC(_countof(encargs), (char**)encargs))
+		return 1;
+	csize1=g_csize;
+	if(CODEC_FUNC(_countof(decargs), (char**)decargs))
+		return 1;
+
+	encargs[1]="C:/dataset-LPCB-ppm/fujifilm_finepix_x100_01.ppm";
+	if(CODEC_FUNC(_countof(encargs), (char**)encargs))
+		return 1;
+	csize2=g_csize;
+
+	encargs[1]="C:/dataset-LPCB-ppm/olympus_xz1_01.ppm";
+	if(CODEC_FUNC(_countof(encargs), (char**)encargs))
+		return 1;
+	csize3=g_csize;
+
+	encargs[1]="C:/dataset-LPCB-ppm/PIA13912.ppm";
+	if(CODEC_FUNC(_countof(encargs), (char**)encargs))
+		return 1;
+	csize4=g_csize;
+
+	encargs[1]="C:/dataset-LPCB-ppm/sony_a55_01.ppm";
+	if(CODEC_FUNC(_countof(encargs), (char**)encargs))
+		return 1;
+	csize5=g_csize;
+
+	encargs[1]="C:/dataset-LPCB-ppm/STA13844.ppm";
+	if(CODEC_FUNC(_countof(encargs), (char**)encargs))
+		return 1;
+	csize6=g_csize;
+
+	char buf[1024];
+	int nprinted=snprintf(buf, sizeof(buf)-1
+		, "%11lld %11lld %11lld %11lld %11lld %11lld T%11lld  "
+		, csize1, csize2, csize3, csize4, csize5, csize6
+		, csize1+csize2+csize3+csize4+csize5+csize6
+	);
+	nprinted+=acme_strftime(buf+nprinted, sizeof(buf)-1-nprinted, "%Y-%m-%d_%H%M%S");
+	printf("%s  <- COPIED\n", buf);
+	copy_to_clipboard(buf, nprinted);
+#else
 	if(CODEC_FUNC(_countof(encargs), (char**)encargs))
 		return 1;
 	if(CODEC_FUNC(_countof(decargs), (char**)decargs))
 		return 1;
+#endif
 #endif
 #ifdef PROFILER
 	prof_end(prof_ctx);
