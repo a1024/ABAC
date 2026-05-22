@@ -5,7 +5,7 @@
 #include<stdint.h>
 #include<stdio.h>
 
-	#define LPCB_TEST
+//	#define LPCB_TEST
 //	#define RELEASE
 //	#define PROFILER
 
@@ -87,7 +87,7 @@ int c58_codec(int argc, char **argv);//bit coding with plain histograms (c12)
 //	#define CODEC_EXT c09
 //	#define CODEC_EXT c10
 //	#define CODEC_EXT c11
-	#define CODEC_EXT c12
+//	#define CODEC_EXT c12
 //	#define CODEC_EXT c13
 //	#define CODEC_EXT c14
 //	#define CODEC_EXT c15
@@ -131,7 +131,7 @@ int c58_codec(int argc, char **argv);//bit coding with plain histograms (c12)
 //	#define CODEC_EXT c53
 //	#define CODEC_EXT c54
 //	#define CODEC_EXT c55
-//	#define CODEC_EXT c56
+	#define CODEC_EXT c56
 //	#define CODEC_EXT c57
 //	#define CODEC_EXT c58
 #endif
@@ -231,7 +231,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-HUGE-ppm/space_huge.ppm"		//X
 	//	"C:/dataset-ic16-ppm/big_building.ppm"		//16-bit
 	//	"C:/dataset-ic8-ppm/big_building.ppm"
-		"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_05.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_13.ppm"
@@ -268,7 +268,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-synth2-ppm/20240524 numbers.ppm"
 	//	"C:/dataset-synth2-ppm/20241006 linux.ppm"
 	//	"C:/dataset-synth2-ppm/20241110 4 serpinski_triangle.ppm"
-	//	"C:/dataset-synth2-ppm/art.ppm"
+		"C:/dataset-synth2-ppm/art.ppm"
 	//	"C:/dataset-synthetic-ppm/20240409 1 LPCB.ppm"
 	//	"C:/dataset-synth-ppm/20240421 1 the front.ppm"
 	//	"C:/dataset-synth-ppm/20240516 4 DSC_0054.ppm"
@@ -396,8 +396,8 @@ int main(int argc, char **argv)
 	if(CODEC_FUNC(_countof(encargs), (char**)encargs))
 		return 1;
 	csize1=g_csize;
-	if(CODEC_FUNC(_countof(decargs), (char**)decargs))
-		return 1;
+	//if(CODEC_FUNC(_countof(decargs), (char**)decargs))
+	//	return 1;
 
 	encargs[1]="C:/dataset-LPCB-ppm/fujifilm_finepix_x100_01.ppm";
 	if(CODEC_FUNC(_countof(encargs), (char**)encargs))

@@ -272,7 +272,7 @@ c55:
 	gcc $(FLAGS) -fopt-info -Dc55_codec=main -mavx2 -mlzcnt $(SRC_ZYDIS2) c55.c -o c55 $(LIBS)
 
 c56:
-	gcc $(FLAGS) -fopt-info -Dc56_codec=main -mavx2 -mlzcnt c56.c -o c56 $(LIBS)
+	gcc $(FLAGS) -fopt-info -Dc56_codec=main -mavx2 -mlzcnt -mbmi c56.c -o c56 $(LIBS)
 
 c57:
 	clang $(FLAGS) -Dc57_codec=main -mavx2 -mlzcnt $(SRC_ZYDIS2) c57.c -o c57 $(LIBS)

@@ -21,11 +21,17 @@
 #else
 #include<time.h>
 #endif
+#ifdef _MSC_VER
+#include<intrin.h>
+#elif defined __GNUC__
+#include<x86intrin.h>
+#endif
 
 
 #ifdef _MSC_VER
 	#define LOUD
 	#define ENABLE_GUIDE
+//	#define DEBUG_LZ
 #endif
 
 
@@ -154,8 +160,10 @@ static void guide_check(const uint8_t *image, const uint8_t *im0, int kx, int ky
 
 enum
 {
-	EBITS=14,
+	LBITS=9,//log2 lookup table size
+	EBITS=11,//log2 number of collision cells
 	ESIZE=(1<<EBITS),
+	EMASK=ESIZE-1,
 
 	LZAC_MIN=5,		//tune
 	LZAC_QBITS=6,		//tune
@@ -187,7 +195,7 @@ typedef struct _ETable
 {
 	int32_t etable[ESIZE], estart, eend, ecount;
 } ETable;
-static ETable tables[0x100];
+static ETable tables[1<<LBITS];
 typedef struct _ACState
 {
 	uint64_t low, range, code;
@@ -378,6 +386,16 @@ int c56_codec(int argc, char **argv)
 #ifdef LOUD
 	double t=0, t2=0;
 #endif
+#ifdef DEBUG_LZ
+	int debug_target=
+		0
+	//	71868
+	//	71878
+	//	138173
+	//	6382425
+	;
+	int debug_block=0;
+#endif
 
 	(void)prevqlen;
 	(void)prevmatchlen;
@@ -482,6 +500,9 @@ int c56_codec(int argc, char **argv)
 		usize=(ptrdiff_t)3*iw*ih;
 		cap=(ptrdiff_t)7*iw*ih;
 		buf=(uint8_t*)malloc(cap);
+#ifdef _MSC_VER
+		memset(buf, 0, cap);
+#endif
 		if(!buf)
 		{
 			CRASH("Alloc error");
@@ -529,6 +550,7 @@ int c56_codec(int argc, char **argv)
 		const int queuesize=sizeof(SymCtx[LZAC_QMAX]);
 		SymCtx *queue=(SymCtx*)malloc(queuesize);
 		int qcount=0, qstart=0, qend=0;
+		uint8_t *matchend=image+usize-sizeof(uint64_t[4]), *matchend2=matchend-(sizeof(uint64_t[4])+1);
 		if(!queue)
 		{
 			CRASH("Alloc error");
@@ -543,22 +565,131 @@ int c56_codec(int argc, char **argv)
 			//int lookup=pixel;
 			//if(imptr>=image+rowstride)
 			//	lookup=(lookup+imptr[-rowstride])>>1;
-			ETable *table=tables+pixel;
+			ETable *table=tables+(((*(uint16_t*)imptr+1)*0x9E3779B9)>>(32-LBITS));
+		//	ETable *table=tables+pixel;
 			int ctr=table->ecount;
 			while(ctr)
 			{
-				int tidx=(table->estart+ctr)%ESIZE;
-				int idx=table->etable[tidx], len=0;
-				uint8_t *search1=image+idx;
-				uint8_t *search2=imptr;
-				ptrdiff_t searchend=image+usize-imptr-sizeof(uint64_t);
-				while(len<searchend&&*(uint64_t*)(search1+len)==*(uint64_t*)(search2+len))
-					len+=sizeof(uint64_t);
-				searchend=image+usize-imptr-1;
-				while(len<searchend&&search1[len]==search2[len])
-					++len;
+				int tidx=(table->estart+ctr)&EMASK;
+				int idx=table->etable[tidx];
+				uint8_t *match2=imptr;
+
+#if 0
+				int64_t len=0;
+				ptrdiff_t offset1=image+idx-match2;
+				__m256i ones=_mm256_set1_epi8(-1);
+				__m256i cand=ones;
+				if(match2<matchend)
+				{
+					for(;;)
+					{
+						__m256i truth=_mm256_loadu_si256((__m256i*)match2);
+						cand=_mm256_loadu_si256((__m256i*)(match2+offset1));
+						cand=_mm256_cmpeq_epi8(cand, truth);
+						cand=_mm256_xor_si256(cand, ones);
+						int mask=_mm256_movemask_epi8(cand);
+						int64_t cond=(matchend2-match2)>>63;
+						cond=mask|cond>>63;
+						if(cond)
+							break;
+						match2+=sizeof(__m256i);
+					}
+				}
+				int64_t cmp0=_mm256_extract_epi64(cand, 0);
+				int64_t cmp1=_mm256_extract_epi64(cand, 1);
+				int64_t cmp2=_mm256_extract_epi64(cand, 2);
+				int64_t cmp3=_mm256_extract_epi64(cand, 3);
+				cmp0=_tzcnt_u64(cmp0);
+				cmp1=_tzcnt_u64(cmp1);
+				cmp2=_tzcnt_u64(cmp2);
+				cmp3=_tzcnt_u64(cmp3);
+				cmp0>>=3;
+				cmp1>>=3;
+				cmp2>>=3;
+				cmp3>>=3;
+				cmp1=cmp0<8?0:cmp1;
+				len+=(int)cmp0;
+				cmp2=cmp1<8?0:cmp2;
+				len+=(int)cmp1;
+				cmp3=cmp2<8?0:cmp3;
+				len+=(int)cmp2;
+				len+=(int)cmp3;
+				len+=(int)(match2-imptr);
+#ifdef _MSC_VER
+				if(imptr+len>imend)//
+					CRASH("");
+#endif
+#endif
+#if 1
+				int64_t len=0;
+				ptrdiff_t offset1=image+idx-match2;
+				uint64_t cmp0=~0ULL;
+				uint64_t cmp1=~0ULL;
+				uint64_t cmp2=~0ULL;
+				uint64_t cmp3=~0ULL;
+				//_mm_prefetch((char*)(match2+offset1), _MM_HINT_T0);
+				if(match2<matchend)
+				{
+					for(;;)
+					{
+						int64_t cond=(matchend2-match2)>>63;
+						cmp0=*(uint64_t*)(match2+offset1+0*sizeof(uint64_t))^*(uint64_t*)(match2+0*sizeof(uint64_t));
+						cmp1=*(uint64_t*)(match2+offset1+1*sizeof(uint64_t))^*(uint64_t*)(match2+1*sizeof(uint64_t));
+						cmp2=*(uint64_t*)(match2+offset1+2*sizeof(uint64_t))^*(uint64_t*)(match2+2*sizeof(uint64_t));
+						cmp3=*(uint64_t*)(match2+offset1+3*sizeof(uint64_t))^*(uint64_t*)(match2+3*sizeof(uint64_t));
+						cond=cmp0|cmp1|cmp2|cmp3|cond>>63;
+						if(cond)
+							break;
+						match2+=sizeof(uint64_t[4]);
+					}
+				}
+				cmp0=_tzcnt_u64(cmp0);
+				cmp1=_tzcnt_u64(cmp1);
+				cmp2=_tzcnt_u64(cmp2);
+				cmp3=_tzcnt_u64(cmp3);
+				cmp0>>=3;
+				cmp1>>=3;
+				cmp2>>=3;
+				cmp3>>=3;
+				cmp1=cmp0<8?0:cmp1;
+				len+=(int)cmp0;
+				cmp2=cmp1<8?0:cmp2;
+				len+=(int)cmp1;
+				cmp3=cmp2<8?0:cmp3;
+				len+=(int)cmp2;
+				len+=(int)cmp3;
+				len+=(int)(match2-imptr);
+#endif
+
+				//int len=0;
+				//ptrdiff_t offset1=image+idx-match2;
+				//uint64_t cmp=~0ULL;
+				//if(match2<matchend)
+				//{
+				//	for(;;)
+				//	{
+				//		int64_t cond=(matchend2-match2)>>63;
+				//		cmp=*(uint64_t*)(match2+offset1)^*(uint64_t*)match2;
+				//		cond=cmp|cond>>63;
+				//		if(cond)
+				//			break;
+				//		match2+=sizeof(uint64_t);
+				//	}
+				//}
+				//len=(int)(match2-imptr+(_tzcnt_u64(cmp)>>3));
+				
+				//int len=0;
+				//ptrdiff_t searchend=image+usize-sizeof(uint64_t);
+				//uint8_t *search1=image+idx;
+				//while(len<searchend&&*(uint64_t*)(search1+len)==*(uint64_t*)(match2+len))
+				//	len+=sizeof(uint64_t);
+				//searchend=image+usize-imptr-1;
+				//while(len<searchend&&search1[len]==match2[len])
+				//	++len;
+
+
 				if(len>matchlen)
-					matchidx=idx, matchlen=len;
+					matchidx=idx, matchlen=(int)len;
 
 				//check for other previous encounters
 				--ctr;
@@ -567,13 +698,13 @@ int c56_codec(int argc, char **argv)
 			if(table->ecount>=ESIZE)//table is full
 			{
 				table->etable[table->eend]=(int32_t)(imptr-image);
-				table->eend=(table->eend+1)%ESIZE;
-				table->estart=(table->estart+1)%ESIZE;
+				table->eend=(table->eend+1)&EMASK;
+				table->estart=(table->estart+1)&EMASK;
 			}
 			else
 			{
 				table->etable[table->eend]=(int32_t)(imptr-image);
-				table->eend=(table->eend+1)%ESIZE;
+				table->eend=(table->eend+1)&EMASK;
 				++table->ecount;
 			}
 
@@ -738,7 +869,7 @@ int c56_codec(int argc, char **argv)
 		ac.ptr+=sizeof(uint64_t);
 		streamend=ac.ptr;
 	}
-	else
+	else//dec
 	{
 		ac.code=*(uint64_t*)ac.ptr;//load
 		ac.ptr+=sizeof(uint64_t);
