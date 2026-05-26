@@ -276,3 +276,9 @@ c56:
 
 c57:
 	clang $(FLAGS) -Dc57_codec=main -mavx2 -mlzcnt $(SRC_ZYDIS2) c57.c -o c57 $(LIBS)
+
+c58:
+	clang $(FLAGS) -Dc58_codec=main -mavx2 -mlzcnt $(SRC_ZYDIS2) c58.c -o c58 $(LIBS)
+
+c59:
+	clang $(FLAGS) -Dc59_codec=main -mavx2 -mlzcnt $(SRC_ZYDIS2) c59.c -o c59 $(LIBS)

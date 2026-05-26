@@ -72,6 +72,7 @@ int c55_codec(int argc, char **argv);//16-bit
 int c56_codec(int argc, char **argv);//LZAC (synth)
 int c57_codec(int argc, char **argv);//fast Rice
 int c58_codec(int argc, char **argv);//bit coding with plain histograms (c12)
+int c59_codec(int argc, char **argv);//rapid
 #endif
 
 
@@ -131,9 +132,10 @@ int c58_codec(int argc, char **argv);//bit coding with plain histograms (c12)
 //	#define CODEC_EXT c53
 //	#define CODEC_EXT c54
 //	#define CODEC_EXT c55
-	#define CODEC_EXT c56
+//	#define CODEC_EXT c56
 //	#define CODEC_EXT c57
 //	#define CODEC_EXT c58
+	#define CODEC_EXT c59
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -172,13 +174,13 @@ int main(int argc, char **argv)
 //	return c34_codec(_countof(args), (char**)args);
 #else
 	const char dstfn[]=//OVERWRITTEN
-		"C:/dataset-a-temp/zzz.ppm"
-	//	"C:/Projects/datasets/zzz.ppm"
+	//	"C:/dataset-a-temp/zzz.ppm"
+		"C:/Projects/datasets/zzz.ppm"
 	//	"D:/ML/zzz.ppm"
 	;
 	const char tmpfn[]=//OVERWRITTEN
-		"C:/dataset-a-temp/zzz.lsim"
-	//	"C:/Projects/datasets/zzz.lsim"
+	//	"C:/dataset-a-temp/zzz.lsim"
+		"C:/Projects/datasets/zzz.lsim"
 	//	"D:/ML/zzz.lsim"
 	;
 	const char srcfn[]=
@@ -268,7 +270,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-synth2-ppm/20240524 numbers.ppm"
 	//	"C:/dataset-synth2-ppm/20241006 linux.ppm"
 	//	"C:/dataset-synth2-ppm/20241110 4 serpinski_triangle.ppm"
-		"C:/dataset-synth2-ppm/art.ppm"
+	//	"C:/dataset-synth2-ppm/art.ppm"
 	//	"C:/dataset-synthetic-ppm/20240409 1 LPCB.ppm"
 	//	"C:/dataset-synth-ppm/20240421 1 the front.ppm"
 	//	"C:/dataset-synth-ppm/20240516 4 DSC_0054.ppm"
@@ -328,7 +330,7 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/kodim13-small4.PPM"
 	//	"C:/Projects/datasets/kodim24.ppm"
 	//	"C:/Projects/datasets/lena.ppm"
-	//	"C:/Projects/datasets/space_huge.ppm"
+		"C:/Projects/datasets/space_huge.ppm"
 	//	"C:/Projects/datasets/space_huge.ppm"
 	//	"C:/Projects/datasets/temp.c18"
 	//	"C:/Projects/datasets/zzzpng.ppm"
