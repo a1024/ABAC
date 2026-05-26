@@ -35,15 +35,19 @@
 //	#define FIFOVAL
 #endif
 
+//	#define USE_RANS
+
 
 enum
 {
 	DEPTH_LUMA=8,
 	DEPTH_CHROMA=9,
-
+	RLIMIT=23,
 	RSHIFT=1,
 
 	BUFSIZE=512<<10,
+
+	NCTX=32,
 };
 
 
@@ -192,6 +196,64 @@ static void guide_check(uint8_t *image, int kx, int ky)
 #define guide_check(...)
 #define guide_update(...)
 #endif//ENABLE_GUIDE
+#ifdef FIFOVAL
+static ptrdiff_t fifoidx=0, fifocap=0, fifoidx2=0;
+static uint32_t *fifoval=0;
+static void fifoval_enqueue(uint32_t val)
+{
+	if(fifoidx+1>=fifocap)
+	{
+		void *p=0;
+
+		if(!fifocap)
+			fifocap=1;
+		fifocap<<=1;
+		p=realloc(fifoval, fifocap*sizeof(uint32_t));
+		if(!p)
+		{
+			CRASH("Alloc error");
+			return;
+		}
+		fifoval=(uint32_t*)p;
+	}
+	fifoval[fifoidx++]=val;
+}
+static void fifoval_check(uint32_t val)
+{
+	uint32_t val0=fifoval[fifoidx2++];
+	if(val!=val0)
+	{
+		--fifoidx2;
+		printf(
+			"\n"
+			"FIFO Error  at %10lld,  remaining %10lld\n"
+			"    0x%08X  !=  original 0x%08X\n"
+			"\n"
+			, fifoidx2
+			, fifoidx-fifoidx2//current element was not decoded successfully
+			, val, val0
+		);
+		for(int k=-32;k<32;++k)
+		{
+			ptrdiff_t idx=fifoidx2+k;
+			if((size_t)idx<(size_t)fifoidx)
+			{
+				printf(
+					"%10td  0x%08X"
+					, idx
+					, fifoval[idx]
+				);
+				if(idx<fifoidx2)
+					printf("  OK");
+				if(idx==fifoidx2)
+					printf("  !=  corrupt 0x%08X", val);
+				printf("\n");
+			}
+		}
+		CRASH("");
+	}
+}
+#endif
 #endif
 static uint8_t rdbuf[BUFSIZE+sizeof(uint64_t)], wtbuf[BUFSIZE+sizeof(uint64_t)];
 INLINE uint64_t acme_read(uint8_t **pptr, ptrdiff_t size, FILE *f)
@@ -345,7 +407,10 @@ INLINE int rice_dec(RiceCoder *ec, int nbypass)
 	return sym;
 }
 
-static uint16_t packsign[1024], *const packsignptr=packsign+512;
+static int16_t packsign[1024], *const packsignptr=packsign+512;
+#ifdef USE_RANS
+static int32_t hists[3][NCTX][512];
+#endif
 int c59_codec(int argc, char **argv)
 {
 	const uint16_t tag='5'|'9'<<8;
@@ -451,6 +516,8 @@ int c59_codec(int argc, char **argv)
 		CRASH("Cannot open \"%s\" for writing", dstfn);
 		return 1;
 	}
+	rdptr=rdbuf+BUFSIZE;
+	wtptr=wtbuf;
 	if(fwd)
 	{
 		for(int k=0;k<1024;++k)
@@ -460,8 +527,6 @@ int c59_codec(int argc, char **argv)
 			val=val^val>>31;
 			packsign[k]=val;
 		}
-		rdptr=rdbuf+BUFSIZE;
-		wtptr=wtbuf;
 		fwrite(&tag, 1, 2, fdst);
 		fwrite(&iw, 1, 3, fdst);
 		fwrite(&ih, 1, 3, fdst);
@@ -475,6 +540,7 @@ int c59_codec(int argc, char **argv)
 				int nbypass0=(estim[0]>>RSHIFT)+1;
 				int nbypass1=(estim[1]>>RSHIFT)+1;
 				int nbypass2=(estim[2]>>RSHIFT)+1;
+
 				
 #ifdef _MSC_VER
 				_BitScanReverse(&nbypass0, nbypass0);
@@ -488,13 +554,13 @@ int c59_codec(int argc, char **argv)
 				nbypass1^=31;
 				nbypass2^=31;
 #endif
-
 				yuv[0]=x>> 0&255;
 				yuv[1]=x>> 8&255;
 				yuv[2]=x>>16&255;
 				yuv[0]-=yuv[1];
 				yuv[2]-=yuv[1];
 				yuv[1]+=(yuv[0]+yuv[2])>>2;
+				yuv[2]-=yuv[0]>>2;
 				sym[0]=packsignptr[yuv[0]-prev[0]];
 				sym[1]=packsignptr[yuv[1]-prev[1]];
 				sym[2]=packsignptr[yuv[2]-prev[2]];
@@ -508,9 +574,60 @@ int c59_codec(int argc, char **argv)
 				prev[1]=yuv[1];
 				prev[2]=yuv[2];
 				
-				rice_enc(&ec, nbypass0, sym[0]);
-				rice_enc(&ec, nbypass1, sym[1]);
-				rice_enc(&ec, nbypass2, sym[2]);
+#ifdef FIFOVAL
+				fifoval_enqueue(sym[2]<<18|sym[1]<<9|sym[0]);
+#endif
+				{
+					uint64_t code[3];
+					int nzeros[3], codelen[3];
+
+					//new rice coder 2026
+					nzeros[0]=sym[0]>>nbypass0;
+					nzeros[1]=sym[1]>>nbypass1;
+					nzeros[2]=sym[2]>>nbypass2;
+					codelen[0]=nzeros[0]+1+nbypass0;
+					codelen[1]=nzeros[1]+1+nbypass1;
+					codelen[2]=nzeros[2]+1+nbypass2;
+					code[0]=sym[0];
+					code[1]=sym[1];
+					code[2]=sym[2];
+					code[0]<<=31-nbypass0;
+					code[1]<<=31-nbypass1;
+					code[2]<<=31-nbypass2;
+					code[0]=(uint32_t)code[0];
+					code[1]=(uint32_t)code[1];
+					code[2]=(uint32_t)code[2];
+					code[0]|=0x80000000;
+					code[1]|=0x80000000;
+					code[2]|=0x80000000;
+					code[0]>>=31-nbypass0;
+					code[1]>>=31-nbypass1;
+					code[2]>>=31-nbypass2;
+					if(nzeros[0]>=RLIMIT)code[0]=sym[0], codelen[0]=32;
+					if(nzeros[1]>=RLIMIT)code[1]=sym[1], codelen[1]=32;
+					if(nzeros[2]>=RLIMIT)code[2]=sym[2], codelen[2]=32;
+					for(int k=0;k<3;++k)
+					{
+						if(codelen[k]>=ec.nbits)//cache would overflow:  fill, flush, and repeat
+						{
+							codelen[k]-=(int)ec.nbits;
+							ec.cache|=(uint64_t)code[k]>>codelen[k];
+							code[k]&=0x7FFFFFFFULL>>(31-codelen[k]);
+							acme_write(&ec.ptr, 8, ec.f, ec.cache);
+							ec.cache=0;
+							ec.nbits=64;
+						}
+						//now there is room for bypass:  0 <= nbypass < nbits <= 64
+						if(codelen[k])
+						{
+							ec.nbits-=codelen[k];//emit remaining bypass to cache
+							ec.cache|=code[k]<<ec.nbits;
+						}
+					}
+				}
+				//rice_enc(&ec, nbypass0, sym[0]);
+				//rice_enc(&ec, nbypass1, sym[1]);
+				//rice_enc(&ec, nbypass2, sym[2]);
 				estim[0]+=((sym[0]<<RSHIFT)-estim[0])>>(RSHIFT+1);
 				estim[1]+=((sym[1]<<RSHIFT)-estim[1])>>(RSHIFT+1);
 				estim[2]+=((sym[2]<<RSHIFT)-estim[2])>>(RSHIFT+1);
@@ -540,12 +657,100 @@ int c59_codec(int argc, char **argv)
 			}
 		}
 		rice_flush(&ec);
-		if(wtptr>wtbuf)
-			fwrite(wtbuf, 1, wtptr-wtbuf, fdst);
+		wtptr=ec.ptr;
 	}
-	else
+	else//dec
 	{
+		uint64_t cache2=0;
+		int nbits=0;
+
+		for(int k=0;k<512;++k)
+		{
+			int val=k;
+			val=val>>1^-(val&1);
+			packsign[k]=val;
+		}
+		fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
+		rice_init(&ec, rdptr, fsrc);
+		fread(&ec.cache, 1, 8, fsrc);
+		fread(&cache2, 1, 8, fsrc);
+		
+		for(int ky=0;ky<ih;++ky)
+		{
+			for(int kx=0;kx<iw;++kx)
+			{
+				int nbypass[3];
+
+				nbypass[0]=(estim[0]>>RSHIFT)+1;
+				nbypass[1]=(estim[1]>>RSHIFT)+1;
+				nbypass[2]=(estim[2]>>RSHIFT)+1;
+				
+#ifdef _MSC_VER
+				_BitScanReverse(&nbypass[0], nbypass[0]);
+				_BitScanReverse(&nbypass[1], nbypass[1]);
+				_BitScanReverse(&nbypass[2], nbypass[2]);
+#else
+				nbypass[0]=__builtin_clz(nbypass[0]);
+				nbypass[1]=__builtin_clz(nbypass[1]);
+				nbypass[2]=__builtin_clz(nbypass[2]);
+				nbypass[0]^=31;
+				nbypass[1]^=31;
+				nbypass[2]^=31;
+#endif
+				for(int k=0;k<3;++k)
+				{
+					uint64_t code;
+					int nzeros;
+					int prefix;
+
+					if(nbits>=64)
+					{
+						ec.cache=cache2;
+						cache2=acme_read(&rdptr, 8, fsrc);
+						nbits-=64;
+					}
+					code=ec.cache<<nbits;
+					if(nbits)
+						code|=cache2>>(64-nbits);
+					nzeros=(int)_lzcnt_u64(code);
+					prefix=nzeros<<nbypass[k];
+					if(nzeros>=RLIMIT)
+						nzeros=RLIMIT-1, nbypass[k]=9, prefix=0;
+					code<<=nzeros+1;
+					code>>=64-nbypass[k];
+					if(!nbypass[k])
+						code=0;
+					sym[k]=(int)code|prefix;
+					nbits+=nzeros+1+nbypass[k];
+				}
+#ifdef FIFOVAL
+				fifoval_check(sym[2]<<18|sym[1]<<9|sym[0]);
+#endif
+				estim[0]+=((sym[0]<<RSHIFT)-estim[0])>>(RSHIFT+1);
+				estim[1]+=((sym[1]<<RSHIFT)-estim[1])>>(RSHIFT+1);
+				estim[2]+=((sym[2]<<RSHIFT)-estim[2])>>(RSHIFT+1);
+				sym[0]=packsign[sym[0]];
+				sym[1]=packsign[sym[1]];
+				sym[2]=packsign[sym[2]];
+				sym[0]+=prev[0];
+				sym[1]+=prev[1];
+				sym[2]+=prev[2];
+				sym[0]=sym[0]<<23>>23;
+				sym[1]=sym[1]<<23>>23;
+				sym[2]=sym[2]<<23>>23;
+				prev[0]=sym[0];
+				prev[1]=sym[1];
+				prev[2]=sym[2];
+				sym[2]+=sym[0]>>2;
+				sym[1]-=(sym[0]+sym[2])>>2;
+				sym[2]+=sym[1];
+				sym[0]+=sym[1];
+				acme_write(&wtptr, 3, fdst, (uint64_t)sym[2]<<16|(uint64_t)sym[1]<<8|sym[0]);
+			}
+		}
 	}
+	if(wtptr>wtbuf)
+		fwrite(wtbuf, 1, wtptr-wtbuf, fdst);
 	fclose(fsrc);
 	fclose(fdst);
 #ifdef LOUD
@@ -570,9 +775,9 @@ int c59_codec(int argc, char **argv)
 #ifdef PROFILER
 	prof_end(prof_ctx);
 #endif
-	exit(0);
 	(void)usize;
 	(void)&time_sec2;
+	(void)&rice_enc;
 	(void)&rice_dec;
 	return 0;
 }

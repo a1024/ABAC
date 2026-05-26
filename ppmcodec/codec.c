@@ -174,13 +174,13 @@ int main(int argc, char **argv)
 //	return c34_codec(_countof(args), (char**)args);
 #else
 	const char dstfn[]=//OVERWRITTEN
-	//	"C:/dataset-a-temp/zzz.ppm"
-		"C:/Projects/datasets/zzz.ppm"
+		"C:/dataset-a-temp/zzz.ppm"
+	//	"C:/Projects/datasets/zzz.ppm"
 	//	"D:/ML/zzz.ppm"
 	;
 	const char tmpfn[]=//OVERWRITTEN
-	//	"C:/dataset-a-temp/zzz.lsim"
-		"C:/Projects/datasets/zzz.lsim"
+		"C:/dataset-a-temp/zzz.lsim"
+	//	"C:/Projects/datasets/zzz.lsim"
 	//	"D:/ML/zzz.lsim"
 	;
 	const char srcfn[]=
@@ -225,7 +225,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-HUGE-ppm/chaos1.ppm"
 	//	"C:/dataset-HUGE-ppm/diagram.ppm"
 	//	"C:/dataset-HUGE-ppm/gaia.ppm"
-	//	"C:/dataset-HUGE-ppm/jwst.ppm"
+		"C:/dataset-HUGE-ppm/jwst.ppm"
 	//	"C:/dataset-HUGE-ppm/jwst.ppm"
 	//	"C:/dataset-HUGE-ppm/jwst.ppm"
 	//	"C:/dataset-HUGE-ppm/jwst.ppm"
@@ -330,7 +330,7 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/kodim13-small4.PPM"
 	//	"C:/Projects/datasets/kodim24.ppm"
 	//	"C:/Projects/datasets/lena.ppm"
-		"C:/Projects/datasets/space_huge.ppm"
+	//	"C:/Projects/datasets/space_huge.ppm"
 	//	"C:/Projects/datasets/space_huge.ppm"
 	//	"C:/Projects/datasets/temp.c18"
 	//	"C:/Projects/datasets/zzzpng.ppm"
