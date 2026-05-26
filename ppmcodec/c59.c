@@ -36,6 +36,7 @@
 #endif
 
 	#define USE_ROWS
+//	#define USE_CG
 
 
 enum
@@ -66,9 +67,9 @@ enum
 
 //clobbers A B C
 #define MEDIAN3V_CLOB(M, A, B, C)\
-	M=A, A=A<B?A:B, B=B<M?B:M,\
-	M=B, B=C<B?C:B, C=T>C?T:C,\
-	M=A, A=B<A?B:A, M=T>B?T:B
+	M=A, A=A>B?B:A, B=M>B?M:B,\
+	M=B, B=B>C?C:B, C=M>C?M:C,\
+	M=A, A=A>B?B:A, M=M>B?M:B
 
 #ifndef CLAMP2
 #define CLAMP2(X, LO, HI) X=X>LO?X:LO, X=X<HI?X:HI
@@ -120,17 +121,9 @@ INLINE int median3i(int a, int b, int c)
 {
 	int t;
 
-	t=a;
-	a=a>b?b:a;
-	b=t>b?t:b;
-
-	t=b;
-	b=b>c?c:b;
-	c=t>c?t:c;
-
-	t=a;
-	a=a>b?b:a;
-	b=t>b?t:b;
+	t=a, a=a>b?b:a, b=t>b?t:b;
+	t=b, b=b>c?c:b, c=t>c?t:c;
+	t=a, a=a>b?b:a, b=t>b?t:b;
 
 	return b;
 }
@@ -426,10 +419,7 @@ int c59_codec(int argc, char **argv)
 	int64_t c=0;
 	int fwd=0, iw=0, ih=0;
 	uint8_t *rdptr=0, *wtptr=0;
-#ifndef USE_ROWS
-	int prev[3]={0};
-#endif
-	int yuv[3]={0}, sym[3]={0}, estim[3]={0};
+	int pred[3]={0}, yuv[3]={0}, sym[3]={0}, estim[3]={0};
 	RiceCoder ec={0};
 	int64_t usize=0;
 #ifdef USE_ROWS
@@ -568,23 +558,43 @@ int c59_codec(int argc, char **argv)
 #endif
 			for(int kx=0;kx<iw;++kx)
 			{
+				uint64_t x=acme_read(&rdptr, 3, fsrc);
+				int nbypass0, nbypass1, nbypass2;
+				uint64_t code[3];
+				int nzeros[3], codelen[3];
 #ifdef USE_ROWS
-				int pred[3];
-
-				estim[0]=rows[0][1+(0-1*NCH)*NROWS*NVAL];
-				estim[1]=rows[0][1+(1-1*NCH)*NROWS*NVAL];
-				estim[2]=rows[0][1+(2-1*NCH)*NROWS*NVAL];
+#ifdef USE_CG
+				{
+					int N[3], W[3], NW[3];
+					
+					NW[0]	=rows[1][0+(0-1*NCH)*NROWS*NVAL];
+					NW[1]	=rows[1][0+(1-1*NCH)*NROWS*NVAL];
+					NW[2]	=rows[1][0+(2-1*NCH)*NROWS*NVAL];
+					N[0]	=rows[1][0+(0+0*NCH)*NROWS*NVAL];
+					N[1]	=rows[1][0+(1+0*NCH)*NROWS*NVAL];
+					N[2]	=rows[1][0+(2+0*NCH)*NROWS*NVAL];
+					W[0]	=rows[0][0+(0-1*NCH)*NROWS*NVAL];
+					W[1]	=rows[0][0+(1-1*NCH)*NROWS*NVAL];
+					W[2]	=rows[0][0+(2-1*NCH)*NROWS*NVAL];
+					NW[0]=N[0]+W[0]-NW[0];
+					NW[1]=N[1]+W[1]-NW[1];
+					NW[2]=N[2]+W[2]-NW[2];
+					MEDIAN3V_CLOB(pred[0], N[0], W[0], NW[0]);
+					MEDIAN3V_CLOB(pred[1], N[1], W[1], NW[1]);
+					MEDIAN3V_CLOB(pred[2], N[2], W[2], NW[2]);
+				}
+#else
 				pred[0]=(rows[1][0+(0+0*NCH)*NROWS*NVAL]+rows[0][0+(0-1*NCH)*NROWS*NVAL])>>1;
 				pred[1]=(rows[1][0+(1+0*NCH)*NROWS*NVAL]+rows[0][0+(1-1*NCH)*NROWS*NVAL])>>1;
 				pred[2]=(rows[1][0+(2+0*NCH)*NROWS*NVAL]+rows[0][0+(2-1*NCH)*NROWS*NVAL])>>1;
 #endif
-				uint64_t x=acme_read(&rdptr, 3, fsrc);
-
-				int nbypass0=(estim[0]>>RSHIFT)+1;
-				int nbypass1=(estim[1]>>RSHIFT)+1;
-				int nbypass2=(estim[2]>>RSHIFT)+1;
-
-				
+				estim[0]=rows[0][1+(0-1*NCH)*NROWS*NVAL];
+				estim[1]=rows[0][1+(1-1*NCH)*NROWS*NVAL];
+				estim[2]=rows[0][1+(2-1*NCH)*NROWS*NVAL];
+#endif
+				nbypass0=(estim[0]>>RSHIFT)+1;
+				nbypass1=(estim[1]>>RSHIFT)+1;
+				nbypass2=(estim[2]>>RSHIFT)+1;
 #ifdef _MSC_VER
 				_BitScanReverse(&nbypass0, nbypass0);
 				_BitScanReverse(&nbypass1, nbypass1);
@@ -604,93 +614,78 @@ int c59_codec(int argc, char **argv)
 				yuv[2]-=yuv[1];
 				yuv[1]+=(yuv[0]+yuv[2])>>2;
 				yuv[2]-=yuv[0]>>2;
+				sym[0]=packsignptr[yuv[0]-pred[0]];
+				sym[1]=packsignptr[yuv[1]-pred[1]];
+				sym[2]=packsignptr[yuv[2]-pred[2]];
 #ifdef USE_ROWS
 				rows[0][0+(0+0*NCH)*NROWS*NVAL]=yuv[0];
 				rows[0][0+(1+0*NCH)*NROWS*NVAL]=yuv[1];
 				rows[0][0+(2+0*NCH)*NROWS*NVAL]=yuv[2];
-				sym[0]=packsignptr[yuv[0]-pred[0]];
-				sym[1]=packsignptr[yuv[1]-pred[1]];
-				sym[2]=packsignptr[yuv[2]-pred[2]];
-#else
-				sym[0]=packsignptr[yuv[0]-prev[0]];
-				sym[1]=packsignptr[yuv[1]-prev[1]];
-				sym[2]=packsignptr[yuv[2]-prev[2]];
-				//sym[0]=sym[0]<<23>>23;
-				//sym[1]=(int8_t)sym[1];
-				//sym[2]=sym[2]<<23>>23;
-				//sym[0]=sym[0]<<1^sym[0]>>31;
-				//sym[1]=sym[1]<<1^sym[1]>>31;
-				//sym[2]=sym[2]<<1^sym[2]>>31;
-				prev[0]=yuv[0];
-				prev[1]=yuv[1];
-				prev[2]=yuv[2];
-#endif
-				
-#ifdef FIFOVAL
-				fifoval_enqueue(sym[2]<<18|sym[1]<<9|sym[0]);
-#endif
-				{
-					uint64_t code[3];
-					int nzeros[3], codelen[3];
-
-					//new rice coder 2026
-					nzeros[0]=sym[0]>>nbypass0;
-					nzeros[1]=sym[1]>>nbypass1;
-					nzeros[2]=sym[2]>>nbypass2;
-					codelen[0]=nzeros[0]+1+nbypass0;
-					codelen[1]=nzeros[1]+1+nbypass1;
-					codelen[2]=nzeros[2]+1+nbypass2;
-					code[0]=sym[0];
-					code[1]=sym[1];
-					code[2]=sym[2];
-					code[0]<<=31-nbypass0;
-					code[1]<<=31-nbypass1;
-					code[2]<<=31-nbypass2;
-					code[0]=(uint32_t)code[0];
-					code[1]=(uint32_t)code[1];
-					code[2]=(uint32_t)code[2];
-					code[0]|=0x80000000;
-					code[1]|=0x80000000;
-					code[2]|=0x80000000;
-					code[0]>>=31-nbypass0;
-					code[1]>>=31-nbypass1;
-					code[2]>>=31-nbypass2;
-					if(nzeros[0]>RLIMIT-1)code[0]=sym[0], codelen[0]=32;
-					if(nzeros[1]>RLIMIT-1)code[1]=sym[1], codelen[1]=32;
-					if(nzeros[2]>RLIMIT-1)code[2]=sym[2], codelen[2]=32;
-					for(int k=0;k<3;++k)
-					{
-						if(codelen[k]>=ec.nbits)//cache would overflow:  fill, flush, and repeat
-						{
-							codelen[k]-=(int)ec.nbits;
-							ec.cache|=(uint64_t)code[k]>>codelen[k];
-							code[k]&=0x7FFFFFFFULL>>(31-codelen[k]);
-							acme_write(&ec.ptr, 8, ec.f, ec.cache);
-							ec.cache=0;
-							ec.nbits=64;
-						}
-						//now there is room for bypass:  0 <= nbypass < nbits <= 64
-						if(codelen[k])
-						{
-							ec.nbits-=codelen[k];//emit remaining bypass to cache
-							ec.cache|=code[k]<<ec.nbits;
-						}
-					}
-				}
-				//rice_enc(&ec, nbypass0, sym[0]);
-				//rice_enc(&ec, nbypass1, sym[1]);
-				//rice_enc(&ec, nbypass2, sym[2]);
-#ifdef USE_ROWS
 				rows[0][1+(0+0*NCH)*NROWS*NVAL]=(2*rows[0][1+(0-1*NCH)*NROWS*NVAL]+(sym[0]<<RSHIFT)+rows[1][1+(0+3*NCH)*NROWS*NVAL])>>2;
 				rows[0][1+(1+0*NCH)*NROWS*NVAL]=(2*rows[0][1+(1-1*NCH)*NROWS*NVAL]+(sym[1]<<RSHIFT)+rows[1][1+(1+3*NCH)*NROWS*NVAL])>>2;
 				rows[0][1+(2+0*NCH)*NROWS*NVAL]=(2*rows[0][1+(2-1*NCH)*NROWS*NVAL]+(sym[2]<<RSHIFT)+rows[1][1+(2+3*NCH)*NROWS*NVAL])>>2;
 				rows[0]+=NCH*NROWS*NVAL;
 				rows[1]+=NCH*NROWS*NVAL;
 #else
+				//sym[0]=sym[0]<<23>>23;
+				//sym[1]=(int8_t)sym[1];
+				//sym[2]=sym[2]<<23>>23;
+				//sym[0]=sym[0]<<1^sym[0]>>31;
+				//sym[1]=sym[1]<<1^sym[1]>>31;
+				//sym[2]=sym[2]<<1^sym[2]>>31;
+				pred[0]=yuv[0];
+				pred[1]=yuv[1];
+				pred[2]=yuv[2];
 				estim[0]+=((sym[0]<<RSHIFT)-estim[0])>>(RSHIFT+1);
 				estim[1]+=((sym[1]<<RSHIFT)-estim[1])>>(RSHIFT+1);
 				estim[2]+=((sym[2]<<RSHIFT)-estim[2])>>(RSHIFT+1);
 #endif
+#ifdef FIFOVAL
+				fifoval_enqueue(sym[2]<<18|sym[1]<<9|sym[0]);
+#endif
+				//new rice coder 2026
+				nzeros[0]=sym[0]>>nbypass0;
+				nzeros[1]=sym[1]>>nbypass1;
+				nzeros[2]=sym[2]>>nbypass2;
+				codelen[0]=nzeros[0]+1+nbypass0;
+				codelen[1]=nzeros[1]+1+nbypass1;
+				codelen[2]=nzeros[2]+1+nbypass2;
+				code[0]=sym[0];
+				code[1]=sym[1];
+				code[2]=sym[2];
+				code[0]<<=31-nbypass0;
+				code[1]<<=31-nbypass1;
+				code[2]<<=31-nbypass2;
+				code[0]=(uint32_t)code[0];
+				code[1]=(uint32_t)code[1];
+				code[2]=(uint32_t)code[2];
+				code[0]|=0x80000000;
+				code[1]|=0x80000000;
+				code[2]|=0x80000000;
+				code[0]>>=31-nbypass0;
+				code[1]>>=31-nbypass1;
+				code[2]>>=31-nbypass2;
+				if(nzeros[0]>RLIMIT-1)code[0]=sym[0], codelen[0]=32;
+				if(nzeros[1]>RLIMIT-1)code[1]=sym[1], codelen[1]=32;
+				if(nzeros[2]>RLIMIT-1)code[2]=sym[2], codelen[2]=32;
+				for(int k=0;k<3;++k)
+				{
+					if(codelen[k]>=ec.nbits)//cache would overflow:  fill, flush, and repeat
+					{
+						codelen[k]-=(int)ec.nbits;
+						ec.cache|=(uint64_t)code[k]>>codelen[k];
+						code[k]&=0x7FFFFFFFULL>>(31-codelen[k]);
+						acme_write(&ec.ptr, 8, ec.f, ec.cache);
+						ec.cache=0;
+						ec.nbits=64;
+					}
+					//now there is room for bypass:  0 <= nbypass < nbits <= 64
+					if(codelen[k])
+					{
+						ec.nbits-=codelen[k];//emit remaining bypass to cache
+						ec.cache|=code[k]<<ec.nbits;
+					}
+				}
 			}
 		}
 		rice_flush(&ec);
@@ -727,12 +722,34 @@ int c59_codec(int argc, char **argv)
 #ifdef USE_ROWS
 				int pred[3];
 
-				estim[0]=rows[0][1+(0-1*NCH)*NROWS*NVAL];
-				estim[1]=rows[0][1+(1-1*NCH)*NROWS*NVAL];
-				estim[2]=rows[0][1+(2-1*NCH)*NROWS*NVAL];
+#ifdef USE_CG
+				{
+					int N[3], W[3], NW[3];
+					
+					NW[0]	=rows[1][0+(0-1*NCH)*NROWS*NVAL];
+					NW[1]	=rows[1][0+(1-1*NCH)*NROWS*NVAL];
+					NW[2]	=rows[1][0+(2-1*NCH)*NROWS*NVAL];
+					N[0]	=rows[1][0+(0+0*NCH)*NROWS*NVAL];
+					N[1]	=rows[1][0+(1+0*NCH)*NROWS*NVAL];
+					N[2]	=rows[1][0+(2+0*NCH)*NROWS*NVAL];
+					W[0]	=rows[0][0+(0-1*NCH)*NROWS*NVAL];
+					W[1]	=rows[0][0+(1-1*NCH)*NROWS*NVAL];
+					W[2]	=rows[0][0+(2-1*NCH)*NROWS*NVAL];
+					NW[0]=N[0]+W[0]-NW[0];
+					NW[1]=N[1]+W[1]-NW[1];
+					NW[2]=N[2]+W[2]-NW[2];
+					MEDIAN3V_CLOB(pred[0], N[0], W[0], NW[0]);
+					MEDIAN3V_CLOB(pred[1], N[1], W[1], NW[1]);
+					MEDIAN3V_CLOB(pred[2], N[2], W[2], NW[2]);
+				}
+#else
 				pred[0]=(rows[1][0+(0+0*NCH)*NROWS*NVAL]+rows[0][0+(0-1*NCH)*NROWS*NVAL])>>1;
 				pred[1]=(rows[1][0+(1+0*NCH)*NROWS*NVAL]+rows[0][0+(1-1*NCH)*NROWS*NVAL])>>1;
 				pred[2]=(rows[1][0+(2+0*NCH)*NROWS*NVAL]+rows[0][0+(2-1*NCH)*NROWS*NVAL])>>1;
+#endif
+				estim[0]=rows[0][1+(0-1*NCH)*NROWS*NVAL];
+				estim[1]=rows[0][1+(1-1*NCH)*NROWS*NVAL];
+				estim[2]=rows[0][1+(2-1*NCH)*NROWS*NVAL];
 #endif
 
 				nbypass[0]=(estim[0]>>RSHIFT)+1;
@@ -754,8 +771,7 @@ int c59_codec(int argc, char **argv)
 				for(int k=0;k<3;++k)
 				{
 					uint64_t code;
-					int nzeros;
-					int prefix;
+					int nzeros, prefix;
 
 					if(nbits>=64)
 					{
@@ -792,15 +808,9 @@ int c59_codec(int argc, char **argv)
 				sym[0]=packsign[sym[0]];
 				sym[1]=packsign[sym[1]];
 				sym[2]=packsign[sym[2]];
-#ifdef USE_ROWS
 				sym[0]+=pred[0];
 				sym[1]+=pred[1];
 				sym[2]+=pred[2];
-#else
-				sym[0]+=prev[0];
-				sym[1]+=prev[1];
-				sym[2]+=prev[2];
-#endif
 				sym[0]=sym[0]<<23>>23;
 				sym[1]=sym[1]<<23>>23;
 				sym[2]=sym[2]<<23>>23;
@@ -811,9 +821,9 @@ int c59_codec(int argc, char **argv)
 				rows[0]+=NCH*NROWS*NVAL;
 				rows[1]+=NCH*NROWS*NVAL;
 #else
-				prev[0]=sym[0];
-				prev[1]=sym[1];
-				prev[2]=sym[2];
+				pred[0]=sym[0];
+				pred[1]=sym[1];
+				pred[2]=sym[2];
 #endif
 				sym[2]+=sym[0]>>2;
 				sym[1]-=(sym[0]+sym[2])>>2;
@@ -827,6 +837,7 @@ int c59_codec(int argc, char **argv)
 		fwrite(wtbuf, 1, wtptr-wtbuf, fdst);
 	fclose(fsrc);
 	fclose(fdst);
+	free(pixels);
 #ifdef LOUD
 	{
 		t=time_sec2()-t;
