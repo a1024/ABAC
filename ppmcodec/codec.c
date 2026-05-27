@@ -150,6 +150,7 @@ int main(int argc, char **argv)
 #ifdef PROFILER
 	void *prof_ctx=prof_start();
 #endif
+//#if 0
 #if defined __GNUC__ || defined RELEASE
 	retcode=CODEC_FUNC(argc, argv);
 //#elif 1
@@ -216,6 +217,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-GDCC2020-ppm/astro-46.ppm"
 	//	"C:/dataset-GDCC2020-ppm/photo-03.ppm"
 	//	"C:/dataset-GDCC2020-ppm/photo-05.ppm"
+	//	"C:/dataset-GDCC2020-ppm/photo-30.ppm"
 	//	"C:/dataset-GDCC2020-ppm/photo-49.ppm"
 	//	"C:/dataset-GDCC2020-ppm/photo-52.ppm"
 	//	"C:/dataset-GDCC2020-ppm/photo-60.ppm"

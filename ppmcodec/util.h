@@ -60,9 +60,9 @@ extern "C"
 
 //clobbers A B C
 #define MEDIAN3V_CLOB(M, A, B, C)\
-	M=A, A=A<B?A:B, B=B<M?B:M,\
-	M=B, B=C<B?C:B, C=T>C?T:C,\
-	M=A, A=B<A?B:A, M=T>B?T:B
+	M=A, A=A>B?B:A, B=M>B?M:B,\
+	M=B, B=B>C?C:B, C=M>C?M:C,\
+	M=A, A=A>B?B:A, M=M>B?M:B
 
 //include<smmintrin.h>	SSE4.1
 #define MEDIAN3_32(DST, A, B, C)\

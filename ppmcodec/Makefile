@@ -282,3 +282,6 @@ c58:
 
 c59:
 	clang $(FLAGS) -Dc59_codec=main -mavx2 -mlzcnt $(SRC_ZYDIS2) c59.c -o c59 $(LIBS)
+
+c59-debug:
+	clang -Wall -O3 -g -D_DEBUG -mavx2 -mlzcnt codec.c util.c c59.c -o c59 -static
