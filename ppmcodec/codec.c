@@ -72,7 +72,7 @@ int c55_codec(int argc, char **argv);//16-bit
 int c56_codec(int argc, char **argv);//LZAC (synth)
 int c57_codec(int argc, char **argv);//fast Rice
 int c58_codec(int argc, char **argv);//bit coding with plain histograms (c12)
-int c59_codec(int argc, char **argv);//rapid
+int c59_codec(int argc, char **argv);//near portable rapid
 #endif
 
 
