@@ -40,8 +40,8 @@
 	#define NO_RCT
 	#define NEARLOSSLESS
 	#define USE_ROWS
-	#define USE_SELECT
-//	#define USE_CG
+//	#define USE_SELECT	//incompatible with near
+//	#define USE_CG		//
 
 
 enum
@@ -64,7 +64,7 @@ enum
 	NVAL=2,
 #endif
 #ifdef NEARLOSSLESS
-	NEARSHIFT=3,
+	NEARSHIFT=4,
 #endif
 #ifdef USE_RLE
 	MAXRUNBITS=30,
