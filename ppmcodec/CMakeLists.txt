@@ -36,7 +36,7 @@ add_executable(codec
 	c21.c
 	c22.c
 	c23.c
-	c24.c
+#	c24.c
 	c25.c
 	c26.c
 	c27.c

@@ -175,13 +175,13 @@ int main(int argc, char **argv)
 //	return c34_codec(_countof(args), (char**)args);
 #else
 	const char dstfn[]=//OVERWRITTEN
-		"C:/dataset-a-temp/zzz.ppm"
-	//	"C:/Projects/datasets/zzz.ppm"
+	//	"C:/dataset-a-temp/zzz.ppm"
+		"C:/Projects/datasets/zzz.ppm"
 	//	"D:/ML/zzz.ppm"
 	;
 	const char tmpfn[]=//OVERWRITTEN
-		"C:/dataset-a-temp/zzz.lsim"
-	//	"C:/Projects/datasets/zzz.lsim"
+	//	"C:/dataset-a-temp/zzz.lsim"
+		"C:/Projects/datasets/zzz.lsim"
 	//	"D:/ML/zzz.lsim"
 	;
 	const char srcfn[]=
@@ -227,7 +227,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-HUGE-ppm/chaos1.ppm"
 	//	"C:/dataset-HUGE-ppm/diagram.ppm"
 	//	"C:/dataset-HUGE-ppm/gaia.ppm"
-		"C:/dataset-HUGE-ppm/jwst.ppm"
+	//	"C:/dataset-HUGE-ppm/jwst.ppm"
 	//	"C:/dataset-HUGE-ppm/jwst.ppm"
 	//	"C:/dataset-HUGE-ppm/jwst.ppm"
 	//	"C:/dataset-HUGE-ppm/jwst.ppm"
@@ -322,6 +322,7 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-sintel-ppm"
 	//	"C:/Projects/datasets/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/Projects/datasets/dataset-synth2-ppm/20240405 2 CPU-load.ppm"
+		"C:/Projects/datasets/dataset-synth2-ppm/20240407 blank.ppm"
 	//	"C:/Projects/datasets/dataset-synth2-ppm/20240409 1 LPCB.ppm"
 	//	"C:/Projects/datasets/dataset-synth2-ppm/art.ppm"
 	//	"C:/Projects/datasets/enwik8"
