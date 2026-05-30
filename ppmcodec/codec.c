@@ -244,6 +244,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-LPCB-ppm/PIA13757.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13803.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13833.ppm"	//CGI
+	//	"C:/dataset-LPCB-ppm/PIA13882.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13912.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13914.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13915.ppm"	//false color terrain

@@ -33,9 +33,10 @@
 //	#define RICE_EXPERIMENT
 	#define MEASURE_PSNR
 
-//	#define FIFOVAL 2
+	#define FIFOVAL 3
 #endif
 
+	#define ADAQUANT
 	#define USE_RLE
 	#define NO_RCT
 	#define NEARLOSSLESS
@@ -46,7 +47,11 @@
 
 enum
 {
+#ifdef NO_RCT
+	DEPTH=8,
+#else
 	DEPTH=9,
+#endif
 //	RLIMIT=23,
 	RLIMIT=12,
 #ifdef USE_ROWS
@@ -61,10 +66,14 @@ enum
 	XPAD=8,
 	NCH=3,
 	NROWS=2,
+#ifdef ADAQUANT
+	NVAL=3,
+#else
 	NVAL=2,
 #endif
+#endif
 #ifdef NEARLOSSLESS
-	NEARSHIFT=4,
+	NEARSHIFT=2,
 #endif
 #ifdef USE_RLE
 	MAXRUNBITS=30,
@@ -412,6 +421,9 @@ static void print_psnr(const int64_t *esum, int64_t res, const double *mixweight
 }
 #endif
 static uint8_t log2table[1<<(DEPTH+RSHIFT)];
+#ifdef ADAQUANT
+static uint8_t qtable[1<<(DEPTH+RSHIFT)];
+#endif
 static uint32_t enctable[1<<(DEPTH+3)];
 static int16_t packsign[1024], *const packsignptr=packsign+512;
 int c59_codec(int argc, char **argv)
@@ -599,6 +611,16 @@ int c59_codec(int argc, char **argv)
 			val=7;
 		log2table[ks]=val;
 	}
+	for(int ks=0;ks<1<<(DEPTH+RSHIFT);++ks)
+	{
+		int val=(ks>>RSHIFT)+1;
+		val=LZCNT32(val);
+		val^=31;
+		val+=NEARSHIFT;
+		if(val>7)
+			val=7;
+		qtable[ks]=val;
+	}
 	if(fwd)
 	{
 		static uint8_t *const rdend=rdbuf+sizeof(uint64_t)+BUFSIZE-3;
@@ -613,14 +635,47 @@ int c59_codec(int argc, char **argv)
 		for(int k=0;k<1024;++k)
 		{
 			int val=k-512;
-			val=val<<(32-DEPTH)>>(32-DEPTH-1);
-			val=val^val>>31;
+		//	val=val<<(32-DEPTH)>>(32-DEPTH);
+			val=val<<1^val>>31;
 			packsign[k]=val;
 		}
+#if 0
+		for(int ks=0;ks<1<<DEPTH;++ks)
+		{
+			uint32_t code;
+			int kb, nbypass, codelen, nzeros;
+
+			kb=0;
+			nzeros=ks>>kb;
+			codelen=nzeros+1+kb;
+			code=ks;
+			nbypass=kb^31;
+			code<<=nbypass;
+			code|=1<<31;
+			code>>=nbypass;
+			if(nzeros>RLIMIT-1)
+				code=ks, codelen=RLIMIT+DEPTH;
+			enctable[ks]=code<<8|codelen;
+		}
+#else
 		for(int ks=0;ks<1<<DEPTH;++ks)
 		{
 			for(int kb=0;kb<8;++kb)
 			{
+#if 0
+				uint32_t nbypass, code, nzeros, codelen;
+				
+				nzeros=ks>>kb;
+				nbypass=kb;
+				if(nbypass>1)
+					nbypass=1;
+				code=1<<nbypass|(ks&((1<<nbypass)-1));
+				codelen=nzeros+1+nbypass;
+
+				if(nzeros>RLIMIT-1)
+					code=ks, codelen=RLIMIT+DEPTH;
+				enctable[ks<<3|kb]=code<<8|codelen;
+#else
 				uint32_t code;
 				int nbypass, codelen, nzeros;
 
@@ -634,8 +689,10 @@ int c59_codec(int argc, char **argv)
 				if(nzeros>RLIMIT-1)
 					code=ks, codelen=RLIMIT+DEPTH;
 				enctable[ks<<3|kb]=code<<8|codelen;
+#endif
 			}
 		}
+#endif
 		fwrite(&tag, 1, 2, fdst);
 		fwrite(&iw, 1, 3, fdst);
 		fwrite(&ih, 1, 3, fdst);
@@ -656,6 +713,9 @@ int c59_codec(int argc, char **argv)
 				int codelen[3];
 #endif
 				int nbypass[3];
+#ifdef ADAQUANT
+				int nbypass2[3];
+#endif
 
 				memcpy(&reg, rdptr, sizeof(uint64_t));
 				if(rdptr>=rdend)
@@ -730,14 +790,39 @@ int c59_codec(int argc, char **argv)
 				pred[0]=(rows[1][0+(0+0*NCH)*NROWS*NVAL]+rows[0][0+(0-1*NCH)*NROWS*NVAL])>>1;
 				pred[1]=(rows[1][0+(1+0*NCH)*NROWS*NVAL]+rows[0][0+(1-1*NCH)*NROWS*NVAL])>>1;
 				pred[2]=(rows[1][0+(2+0*NCH)*NROWS*NVAL]+rows[0][0+(2-1*NCH)*NROWS*NVAL])>>1;
+//#ifdef FIFOVAL
+//				if(FIFOVAL==3)
+//					fifoval_enqueue(pred[2]<<DEPTH*2^pred[1]<<DEPTH^pred[0]);
+//#endif
 #endif
 				estim[0]=rows[0][1+(0-1*NCH)*NROWS*NVAL];
 				estim[1]=rows[0][1+(1-1*NCH)*NROWS*NVAL];
 				estim[2]=rows[0][1+(2-1*NCH)*NROWS*NVAL];
+//#ifdef FIFOVAL
+//				if(FIFOVAL==3)
+//					fifoval_enqueue(estim[2]<<DEPTH*2^estim[1]<<DEPTH^estim[0]);
+//#endif
 #endif
-				nbypass[0]=log2table[estim[0]];
-				nbypass[1]=log2table[estim[1]];
-				nbypass[2]=log2table[estim[2]];
+				nbypass[0]=qtable[estim[0]];
+				nbypass[1]=qtable[estim[1]];
+				nbypass[2]=qtable[estim[2]];
+#ifdef ADAQUANT
+				nbypass2[0]=log2table[rows[0][2+(0-1*NCH)*NROWS*NVAL]];
+				nbypass2[1]=log2table[rows[0][2+(1-1*NCH)*NROWS*NVAL]];
+				nbypass2[2]=log2table[rows[0][2+(2-1*NCH)*NROWS*NVAL]];
+#ifdef FIFOVAL
+				int estim2[3];
+				estim2[0]=rows[0][2+(0-1*NCH)*NROWS*NVAL];
+				estim2[1]=rows[0][2+(1-1*NCH)*NROWS*NVAL];
+				estim2[2]=rows[0][2+(2-1*NCH)*NROWS*NVAL];
+				if(FIFOVAL==3)
+					fifoval_enqueue(
+						(pred[2]<<DEPTH*2^pred[1]<<DEPTH^pred[0])
+					^	(estim[2]<<DEPTH*2^estim[1]<<DEPTH^estim[0])<<4
+					^	(rows[0][2+(2-1*NCH)*NROWS*NVAL]<<DEPTH*2^rows[0][2+(1-1*NCH)*NROWS*NVAL]<<DEPTH^rows[0][2+(0-1*NCH)*NROWS*NVAL])<<8
+					);
+#endif
+#endif
 				yuv[0]=(uint8_t)(reg>> 0);
 				yuv[1]=(uint8_t)(reg>> 8);
 				yuv[2]=(uint8_t)(reg>>16);
@@ -757,24 +842,46 @@ int c59_codec(int argc, char **argv)
 				sym[0]=yuv[0]-pred[0];
 				sym[1]=yuv[1]-pred[1];
 				sym[2]=yuv[2]-pred[2];
+#ifdef ADAQUANT
+				sym[0]+=1<<nbypass[0]>>1;
+				sym[1]+=1<<nbypass[1]>>1;
+				sym[2]+=1<<nbypass[2]>>1;
+				sym[0]>>=nbypass[0];
+				sym[1]>>=nbypass[1];
+				sym[2]>>=nbypass[2];
+#else
 				sym[0]>>=NEARSHIFT;
 				sym[1]>>=NEARSHIFT;
 				sym[2]>>=NEARSHIFT;
+#endif
 #ifdef MEASURE_PSNR
 				int yuv0[3];
 				yuv0[0]=yuv[0];
 				yuv0[1]=yuv[1];
 				yuv0[2]=yuv[2];
 #endif
+#ifdef ADAQUANT
+				yuv[0]=sym[0]<<nbypass[0];
+				yuv[1]=sym[1]<<nbypass[1];
+				yuv[2]=sym[2]<<nbypass[2];
+#ifdef ADAQUANT
+				rows[0][1+(0+0*NCH)*NROWS*NVAL]=(2*rows[0][1+(0-1*NCH)*NROWS*NVAL]+(packsignptr[yuv[0]]<<RSHIFT)+rows[1][1+(0+3*NCH)*NROWS*NVAL])>>2;
+				rows[0][1+(1+0*NCH)*NROWS*NVAL]=(2*rows[0][1+(1-1*NCH)*NROWS*NVAL]+(packsignptr[yuv[1]]<<RSHIFT)+rows[1][1+(1+3*NCH)*NROWS*NVAL])>>2;
+				rows[0][1+(2+0*NCH)*NROWS*NVAL]=(2*rows[0][1+(2-1*NCH)*NROWS*NVAL]+(packsignptr[yuv[2]]<<RSHIFT)+rows[1][1+(2+3*NCH)*NROWS*NVAL])>>2;
+#endif
+#else
 				yuv[0]=sym[0]<<NEARSHIFT;
 				yuv[1]=sym[1]<<NEARSHIFT;
 				yuv[2]=sym[2]<<NEARSHIFT;
+#endif
 				yuv[0]+=pred[0];
 				yuv[1]+=pred[1];
 				yuv[2]+=pred[2];
-				//CLAMP2(yuv[0], -255, 255);
-				//CLAMP2(yuv[1],    0, 255);
-				//CLAMP2(yuv[2], -255, 255);
+#ifdef NO_RCT
+				CLAMP2(yuv[0], 0, 255);
+				CLAMP2(yuv[1], 0, 255);
+				CLAMP2(yuv[2], 0, 255);
+#endif
 #ifdef MEASURE_PSNR
 				yuv0[0]-=yuv[0];
 				yuv0[1]-=yuv[1];
@@ -790,13 +897,13 @@ int c59_codec(int argc, char **argv)
 				yuv0[1]-=(yuv0[0]+yuv0[2])>>2;
 				yuv0[2]+=yuv0[1];
 				yuv0[0]+=yuv0[1];
-#endif
 				rgb0[0]-=yuv0[0];
 				rgb0[1]-=yuv0[1];
 				rgb0[2]-=yuv0[2];
 				esum_rgb[0]+=(int64_t)rgb0[0]*rgb0[0];
 				esum_rgb[1]+=(int64_t)rgb0[1]*rgb0[1];
 				esum_rgb[2]+=(int64_t)rgb0[2]*rgb0[2];
+#endif
 #endif
 				sym[0]=packsignptr[sym[0]];
 				sym[1]=packsignptr[sym[1]];
@@ -816,9 +923,15 @@ int c59_codec(int argc, char **argv)
 				rows[0][0+(0+0*NCH)*NROWS*NVAL]=yuv[0];
 				rows[0][0+(1+0*NCH)*NROWS*NVAL]=yuv[1];
 				rows[0][0+(2+0*NCH)*NROWS*NVAL]=yuv[2];
+#ifdef ADAQUANT
+				rows[0][2+(0+0*NCH)*NROWS*NVAL]=(2*rows[0][2+(0-1*NCH)*NROWS*NVAL]+(sym[0]<<RSHIFT)+rows[1][2+(0+3*NCH)*NROWS*NVAL])>>2;
+				rows[0][2+(1+0*NCH)*NROWS*NVAL]=(2*rows[0][2+(1-1*NCH)*NROWS*NVAL]+(sym[1]<<RSHIFT)+rows[1][2+(1+3*NCH)*NROWS*NVAL])>>2;
+				rows[0][2+(2+0*NCH)*NROWS*NVAL]=(2*rows[0][2+(2-1*NCH)*NROWS*NVAL]+(sym[2]<<RSHIFT)+rows[1][2+(2+3*NCH)*NROWS*NVAL])>>2;
+#else
 				rows[0][1+(0+0*NCH)*NROWS*NVAL]=(2*rows[0][1+(0-1*NCH)*NROWS*NVAL]+(sym[0]<<RSHIFT)+rows[1][1+(0+3*NCH)*NROWS*NVAL])>>2;
 				rows[0][1+(1+0*NCH)*NROWS*NVAL]=(2*rows[0][1+(1-1*NCH)*NROWS*NVAL]+(sym[1]<<RSHIFT)+rows[1][1+(1+3*NCH)*NROWS*NVAL])>>2;
 				rows[0][1+(2+0*NCH)*NROWS*NVAL]=(2*rows[0][1+(2-1*NCH)*NROWS*NVAL]+(sym[2]<<RSHIFT)+rows[1][1+(2+3*NCH)*NROWS*NVAL])>>2;
+#endif
 				rows[0]+=NCH*NROWS*NVAL;
 				rows[1]+=NCH*NROWS*NVAL;
 #else
@@ -902,7 +1015,11 @@ int c59_codec(int argc, char **argv)
 							runestim[kc]+=(2*run[kc]-runestim[kc])>>2;
 						}
 						{
+#ifdef ADAQUANT
+							uint64_t code=enctable[8*sym[kc]+nbypass2[kc]];
+#else
 							uint64_t code=enctable[8*sym[kc]+nbypass[kc]];
+#endif
 							int codelen=(uint8_t)code;
 
 							code>>=8;
@@ -1001,12 +1118,18 @@ int c59_codec(int argc, char **argv)
 #endif
 #ifdef MEASURE_PSNR
 		{
+#ifdef NO_RCT
+			static const double mix_rgb[]={1, 1, 1};
+			printf("TRGB:\n");
+			print_psnr(esum_yuv, (int64_t)iw*ih, mix_rgb);
+#else
 			static const double mix_rgb[]={1, 1, 1};
 			static const double mix_yuv[]={1, 6, 1};
 			printf("TRGB:\n");
 			print_psnr(esum_rgb, (int64_t)iw*ih, mix_rgb);
 			printf("TVYU/CrYCb:\n");
 			print_psnr(esum_yuv, (int64_t)iw*ih, mix_yuv);
+#endif
 		}
 #endif
 	}
@@ -1026,6 +1149,7 @@ int c59_codec(int argc, char **argv)
 		{
 			int val=k;
 			val=val>>1^-(val&1);
+		//	val=val<<(32-DEPTH)>>(32-DEPTH);
 			packsign[k]=val;
 		}
 		fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
@@ -1055,6 +1179,9 @@ int c59_codec(int argc, char **argv)
 			{
 				uint64_t code, reg;
 				int nzeros, prefix, nbypass[3];
+#ifdef ADAQUANT
+				int nbypass2[3];
+#endif
 
 #ifdef USE_ROWS
 #ifdef USE_CG
@@ -1117,14 +1244,39 @@ int c59_codec(int argc, char **argv)
 				pred[0]=(rows[1][0+(0+0*NCH)*NROWS*NVAL]+rows[0][0+(0-1*NCH)*NROWS*NVAL])>>1;
 				pred[1]=(rows[1][0+(1+0*NCH)*NROWS*NVAL]+rows[0][0+(1-1*NCH)*NROWS*NVAL])>>1;
 				pred[2]=(rows[1][0+(2+0*NCH)*NROWS*NVAL]+rows[0][0+(2-1*NCH)*NROWS*NVAL])>>1;
+//#ifdef FIFOVAL
+//				if(FIFOVAL==3)
+//					fifoval_check(pred[2]<<DEPTH*2^pred[1]<<DEPTH^pred[0]);
+//#endif
 #endif
 				estim[0]=rows[0][1+(0-1*NCH)*NROWS*NVAL];
 				estim[1]=rows[0][1+(1-1*NCH)*NROWS*NVAL];
 				estim[2]=rows[0][1+(2-1*NCH)*NROWS*NVAL];
+//#ifdef FIFOVAL
+//				if(FIFOVAL==3)
+//					fifoval_check(estim[2]<<DEPTH*2^estim[1]<<DEPTH^estim[0]);
+//#endif
 #endif
-				nbypass[0]=log2table[estim[0]];
-				nbypass[1]=log2table[estim[1]];
-				nbypass[2]=log2table[estim[2]];
+				nbypass[0]=qtable[estim[0]];
+				nbypass[1]=qtable[estim[1]];
+				nbypass[2]=qtable[estim[2]];
+#ifdef ADAQUANT
+				nbypass2[0]=log2table[rows[0][2+(0-1*NCH)*NROWS*NVAL]];
+				nbypass2[1]=log2table[rows[0][2+(1-1*NCH)*NROWS*NVAL]];
+				nbypass2[2]=log2table[rows[0][2+(2-1*NCH)*NROWS*NVAL]];
+#ifdef FIFOVAL
+				int estim2[3];
+				estim2[0]=rows[0][2+(0-1*NCH)*NROWS*NVAL];
+				estim2[1]=rows[0][2+(1-1*NCH)*NROWS*NVAL];
+				estim2[2]=rows[0][2+(2-1*NCH)*NROWS*NVAL];
+				if(FIFOVAL==3)
+					fifoval_check(
+						(pred[2]<<DEPTH*2^pred[1]<<DEPTH^pred[0])
+					^	(estim[2]<<DEPTH*2^estim[1]<<DEPTH^estim[0])<<4
+					^	(rows[0][2+(2-1*NCH)*NROWS*NVAL]<<DEPTH*2^rows[0][2+(1-1*NCH)*NROWS*NVAL]<<DEPTH^rows[0][2+(0-1*NCH)*NROWS*NVAL])<<8
+					);
+#endif
+#endif
 #ifdef USE_RLE
 				for(int kc=0;kc<3;++kc)
 				{
@@ -1164,9 +1316,9 @@ int c59_codec(int argc, char **argv)
 							if(nzeros>MAXRUNBITS-1)
 								nzeros=MAXRUNBITS-1, nbypass2=MAXRUNBITS, prefix=0;
 							code<<=nzeros+1;
-							run[kc]=(int)(code>>(64-nbypass2));
-							if(!nbypass2)
-								run[kc]=0;
+							run[kc]=(int)(code>>(63-nbypass2)>>1);
+							//if(!nbypass2)
+							//	run[kc]=0;
 							//code<<=nbypass2;
 							run[kc]|=prefix;
 							run0[kc]=run[kc];
@@ -1182,14 +1334,41 @@ int c59_codec(int argc, char **argv)
 						}
 						else
 						{
+#if 0
+							int codelen;
+
+							nzeros=(int)_lzcnt_u64(code);
+							sym[kc]=nzeros;
+							codelen=nzeros+1;
+							if(nzeros>RLIMIT-1)
+								sym[kc]=(int)(code<<RLIMIT>>(64-DEPTH)), codelen=RLIMIT+DEPTH;
+#ifdef FIFOVAL
+							if(kc==FIFOVAL)
+								fifoval_check(sym[kc]);
+#endif
+							nbits[kc]+=codelen;
+#elif defined ADAQUANT
+							nzeros=(int)_lzcnt_u64(code);
+							prefix=nzeros<<nbypass2[kc];
+							if(nzeros>RLIMIT-1)
+								nzeros=RLIMIT-1, nbypass2[kc]=DEPTH, prefix=0;
+							code<<=nzeros+1;
+							sym[kc]=(int)(code>>(63-nbypass2[kc])>>1);
+							sym[kc]|=prefix;
+#ifdef FIFOVAL
+							if(kc==FIFOVAL)
+								fifoval_check(sym[kc]);
+#endif
+							nbits[kc]+=nzeros+1+nbypass2[kc];
+#else
 							nzeros=(int)_lzcnt_u64(code);
 							prefix=nzeros<<nbypass[kc];
 							if(nzeros>RLIMIT-1)
 								nzeros=RLIMIT-1, nbypass[kc]=DEPTH, prefix=0;
 							code<<=nzeros+1;
-							sym[kc]=(int)(code>>(64-nbypass[kc]));
-							if(!nbypass[kc])
-								sym[kc]=0;
+							sym[kc]=(int)(code>>(63-nbypass[kc])>>1);
+							//if(!nbypass[kc])
+							//	sym[kc]=0;
 							//code<<=nbypass[kc];
 							sym[kc]|=prefix;
 #ifdef FIFOVAL
@@ -1197,6 +1376,7 @@ int c59_codec(int argc, char **argv)
 								fifoval_check(sym[kc]);
 #endif
 							nbits[kc]+=nzeros+1+nbypass[kc];
+#endif
 							run0[kc]=0;
 						}
 					}
@@ -1268,12 +1448,18 @@ int c59_codec(int argc, char **argv)
 				nbits+=nzeros+1+nbypass[2];
 #endif
 #ifdef USE_ROWS
+#ifdef ADAQUANT
+				rows[0][2+(0+0*NCH)*NROWS*NVAL]=(2*rows[0][2+(0-1*NCH)*NROWS*NVAL]+(sym[0]<<RSHIFT)+rows[1][2+(0+3*NCH)*NROWS*NVAL])>>2;
+				rows[0][2+(1+0*NCH)*NROWS*NVAL]=(2*rows[0][2+(1-1*NCH)*NROWS*NVAL]+(sym[1]<<RSHIFT)+rows[1][2+(1+3*NCH)*NROWS*NVAL])>>2;
+				rows[0][2+(2+0*NCH)*NROWS*NVAL]=(2*rows[0][2+(2-1*NCH)*NROWS*NVAL]+(sym[2]<<RSHIFT)+rows[1][2+(2+3*NCH)*NROWS*NVAL])>>2;
+#else
 				//rows[0][1+(0+0*NCH)*NROWS*NVAL]=(estim[0]+(sym[0]<<RSHIFT))>>2;
 				//rows[0][1+(1+0*NCH)*NROWS*NVAL]=(estim[1]+(sym[1]<<RSHIFT))>>2;
 				//rows[0][1+(2+0*NCH)*NROWS*NVAL]=(estim[2]+(sym[2]<<RSHIFT))>>2;
 				rows[0][1+(0+0*NCH)*NROWS*NVAL]=(2*rows[0][1+(0-1*NCH)*NROWS*NVAL]+(sym[0]<<RSHIFT)+rows[1][1+(0+3*NCH)*NROWS*NVAL])>>2;
 				rows[0][1+(1+0*NCH)*NROWS*NVAL]=(2*rows[0][1+(1-1*NCH)*NROWS*NVAL]+(sym[1]<<RSHIFT)+rows[1][1+(1+3*NCH)*NROWS*NVAL])>>2;
 				rows[0][1+(2+0*NCH)*NROWS*NVAL]=(2*rows[0][1+(2-1*NCH)*NROWS*NVAL]+(sym[2]<<RSHIFT)+rows[1][1+(2+3*NCH)*NROWS*NVAL])>>2;
+#endif
 #else
 				estim[0]+=(int)((sym[0]<<RSHIFT)-estim[0])>>(RSHIFT+1);
 				estim[1]+=(int)((sym[1]<<RSHIFT)-estim[1])>>(RSHIFT+1);
@@ -1283,19 +1469,38 @@ int c59_codec(int argc, char **argv)
 				sym[1]=packsign[sym[1]];
 				sym[2]=packsign[sym[2]];
 #ifdef NEARLOSSLESS
+#ifdef ADAQUANT
+				sym[0]<<=nbypass[0];
+				sym[1]<<=nbypass[1];
+				sym[2]<<=nbypass[2];
+				rows[0][1+(0+0*NCH)*NROWS*NVAL]=(2*rows[0][1+(0-1*NCH)*NROWS*NVAL]+((sym[0]<<1^sym[0]>>31)<<RSHIFT)+rows[1][1+(0+3*NCH)*NROWS*NVAL])>>2;
+				rows[0][1+(1+0*NCH)*NROWS*NVAL]=(2*rows[0][1+(1-1*NCH)*NROWS*NVAL]+((sym[1]<<1^sym[1]>>31)<<RSHIFT)+rows[1][1+(1+3*NCH)*NROWS*NVAL])>>2;
+				rows[0][1+(2+0*NCH)*NROWS*NVAL]=(2*rows[0][1+(2-1*NCH)*NROWS*NVAL]+((sym[2]<<1^sym[2]>>31)<<RSHIFT)+rows[1][1+(2+3*NCH)*NROWS*NVAL])>>2;
+#else
 				sym[0]<<=NEARSHIFT;
 				sym[1]<<=NEARSHIFT;
 				sym[2]<<=NEARSHIFT;
 #endif
+#endif
+				//if(ky==1052&&kx>=1108)//
+				//	printf("");
 				sym[0]+=pred[0];
 				sym[1]+=pred[1];
 				sym[2]+=pred[2];
+#ifdef NEARLOSSLESS
+#ifdef NO_RCT
+				CLAMP2(sym[0], 0, 255);
+				CLAMP2(sym[1], 0, 255);
+				CLAMP2(sym[2], 0, 255);
+#endif
+#else
 				sym[0]<<=32-DEPTH;
 				sym[1]<<=32-DEPTH;
 				sym[2]<<=32-DEPTH;
 				sym[0]>>=32-DEPTH;
 				sym[1]>>=32-DEPTH;
 				sym[2]>>=32-DEPTH;
+#endif
 #if defined FIFOVAL && !defined USE_RLE
 				if(fifoval_check(sym[2]<<DEPTH*2^sym[1]<<DEPTH^sym[0]))
 				{
@@ -1322,9 +1527,9 @@ int c59_codec(int argc, char **argv)
 				sym[0]+=sym[1];
 #endif
 #ifdef NEARLOSSLESS
-				CLAMP2(sym[0], 0, 255);
-				CLAMP2(sym[1], 0, 255);
-				CLAMP2(sym[2], 0, 255);
+				//CLAMP2(sym[0], 0, 255);
+				//CLAMP2(sym[1], 0, 255);
+				//CLAMP2(sym[2], 0, 255);
 #endif
 				reg=(uint64_t)sym[2]<<16|(uint64_t)sym[1]<<8|sym[0];
 				//sym[1]<<=8;
@@ -1355,23 +1560,22 @@ int c59_codec(int argc, char **argv)
 	free(pixels);
 #endif
 #ifdef LOUD
+	t=time_sec2()-t;
+	if(fwd)
 	{
-		t=time_sec2()-t;
-		if(fwd)
-		{
-			int64_t csize=0;
-			struct stat info={0};
+		int64_t csize=0;
+		struct stat info={0};
 
-			stat(dstfn, &info);
-			csize=info.st_size;
-			printf("%12lld->%12lld  %12.6lf:1\n", usize, csize, (double)usize/csize);
-		}
-		printf("%12.6lf sec  %12.6lf MB/s  %12.6lf ms/MB\n"
-			, t
-			, usize/(t*1024*1024)
-			, t*1024*1024*1000/usize
-		);
+		stat(dstfn, &info);
+		csize=info.st_size;
+		printf("3*%7d*%7d  \"%s\"\n", iw, ih, srcfn);
+		printf("%12lld->%12lld  %12.6lf:1\n", usize, csize, (double)usize/csize);
 	}
+	printf("%12.6lf sec  %12.6lf MB/s  %12.6lf ms/MB\n"
+		, t
+		, usize/(t*1024*1024)
+		, t*1024*1024*1000/usize
+	);
 #endif
 #ifdef PROFILER
 	prof_end(prof_ctx);
