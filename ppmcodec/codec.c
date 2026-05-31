@@ -258,7 +258,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-panasonic-ppm/P1000058.ppm"
 	//	"C:/dataset-panasonic-ppm/P1000169.ppm"
 	//	"C:/dataset-RAW-ppm/a0014-WP_CRW_6320.ppm"
-		"C:/dataset-sintel-ppm"
+	//	"C:/dataset-sintel-ppm"
 	//	"C:/dataset-sony-ppm/DSC00315.ppm"
 	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
@@ -321,7 +321,7 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"	//large hard
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13844.ppm"	//large normal
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13845.ppm"	//large easy
-	//	"C:/Projects/datasets/dataset-sintel-ppm"
+		"C:/Projects/datasets/dataset-sintel-ppm"
 	//	"C:/Projects/datasets/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/Projects/datasets/dataset-synth2-ppm/20240405 2 CPU-load.ppm"
 	//	"C:/Projects/datasets/dataset-synth2-ppm/20240407 blank.ppm"

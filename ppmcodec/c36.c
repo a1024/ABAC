@@ -22,6 +22,7 @@
 static const char file[]=__FILE__;
 
 
+	#define ERROR_BOUNDS
 	#define LOSSY
 
 
@@ -62,7 +63,7 @@ enum
 	NROWS=2*YPAD+1,
 	NVAL=NFRAMES+1,
 #ifdef LOSSY
-	DIST=4,
+	DIST=8,
 	INVDIST=((1<<16)+DIST-1)/DIST,
 #endif
 };
@@ -291,18 +292,27 @@ static int crct_analysis(unsigned char *image, int iw, int ih)
 }
 
 #ifdef LOSSY
-static void calc_psnr(const int64_t *esum, int64_t count, double *psnr)
+static void calc_psnr(const int64_t *esum, int64_t count, double *psnr, int print)
 {
-	double rmse[4];
+	double mse[4];
 
-	rmse[0]=(double)esum[0]/count;
-	rmse[1]=(double)esum[1]/count;
-	rmse[2]=(double)esum[2]/count;
-	rmse[3]=(rmse[0]+rmse[1]+rmse[2])/3;
-	psnr[0]=-20*log10(rmse[0]*(1./255));
-	psnr[1]=-20*log10(rmse[1]*(1./255));
-	psnr[2]=-20*log10(rmse[2]*(1./255));
-	psnr[3]=-20*log10(rmse[3]*(1./255));
+	mse[0]=(double)esum[0]/count;
+	mse[1]=(double)esum[1]/count;
+	mse[2]=(double)esum[2]/count;
+	mse[3]=(mse[0]+mse[1]+mse[2])/3;
+	psnr[0]=mse[0]?-10*log10(mse[0]*(1./(255*255))):INFINITY;
+	psnr[1]=mse[1]?-10*log10(mse[1]*(1./(255*255))):INFINITY;
+	psnr[2]=mse[2]?-10*log10(mse[2]*(1./(255*255))):INFINITY;
+	psnr[3]=mse[3]?-10*log10(mse[3]*(1./(255*255))):INFINITY;
+	if(print)
+		printf(
+			"\n"
+			"RMSE %12.6lf %12.6lf %12.6lf %12.6lf\n"
+			"PSNR %12.6lf %12.6lf %12.6lf %12.6lf\n"
+			"\n"
+			, sqrt(mse[3]), sqrt(mse[0]), sqrt(mse[1]), sqrt(mse[2])
+			, psnr[3], psnr[0], psnr[1], psnr[2]
+		);
 }
 #endif
 static unsigned char* load_ppm(const char *fn, int *ret_iw, int *ret_ih)
@@ -393,6 +403,11 @@ int c36_codec(int argc, char **argv)
 #endif
 	double total_csize[3]={0};
 	double t=time_sec();
+#ifdef ERROR_BOUNDS
+	int emin[3]={0}, emax[3]={0};
+	int64_t esum0=0, ecount0=0;
+	int64_t ehist[8]={0};
+#endif
 
 	if(!filenames)
 	{
@@ -648,7 +663,8 @@ int c36_codec(int argc, char **argv)
 					//if(delta)
 					//	printf("");
 #ifdef LOSSY
-					delta=(delta*INVDIST>>16)-(delta>>31);
+					//delta=(int8_t)delta;
+					delta=(delta*INVDIST>>16)-(DIST>1?delta>>31:0);
 #endif
 
 					++hist[kc][ctx][(delta+128)&255];//accumulate stats
@@ -656,8 +672,15 @@ int c36_codec(int argc, char **argv)
 					int c0=curr;
 					curr=delta*DIST+pred;
 					CLAMP2(curr, 0, 255);
+					//if(curr!=c0)
+					//	LOG_ERROR("");
 					c0-=curr;
 					esum[kc]+=(int64_t)c0*c0;
+#ifdef ERROR_BOUNDS
+					esum0+=abs(c0); ++ecount0; ++ehist[abs(c0)];
+					if(emin[kc]>c0)emin[kc]=c0;
+					if(emax[kc]<c0)emax[kc]=c0;
+#endif
 #endif
 
 					rows[YPAD+0][0+0*NCH*NROWS*NVAL]=yuv[0][kc]-crct[0];
@@ -726,7 +749,7 @@ int c36_codec(int argc, char **argv)
 		);
 #ifdef LOSSY
 		double psnr[4];
-		calc_psnr(esum, (int64_t)iw*ih, psnr);
+		calc_psnr(esum, (int64_t)iw*ih, psnr, 0);
 		printf("  %8.4lf %8.4lf %8.4lf %8.4lf"
 			, psnr[0]
 			, psnr[1]
@@ -761,7 +784,7 @@ int c36_codec(int argc, char **argv)
 	);
 #ifdef LOSSY
 	double psnr[4];
-	calc_psnr(etotal, (int64_t)filenames->count*iw0*ih0, psnr);
+	calc_psnr(etotal, (int64_t)filenames->count*iw0*ih0, psnr, 1);
 	printf("  %8.4lf %8.4lf %8.4lf %8.4lf"
 		, psnr[0]
 		, psnr[1]
@@ -770,6 +793,20 @@ int c36_codec(int argc, char **argv)
 	);
 #endif
 	printf("\n");
+#ifdef ERROR_BOUNDS
+	printf("%d ~ %d\n", emin[0], emax[0]);
+	printf("%d ~ %d\n", emin[1], emax[1]);
+	printf("%d ~ %d\n", emin[2], emax[2]);
+	printf("%12.6lf\n", (double)esum0/ecount0);
+	printf("0  %16lld\n", ehist[0]);
+	printf("1  %16lld\n", ehist[1]);
+	printf("2  %16lld\n", ehist[2]);
+	printf("3  %16lld\n", ehist[3]);
+	printf("4  %16lld\n", ehist[4]);
+	printf("5  %16lld\n", ehist[5]);
+	printf("6  %16lld\n", ehist[6]);
+	printf("7  %16lld\n", ehist[7]);
+#endif
 	double usize=(double)filenames->count*3*iw0*ih0;
 	printf("%12.6lf sec  %12.6lf MB/s  %12.6lf ms/MB\n"
 		, t
