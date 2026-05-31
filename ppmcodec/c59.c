@@ -31,15 +31,15 @@
 	#define LOUD
 
 //	#define RICE_EXPERIMENT
-	#define MEASURE_PSNR
+//	#define MEASURE_PSNR
 
-	#define FIFOVAL 3
+//	#define FIFOVAL 3
 #endif
 
-	#define ADAQUANT
-	#define USE_RLE
-	#define NO_RCT
-	#define NEARLOSSLESS
+//	#define ADAQUANT
+//	#define USE_RLE
+//	#define NO_RCT
+//	#define NEARLOSSLESS
 	#define USE_ROWS
 //	#define USE_SELECT	//incompatible with near
 //	#define USE_CG		//
@@ -611,6 +611,7 @@ int c59_codec(int argc, char **argv)
 			val=7;
 		log2table[ks]=val;
 	}
+#ifdef ADAQUANT
 	for(int ks=0;ks<1<<(DEPTH+RSHIFT);++ks)
 	{
 		int val=(ks>>RSHIFT)+1;
@@ -621,10 +622,11 @@ int c59_codec(int argc, char **argv)
 			val=7;
 		qtable[ks]=val;
 	}
+#endif
 	if(fwd)
 	{
 		static uint8_t *const rdend=rdbuf+sizeof(uint64_t)+BUFSIZE-3;
-	//	static uint8_t *const wtend=wtbuf+sizeof(uint64_t)+BUFSIZE-sizeof(uint64_t);
+		static uint8_t *const wtend=wtbuf+sizeof(uint64_t)+BUFSIZE-sizeof(uint64_t);
 #ifdef USE_RLE
 		uint64_t cache[3]={0};
 		int nbits[3]={0};
@@ -803,10 +805,10 @@ int c59_codec(int argc, char **argv)
 //					fifoval_enqueue(estim[2]<<DEPTH*2^estim[1]<<DEPTH^estim[0]);
 //#endif
 #endif
+#ifdef ADAQUANT
 				nbypass[0]=qtable[estim[0]];
 				nbypass[1]=qtable[estim[1]];
 				nbypass[2]=qtable[estim[2]];
-#ifdef ADAQUANT
 				nbypass2[0]=log2table[rows[0][2+(0-1*NCH)*NROWS*NVAL]];
 				nbypass2[1]=log2table[rows[0][2+(1-1*NCH)*NROWS*NVAL]];
 				nbypass2[2]=log2table[rows[0][2+(2-1*NCH)*NROWS*NVAL]];
@@ -822,6 +824,10 @@ int c59_codec(int argc, char **argv)
 					^	(rows[0][2+(2-1*NCH)*NROWS*NVAL]<<DEPTH*2^rows[0][2+(1-1*NCH)*NROWS*NVAL]<<DEPTH^rows[0][2+(0-1*NCH)*NROWS*NVAL])<<8
 					);
 #endif
+#else
+				nbypass[0]=log2table[estim[0]];
+				nbypass[1]=log2table[estim[1]];
+				nbypass[2]=log2table[estim[2]];
 #endif
 				yuv[0]=(uint8_t)(reg>> 0);
 				yuv[1]=(uint8_t)(reg>> 8);
@@ -1132,10 +1138,12 @@ int c59_codec(int argc, char **argv)
 #endif
 		}
 #endif
+		(void)rdend;
+		(void)wtend;
 	}
 	else//dec
 	{
-	//	static uint8_t *const rdend=rdbuf+sizeof(uint64_t)+BUFSIZE-sizeof(uint64_t);
+		static uint8_t *const rdend=rdbuf+sizeof(uint64_t)+BUFSIZE-sizeof(uint64_t);
 		static uint8_t *const wtend=wtbuf+sizeof(uint64_t)+BUFSIZE-3;
 #ifdef USE_RLE
 		uint64_t cache[3]={0}, cache2[3]={0};
@@ -1257,10 +1265,10 @@ int c59_codec(int argc, char **argv)
 //					fifoval_check(estim[2]<<DEPTH*2^estim[1]<<DEPTH^estim[0]);
 //#endif
 #endif
+#ifdef ADAQUANT
 				nbypass[0]=qtable[estim[0]];
 				nbypass[1]=qtable[estim[1]];
 				nbypass[2]=qtable[estim[2]];
-#ifdef ADAQUANT
 				nbypass2[0]=log2table[rows[0][2+(0-1*NCH)*NROWS*NVAL]];
 				nbypass2[1]=log2table[rows[0][2+(1-1*NCH)*NROWS*NVAL]];
 				nbypass2[2]=log2table[rows[0][2+(2-1*NCH)*NROWS*NVAL]];
@@ -1276,6 +1284,10 @@ int c59_codec(int argc, char **argv)
 					^	(rows[0][2+(2-1*NCH)*NROWS*NVAL]<<DEPTH*2^rows[0][2+(1-1*NCH)*NROWS*NVAL]<<DEPTH^rows[0][2+(0-1*NCH)*NROWS*NVAL])<<8
 					);
 #endif
+#else
+				nbypass[0]=log2table[estim[0]];
+				nbypass[1]=log2table[estim[1]];
+				nbypass[2]=log2table[estim[2]];
 #endif
 #ifdef USE_RLE
 				for(int kc=0;kc<3;++kc)
@@ -1551,6 +1563,8 @@ int c59_codec(int argc, char **argv)
 #endif
 			}
 		}
+		(void)rdend;
+		(void)wtend;
 	}
 	if(wtptr>wtbuf+sizeof(uint64_t))
 		fwrite(wtbuf+sizeof(uint64_t), 1, wtptr-(wtbuf+sizeof(uint64_t)), fdst);
@@ -1581,7 +1595,9 @@ int c59_codec(int argc, char **argv)
 	prof_end(prof_ctx);
 #endif
 	(void)usize;
+#ifdef USE_RLE
 	(void)csize;
+#endif
 	(void)&time_sec2;
 	(void)packsignptr;
 	return 0;

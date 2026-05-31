@@ -5,6 +5,7 @@
 #include<stdint.h>
 #include<stdio.h>
 
+	#define VIDEO_TEST
 //	#define LPCB_TEST
 //	#define RELEASE
 //	#define PROFILER
@@ -112,7 +113,7 @@ int c59_codec(int argc, char **argv);//near portable rapid
 //	#define CODEC_EXT c33
 //	#define CODEC_EXT c34
 //	#define CODEC_EXT c35
-//	#define CODEC_EXT c36
+	#define CODEC_EXT c36
 //	#define CODEC_EXT c37
 //	#define CODEC_EXT c38
 //	#define CODEC_EXT c39
@@ -135,7 +136,7 @@ int c59_codec(int argc, char **argv);//near portable rapid
 //	#define CODEC_EXT c56
 //	#define CODEC_EXT c57
 //	#define CODEC_EXT c58
-	#define CODEC_EXT c59
+//	#define CODEC_EXT c59
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -235,7 +236,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-HUGE-ppm/space_huge.ppm"		//X
 	//	"C:/dataset-ic16-ppm/big_building.ppm"		//16-bit
 	//	"C:/dataset-ic8-ppm/big_building.ppm"
-		"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_05.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_13.ppm"
@@ -257,7 +258,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-panasonic-ppm/P1000058.ppm"
 	//	"C:/dataset-panasonic-ppm/P1000169.ppm"
 	//	"C:/dataset-RAW-ppm/a0014-WP_CRW_6320.ppm"
-	//	"C:/dataset-sintel-ppm"
+		"C:/dataset-sintel-ppm"
 	//	"C:/dataset-sony-ppm/DSC00315.ppm"
 	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
@@ -368,6 +369,7 @@ int main(int argc, char **argv)
 
 	//	"e",
 		srcfn,
+#ifndef VIDEO_TEST
 		tmpfn,
 	//	"3",
 	//	"5",
@@ -376,6 +378,7 @@ int main(int argc, char **argv)
 
 	//	"0",	//param1
 	//	"7",	//near
+#endif
 	};
 	const char *decargs[]=
 	{

@@ -21,13 +21,9 @@
 #include<immintrin.h>
 static const char file[]=__FILE__;
 
-#define NFRAMES 4
-#define YPAD 4
-#define XPAD 4
 
-#define NCTX 18
+	#define LOSSY
 
-#define SH 18
 
 #define PREDLIST\
 	PRED(p)\
@@ -53,9 +49,22 @@ static const char file[]=__FILE__;
 #endif
 enum
 {
+	NCTX=18,
+	SH=18,
 #define PRED(...) +1
 	NPREDS=PREDLIST,
 #undef  PRED
+
+	NFRAMES=4,
+	XPAD=4,
+	YPAD=4,
+	NCH=3,
+	NROWS=2*YPAD+1,
+	NVAL=NFRAMES+1,
+#ifdef LOSSY
+	DIST=4,
+	INVDIST=((1<<16)+DIST-1)/DIST,
+#endif
 };
 
 
@@ -281,6 +290,21 @@ static int crct_analysis(unsigned char *image, int iw, int ih)
 	return bestrct;
 }
 
+#ifdef LOSSY
+static void calc_psnr(const int64_t *esum, int64_t count, double *psnr)
+{
+	double rmse[4];
+
+	rmse[0]=(double)esum[0]/count;
+	rmse[1]=(double)esum[1]/count;
+	rmse[2]=(double)esum[2]/count;
+	rmse[3]=(rmse[0]+rmse[1]+rmse[2])/3;
+	psnr[0]=-20*log10(rmse[0]*(1./255));
+	psnr[1]=-20*log10(rmse[1]*(1./255));
+	psnr[2]=-20*log10(rmse[2]*(1./255));
+	psnr[3]=-20*log10(rmse[3]*(1./255));
+}
+#endif
 static unsigned char* load_ppm(const char *fn, int *ret_iw, int *ret_ih)
 {
 	FILE *fsrc=fopen(fn, "rb");
@@ -361,9 +385,12 @@ int c36_codec(int argc, char **argv)
 	unsigned char *frames[NFRAMES]={0};
 	ArrayHandle filenames=get_filenames(path, (const char**)ext, _countof(ext), 1);
 	int psize=0;
-	short *pixels=0;
-	int cpsize=0;
-	short *cpixels=0;
+	int16_t *pixels=0;
+	//int cpsize=0;
+	//short *cpixels=0;
+#ifdef LOSSY
+	int64_t etotal[3]={0};
+#endif
 	double total_csize[3]={0};
 	double t=time_sec();
 
@@ -375,6 +402,9 @@ int c36_codec(int argc, char **argv)
 	printf("Frame  TYUV (bytes)  TYUV (%%)  %d frames\n", (int)filenames->count);
 	for(int k0=0;k0<(int)filenames->count;++k0)
 	{
+#ifdef LOSSY
+		int64_t esum[3]={0};
+#endif
 		ArrayHandle *fn=(ArrayHandle*)array_at(&filenames, k0);
 		int iw=0, ih=0;
 		unsigned char *curr=load_ppm((char*)fn[0]->data, &iw, &ih);
@@ -400,11 +430,12 @@ int c36_codec(int argc, char **argv)
 				}
 				memset(frames[kf], 0, size+offset*2);
 			}
-			psize=(int)sizeof(short[NFRAMES*(2*YPAD+1)*3])*(iw+2*XPAD);
-			pixels=(short*)malloc(psize);
-			cpsize=(int)sizeof(short[(2*YPAD+1)*3])*(iw+2*XPAD);
-			cpixels=(short*)malloc(cpsize);
-			if(!pixels||!cpixels)
+			psize=(iw+2*XPAD)*(int)sizeof(int16_t[NCH*NROWS*NVAL]);
+			//psize=(int)sizeof(short[NFRAMES*(2*YPAD+1)*3])*(iw+2*XPAD);
+			pixels=(int16_t*)malloc(psize);
+			//cpsize=(int)sizeof(short[(2*YPAD+1)*3])*(iw+2*XPAD);
+			//cpixels=(short*)malloc(cpsize);
+			if(!pixels)
 			{
 				LOG_ERROR("Alloc error");
 				return 1;
@@ -418,7 +449,7 @@ int c36_codec(int argc, char **argv)
 		memcpy(frames[0]+offset, curr, size);
 		free(curr);
 		memset(pixels, 0, psize);
-		memset(cpixels, 0, cpsize);
+		//memset(cpixels, 0, cpsize);
 		ptrdiff_t idx=0;
 		unsigned weights[NPREDS]={0};
 		for(int kp=0;kp<NPREDS;++kp)
@@ -426,33 +457,109 @@ int c36_codec(int argc, char **argv)
 		int yidx=rct_combinations[bestrct][II_PERM_Y];
 		int uidx=rct_combinations[bestrct][II_PERM_U];
 		int vidx=rct_combinations[bestrct][II_PERM_V];
-		int umask=rct_combinations[bestrct][II_COEFF_U_SUB_Y];
+		int uc0=rct_combinations[bestrct][II_COEFF_U_SUB_Y];
 		int vc0=rct_combinations[bestrct][II_COEFF_V_SUB_Y];
 		int vc1=rct_combinations[bestrct][II_COEFF_V_SUB_U];
 		memset(hist, 0, sizeof(hist));
 		for(int ky=0;ky<ih;++ky)
 		{
-			short *rows[NFRAMES][2*YPAD+1]={0};
-			for(int kf=0;kf<NFRAMES;++kf)
-			{
-				for(int ky2=0;ky2<2*YPAD+1;++ky2)
-					rows[kf][ky2]=pixels+3*(iw+2*XPAD)*((2*YPAD+1)*kf+(ky-ky2+2*YPAD+1)%(2*YPAD+1));
-			}
-			short *crows[2*YPAD+1]={0};
-			for(int ky2=0;ky2<2*YPAD+1;++ky2)
-				crows[ky2]=cpixels+(ky-ky2+2*YPAD+1)%(2*YPAD+1)*3*(iw+2*XPAD);
+			int16_t *rows[NROWS]={0};
+			for(int k=0;k<NROWS;++k)
+				rows[k]=pixels+(XPAD*NCH*NROWS+(ky-k+NROWS)%NROWS)*NVAL;
+			//short *rows[NFRAMES][2*YPAD+1]={0};
+			//for(int kf=0;kf<NFRAMES;++kf)
+			//{
+			//	for(int ky2=0;ky2<2*YPAD+1;++ky2)
+			//		rows[kf][ky2]=pixels+3*(iw+2*XPAD)*((2*YPAD+1)*kf+(ky-ky2+2*YPAD+1)%(2*YPAD+1));
+			//}
+			//short *crows[2*YPAD+1]={0};
+			//for(int ky2=0;ky2<2*YPAD+1;++ky2)
+			//	crows[ky2]=cpixels+(ky-ky2+2*YPAD+1)%(2*YPAD+1)*3*(iw+2*XPAD);
 			for(int kx=0;kx<iw;++kx)
 			{
 				int yuv[NFRAMES][3]={0};
-				for(int kf=0;kf<NFRAMES;++kf)
+				yuv[0][0]=frames[0][idx+yidx];
+				yuv[0][1]=frames[0][idx+uidx];
+				yuv[0][2]=frames[0][idx+vidx];
+				for(int kf=1;kf<NFRAMES;++kf)
 				{
-					yuv[kf][0]=frames[kf][idx+yidx+(kf!=0)*YPAD*3*iw];
-					yuv[kf][1]=frames[kf][idx+uidx+(kf!=0)*YPAD*3*iw];
-					yuv[kf][2]=frames[kf][idx+vidx+(kf!=0)*YPAD*3*iw];
+					yuv[kf][0]=frames[kf][idx+yidx+3LL*iw];
+					yuv[kf][1]=frames[kf][idx+uidx+3LL*iw];
+					yuv[kf][2]=frames[kf][idx+vidx+3LL*iw];
 				}
 				int crct[NFRAMES]={0};
 				for(int kc=0;kc<3;++kc, ++idx)
 				{
+					int
+						pppNNN	=rows[YPAD+3][3+0*NCH*NROWS*NVAL],
+						pppNN	=rows[YPAD+2][3+0*NCH*NROWS*NVAL],
+						pppNW	=rows[YPAD+1][3-1*NCH*NROWS*NVAL],
+						pppN	=rows[YPAD+1][3+0*NCH*NROWS*NVAL],
+						pppNE	=rows[YPAD+1][3+1*NCH*NROWS*NVAL],
+						pppNEE	=rows[YPAD+1][3+2*NCH*NROWS*NVAL],
+						pppNEEE	=rows[YPAD+1][3+3*NCH*NROWS*NVAL],
+						pppWWW	=rows[YPAD+0][3-3*NCH*NROWS*NVAL],
+						pppWW	=rows[YPAD+0][3-2*NCH*NROWS*NVAL],
+						pppW	=rows[YPAD+0][3-1*NCH*NROWS*NVAL],
+						ppp	=rows[YPAD+0][3+0*NCH*NROWS*NVAL],
+						pppE	=rows[YPAD+0][3+1*NCH*NROWS*NVAL],
+						pppEE	=rows[YPAD+0][3+2*NCH*NROWS*NVAL],
+						pppSW	=rows[YPAD-1][3-1*NCH*NROWS*NVAL],
+						pppS	=rows[YPAD-1][3+0*NCH*NROWS*NVAL],
+						pppSE	=rows[YPAD-1][3+1*NCH*NROWS*NVAL],
+						pppSS	=rows[YPAD-2][3+0*NCH*NROWS*NVAL];
+					int
+						ppNNN	=rows[YPAD+3][2+0*NCH*NROWS*NVAL],
+						ppNN	=rows[YPAD+2][2+0*NCH*NROWS*NVAL],
+						ppNW	=rows[YPAD+1][2-1*NCH*NROWS*NVAL],
+						ppN	=rows[YPAD+1][2+0*NCH*NROWS*NVAL],
+						ppNE	=rows[YPAD+1][2+1*NCH*NROWS*NVAL],
+						ppNEE	=rows[YPAD+1][2+2*NCH*NROWS*NVAL],
+						ppNEEE	=rows[YPAD+1][2+3*NCH*NROWS*NVAL],
+						ppWWW	=rows[YPAD+0][2-3*NCH*NROWS*NVAL],
+						ppWW	=rows[YPAD+0][2-2*NCH*NROWS*NVAL],
+						ppW	=rows[YPAD+0][2-1*NCH*NROWS*NVAL],
+						pp	=rows[YPAD+0][2+0*NCH*NROWS*NVAL],
+						ppE	=rows[YPAD+0][2+1*NCH*NROWS*NVAL],
+						ppEE	=rows[YPAD+0][2+2*NCH*NROWS*NVAL],
+						ppSW	=rows[YPAD-1][2-1*NCH*NROWS*NVAL],
+						ppS	=rows[YPAD-1][2+0*NCH*NROWS*NVAL],
+						ppSE	=rows[YPAD-1][2+1*NCH*NROWS*NVAL],
+						ppSS	=rows[YPAD-2][2+0*NCH*NROWS*NVAL];
+					int
+						pNNN	=rows[YPAD+3][1+0*NCH*NROWS*NVAL],
+						pNN	=rows[YPAD+2][1+0*NCH*NROWS*NVAL],
+						pNW	=rows[YPAD+1][1-1*NCH*NROWS*NVAL],
+						pN	=rows[YPAD+1][1+0*NCH*NROWS*NVAL],
+						pNE	=rows[YPAD+1][1+1*NCH*NROWS*NVAL],
+						pNEE	=rows[YPAD+1][1+2*NCH*NROWS*NVAL],
+						pNEEE	=rows[YPAD+1][1+3*NCH*NROWS*NVAL],
+						pWWW	=rows[YPAD+0][1-3*NCH*NROWS*NVAL],
+						pWW	=rows[YPAD+0][1-2*NCH*NROWS*NVAL],
+						pW	=rows[YPAD+0][1-1*NCH*NROWS*NVAL],
+						p	=rows[YPAD+0][1+0*NCH*NROWS*NVAL],
+						pE	=rows[YPAD+0][1+1*NCH*NROWS*NVAL],
+						pEE	=rows[YPAD+0][1+2*NCH*NROWS*NVAL],
+						pSW	=rows[YPAD-1][1-1*NCH*NROWS*NVAL],
+						pS	=rows[YPAD-1][1+0*NCH*NROWS*NVAL],
+						pSE	=rows[YPAD-1][1+1*NCH*NROWS*NVAL],
+						pSS	=rows[YPAD-2][1+0*NCH*NROWS*NVAL];
+					int
+						NNN	=rows[YPAD+3][0+0*NCH*NROWS*NVAL],
+						NN	=rows[YPAD+2][0+0*NCH*NROWS*NVAL],
+						NW	=rows[YPAD+1][0-1*NCH*NROWS*NVAL],
+						N	=rows[YPAD+1][0+0*NCH*NROWS*NVAL],
+						NE	=rows[YPAD+1][0+1*NCH*NROWS*NVAL],
+						NEE	=rows[YPAD+1][0+2*NCH*NROWS*NVAL],
+						NEEE	=rows[YPAD+1][0+3*NCH*NROWS*NVAL],
+						WWW	=rows[YPAD+0][0-3*NCH*NROWS*NVAL],
+						WW	=rows[YPAD+0][0-2*NCH*NROWS*NVAL],
+						W	=rows[YPAD+0][0-1*NCH*NROWS*NVAL];
+					int
+						eNEE	=rows[YPAD+1][NFRAMES+2*NCH*NROWS*NVAL],
+						eNEEE	=rows[YPAD+1][NFRAMES+3*NCH*NROWS*NVAL],
+						eW	=rows[YPAD+0][NFRAMES-1*NCH*NROWS*NVAL];
+#if 0
 					int
 						pppNN	=rows[3][YPAD+2][+0*3],
 						pppNW	=rows[3][YPAD+1][-1*3],
@@ -510,6 +617,7 @@ int c36_codec(int argc, char **argv)
 						eNEE	=crows[YPAD+1][+2*3+1],
 						eNEEE	=crows[YPAD+1][+3*3+1],
 						eW	=crows[YPAD+0][+0*3+1];
+#endif
 					int preds[]=
 					{
 #define PRED(...) __VA_ARGS__,
@@ -534,17 +642,29 @@ int c36_codec(int argc, char **argv)
 					int ctx=FLOOR_LOG2(eW*eW+1);
 					if(ctx>NCTX-1)
 						ctx=NCTX-1;
-					//ctx=0;
 					
 					int curr=yuv[0][kc];
 					int delta=curr-pred;
 					//if(delta)
 					//	printf("");
+#ifdef LOSSY
+					delta=(delta*INVDIST>>16)-(delta>>31);
+#endif
 
 					++hist[kc][ctx][(delta+128)&255];//accumulate stats
+#ifdef LOSSY
+					int c0=curr;
+					curr=delta*DIST+pred;
+					CLAMP2(curr, 0, 255);
+					c0-=curr;
+					esum[kc]+=(int64_t)c0*c0;
+#endif
 
-					for(int kf=0;kf<NFRAMES;++kf)//update circular buffers
-						rows[kf][YPAD+YPAD*(kf!=0)][0]=yuv[kf][kc]-crct[kf];
+					rows[YPAD+0][0+0*NCH*NROWS*NVAL]=yuv[0][kc]-crct[0];
+					for(int kf=1;kf<NFRAMES;++kf)
+						rows[YPAD+YPAD][0+0*NCH*NROWS*NVAL]=yuv[kf][kc]-crct[kf];
+					//for(int kf=0;kf<NFRAMES;++kf)//update circular buffers
+					//	rows[kf][YPAD+YPAD*(kf!=0)][0]=yuv[kf][kc]-crct[kf];
 
 					curr-=crct[0];
 					int esign=(curr>p0)-(curr<p0);//update weights
@@ -552,18 +672,21 @@ int c36_codec(int argc, char **argv)
 						weights[kp]+=esign*preds[kp];
 
 					delta=delta<<1^delta>>31;//update context
-					crows[YPAD+0][0]=(2*eW+(delta<<3)+MAXVAR(eNEE, eNEEE))>>2;
+					rows[YPAD+0][NFRAMES+0*NCH*NROWS*NVAL]=(2*eW+(delta<<3)+MAXVAR(eNEE, eNEEE))>>2;
+					//crows[YPAD+0][0]=(2*eW+(delta<<3)+MAXVAR(eNEE, eNEEE))>>2;
 					
 					for(int kf=0;kf<NFRAMES;++kf)//update crct
-						crct[kf]=(kc ? vc0*yuv[kf][0]+vc1*yuv[kf][1] : umask*yuv[kf][0])>>2;
+						crct[kf]=(kc ? vc0*yuv[kf][0]+vc1*yuv[kf][1] : uc0*yuv[kf][0])>>2;
 
-					for(int kf=0;kf<NFRAMES;++kf)//increment pointers
-					{
-						for(int ky2=0;ky2<2*YPAD+1;++ky2)
-							rows[kf][ky2]+=2;
-					}
-					for(int ky2=0;ky2<2*YPAD+1;++ky2)
-						++crows[ky2];
+					for(int k=0;k<NROWS;++k)
+						rows[k]+=NROWS*NVAL;
+					//for(int kf=0;kf<NFRAMES;++kf)//increment pointers
+					//{
+					//	for(int ky2=0;ky2<2*YPAD+1;++ky2)
+					//		rows[kf][ky2]+=2;
+					//}
+					//for(int ky2=0;ky2<2*YPAD+1;++ky2)
+					//	++crows[ky2];
 				}
 			}
 		}
@@ -590,7 +713,7 @@ int c36_codec(int argc, char **argv)
 			total_csize[kc]+=csize[kc]=e/8;
 		}
 		printf(
-			"%5d    %12.2lf %12.2lf %12.2lf %12.2lf    %6.2lf %6.2lf %6.2lf %6.2lf%%\n"
+			"%5d    %12.2lf %12.2lf %12.2lf %12.2lf    %6.2lf %6.2lf %6.2lf %6.2lf%%"
 			, k0
 			, csize[0]+csize[1]+csize[2]
 			, csize[0]
@@ -601,6 +724,20 @@ int c36_codec(int argc, char **argv)
 			, csize[1]*100/(iw*ih)
 			, csize[2]*100/(iw*ih)
 		);
+#ifdef LOSSY
+		double psnr[4];
+		calc_psnr(esum, (int64_t)iw*ih, psnr);
+		printf("  %8.4lf %8.4lf %8.4lf %8.4lf"
+			, psnr[0]
+			, psnr[1]
+			, psnr[2]
+			, psnr[3]
+		);
+		etotal[0]+=esum[0];
+		etotal[1]+=esum[1];
+		etotal[2]+=esum[2];
+#endif
+		printf("\n");
 
 		unsigned char *temp=frames[0];
 		for(int kf=1;kf<NFRAMES;++kf)
@@ -610,7 +747,7 @@ int c36_codec(int argc, char **argv)
 	t=time_sec()-t;
 	printf(
 		"\n"
-		"%5d    %12.2lf %12.2lf %12.2lf %12.2lf    %6.2lf %6.2lf %6.2lf %6.2lf%%    %12.2lf\n"
+		"%5d    %12.2lf %12.2lf %12.2lf %12.2lf    %6.2lf %6.2lf %6.2lf %6.2lf%%    %12.2lf"
 		, (int)filenames->count
 		, total_csize[0]+total_csize[1]+total_csize[2]
 		, total_csize[0]
@@ -622,6 +759,17 @@ int c36_codec(int argc, char **argv)
 		, total_csize[2]*100/(filenames->count*iw0*ih0)
 		, (double)filenames->count*3*iw0*ih0
 	);
+#ifdef LOSSY
+	double psnr[4];
+	calc_psnr(etotal, (int64_t)filenames->count*iw0*ih0, psnr);
+	printf("  %8.4lf %8.4lf %8.4lf %8.4lf"
+		, psnr[0]
+		, psnr[1]
+		, psnr[2]
+		, psnr[3]
+	);
+#endif
+	printf("\n");
 	double usize=(double)filenames->count*3*iw0*ih0;
 	printf("%12.6lf sec  %12.6lf MB/s  %12.6lf ms/MB\n"
 		, t
@@ -632,7 +780,7 @@ int c36_codec(int argc, char **argv)
 		free(frames[k]);
 	array_free(&filenames);
 	free(pixels);
-	free(cpixels);
+	//free(cpixels);
 
 	exit(0);//this is not a codec
 	return 0;
