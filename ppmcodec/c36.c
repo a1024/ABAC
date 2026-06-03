@@ -736,16 +736,16 @@ int c36_codec(int argc, char **argv)
 			total_csize[kc]+=csize[kc]=e/8;
 		}
 		printf(
-			"%5d    %12.2lf %12.2lf %12.2lf %12.2lf    %6.2lf %6.2lf %6.2lf %6.2lf%%"
+			"%5d    %12.2lf %12.2lf %12.2lf %12.2lf    BPD %6.2lf %6.2lf %6.2lf %6.2lf"
 			, k0
 			, csize[0]+csize[1]+csize[2]
 			, csize[0]
 			, csize[1]
 			, csize[2]
-			, (csize[0]+csize[1]+csize[2])*100/(3*iw*ih)
-			, csize[0]*100/(iw*ih)
-			, csize[1]*100/(iw*ih)
-			, csize[2]*100/(iw*ih)
+			, 8*(csize[0]+csize[1]+csize[2])*100/(3*iw*ih)
+			, 8*csize[0]*100/(iw*ih)
+			, 8*csize[1]*100/(iw*ih)
+			, 8*csize[2]*100/(iw*ih)
 		);
 #ifdef LOSSY
 		double psnr[4];
@@ -770,16 +770,16 @@ int c36_codec(int argc, char **argv)
 	t=time_sec()-t;
 	printf(
 		"\n"
-		"%5d    %12.2lf %12.2lf %12.2lf %12.2lf    %6.2lf %6.2lf %6.2lf %6.2lf%%    %12.2lf"
+		"%5d    %12.2lf %12.2lf %12.2lf %12.2lf    BPD %6.2lf %6.2lf %6.2lf %6.2lf    %12.2lf"
 		, (int)filenames->count
 		, total_csize[0]+total_csize[1]+total_csize[2]
 		, total_csize[0]
 		, total_csize[1]
 		, total_csize[2]
-		, (total_csize[0]+total_csize[1]+total_csize[2])*100/(filenames->count*3*iw0*ih0)
-		, total_csize[0]*100/(filenames->count*iw0*ih0)
-		, total_csize[1]*100/(filenames->count*iw0*ih0)
-		, total_csize[2]*100/(filenames->count*iw0*ih0)
+		, 8*(total_csize[0]+total_csize[1]+total_csize[2])*100/(filenames->count*3*iw0*ih0)
+		, 8*total_csize[0]*100/(filenames->count*iw0*ih0)
+		, 8*total_csize[1]*100/(filenames->count*iw0*ih0)
+		, 8*total_csize[2]*100/(filenames->count*iw0*ih0)
 		, (double)filenames->count*3*iw0*ih0
 	);
 #ifdef LOSSY
