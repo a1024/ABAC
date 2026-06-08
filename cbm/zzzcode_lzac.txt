@@ -1,0 +1,2 @@
+lzac e *.ppm *.lzac
+lzac d *.lzac *.ppm
