@@ -5,7 +5,7 @@
 #include<stdint.h>
 #include<stdio.h>
 
-	#define VIDEO_TEST
+//	#define VIDEO_TEST
 //	#define LPCB_TEST
 //	#define RELEASE
 //	#define PROFILER
@@ -113,7 +113,7 @@ int c59_codec(int argc, char **argv);//near portable rapid
 //	#define CODEC_EXT c33
 //	#define CODEC_EXT c34
 //	#define CODEC_EXT c35
-	#define CODEC_EXT c36
+//	#define CODEC_EXT c36
 //	#define CODEC_EXT c37
 //	#define CODEC_EXT c38
 //	#define CODEC_EXT c39
@@ -136,7 +136,7 @@ int c59_codec(int argc, char **argv);//near portable rapid
 //	#define CODEC_EXT c56
 //	#define CODEC_EXT c57
 //	#define CODEC_EXT c58
-//	#define CODEC_EXT c59
+	#define CODEC_EXT c59
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -236,7 +236,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-HUGE-ppm/space_huge.ppm"		//X
 	//	"C:/dataset-ic16-ppm/big_building.ppm"		//16-bit
 	//	"C:/dataset-ic8-ppm/big_building.ppm"
-	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+		"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_05.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_13.ppm"
@@ -321,7 +321,7 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"	//large hard
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13844.ppm"	//large normal
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13845.ppm"	//large easy
-		"C:/Projects/datasets/dataset-sintel-ppm"
+	//	"C:/Projects/datasets/dataset-sintel-ppm"
 	//	"C:/Projects/datasets/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/Projects/datasets/dataset-synth2-ppm/20240405 2 CPU-load.ppm"
 	//	"C:/Projects/datasets/dataset-synth2-ppm/20240407 blank.ppm"

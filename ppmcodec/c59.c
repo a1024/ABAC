@@ -19,48 +19,41 @@
 #else
 #include<time.h>
 #endif
+#include<assert.h>
 #if defined _M_X64 || defined __x86_64__
 #include<immintrin.h>
-#endif
-#ifdef PROFILER
-#include"util.h"
 #endif
 
 
 #ifdef _MSC_VER
 	#define LOUD
+	#define RICE2ESTIM
 
 //	#define FIFOVAL 3
 #endif
 
-//	#define USE_RLE
-	#define USE_ROWS
-//	#define USE_SELECT	//incompatible with near
-//	#define USE_CG		//
+	#define USE_AC
 
 
 enum
 {
 	DEPTH=9,
-//	RLIMIT=23,
 	RLIMIT=12,
-#ifdef USE_ROWS
-	RSHIFT=3,
+	BUFSIZE=512<<10,
+#ifdef USE_AC
+	NCTX=16,//POT
+	RSHIFT=4,
+	PROBBITS=11,
+	NLEVELS=1<<DEPTH,
 #else
-	RSHIFT=1,
+	NCTX=6,
+	RSHIFT=3,
 #endif
 
-	BUFSIZE=512<<10,
-	
-#ifdef USE_ROWS
 	XPAD=8,
 	NCH=3,
-	NROWS=2,
+	NROWS=1,
 	NVAL=2,
-#endif
-#ifdef USE_RLE
-	MAXRUNBITS=30,
-#endif
 };
 
 
@@ -74,7 +67,7 @@ enum
 	M=A, A=A>B?B:A, M=M>B?M:B
 #endif
 #ifndef CLAMP2
-#define CLAMP2(X, L, H) X=(X)>(L)?X:L, X=(X)<(H)?X:H
+#define CLAMP2(X, L, H) X=X>(L)?X:L, X=X<(H)?X:H
 #endif
 #ifdef _MSC_VER
 #	define ALIGN(N) __declspec(align(N))
@@ -88,45 +81,24 @@ enum
 #		define _countof(A) (sizeof(A)/sizeof(*(A)))
 #	endif
 #endif
+#if defined _M_X64 || defined __x86_64__
+#define LZCNT32 _lzcnt_u32
+#define LZCNT64 _lzcnt_u64
+#define TZCNT32 _tzcnt_u32
+#define TZCNT64 _tzcnt_u64
 #define ROUND32(X) _mm_cvt_ss2si(_mm_set_ss(X))
 #define ROUND64(X) _mm_cvtsd_si64(_mm_set_sd(X))
 #define TRUNC32(X) _mm_cvtt_ss2si(_mm_set_ss(X))
 #define TRUNC64(X) _mm_cvttsd_si64(_mm_set_sd(X))
-#if defined _M_X64 || defined __x86_64__
-#define LZCNT32 _lzcnt_u32
-#define LZCNT64 _lzcnt_u64
 #else
 #define LZCNT32 __builtin_clz
 #define LZCNT64 __builtin_clzll
-#endif
-#ifndef FLOOR_LOG2
-#if defined _M_X64 || defined __x86_64__
-#define FLOOR_LOG2(X) (sizeof(X)==8?63-(int32_t)_lzcnt_u64(X):31-_lzcnt_u32((uint32_t)(X)))
-#else
-INLINE int floor_log2_64(uint64_t n)
-{
-	int	logn=-!n;
-	int	sh=(n>=1ULL<<32)<<5;	logn+=sh, n>>=sh;
-		sh=(n>=1<<16)<<4;	logn+=sh, n>>=sh;
-		sh=(n>=1<< 8)<<3;	logn+=sh, n>>=sh;
-		sh=(n>=1<< 4)<<2;	logn+=sh, n>>=sh;
-		sh=(n>=1<< 2)<<1;	logn+=sh, n>>=sh;
-		sh= n>=1<< 1;		logn+=sh;
-	return logn;
-}
-INLINE int floor_log2_32(uint32_t n)
-{
-	int	logn=-!n;
-	int	sh=(n>=1<<16)<<4;	logn+=sh, n>>=sh;
-		sh=(n>=1<< 8)<<3;	logn+=sh, n>>=sh;
-		sh=(n>=1<< 4)<<2;	logn+=sh, n>>=sh;
-		sh=(n>=1<< 2)<<1;	logn+=sh, n>>=sh;
-		sh= n>=1<< 1;		logn+=sh;
-	return logn;
-}
-#define FLOOR_LOG2(X)\
-	(sizeof(X)==8?floor_log2_64(X):floor_log2_32((uint32_t)(X)))
-#endif
+#define TZCNT32 __builtin_ctz
+#define TZCNT64 __builtin_ctzll
+#define ROUND32(X) (int32_t)roundf(X)
+#define ROUND64(X) (int64_t)round(X)
+#define TRUNC32(X) (int32_t)truncf(X)
+#define TRUNC64(X) (int64_t)trunc(X)
 #endif
 static void crash(const char *file, int line, const char *format, ...)
 {
@@ -226,14 +198,6 @@ static int fifoval_check(uint32_t val)
 
 static uint8_t rdbuf[BUFSIZE+sizeof(uint64_t[4])]={0}, wtbuf[BUFSIZE+sizeof(uint64_t[4])]={0};
 #if 0
-/*
-overflow:
-|                    ______left______   ______right_____
-|                   /                \ /                \
-|buf1start ... ... [datastart  buf1end|buf2start  dataend] ...
-|                   \________________    _______________/
-|                                    size
-*/
 INLINE uint64_t acme_read(uint8_t **pptr, const ptrdiff_t size, FILE *f)
 {
 	uint8_t *ptr=*pptr;
@@ -267,8 +231,31 @@ INLINE void acme_write(uint8_t **pptr, const ptrdiff_t size, FILE *f, uint64_t d
 }
 #endif
 
+#ifdef USE_AC
+static uint8_t ctxtable[1<<(DEPTH+RSHIFT)];
+static uint32_t cdftable[NCTX*(NLEVELS+1)];
+static void print_hist(int32_t *hist)
+{
+	int hmax=0;
+	for(int ks=0;ks<NLEVELS;++ks)
+	{
+		int freq=hist[ks];
+		if(hmax<freq)
+			hmax=freq;
+	}
+	for(int ks=0;ks<16;++ks)
+	{
+		int freq=hist[ks], nstars=hmax?freq*128/hmax:0;
+		printf("%3d  %5d  ", ks, hist[ks]);
+		for(int k2=0;k2<nstars;++k2)
+			printf("-");
+		printf("\n");
+	}
+}
+#else
 static uint8_t log2table[1<<(DEPTH+RSHIFT)];
-static uint32_t enctable[1<<(DEPTH+3)];
+static uint32_t enctable[8<<DEPTH];
+#endif
 static int16_t packsign[1024], *const packsignptr=packsign+512;
 int c59_codec(int argc, char **argv)
 {
@@ -279,24 +266,24 @@ int c59_codec(int argc, char **argv)
 	int64_t c=0;
 	int fwd=0, iw=0, ih=0;
 	uint8_t *rdptr=0, *wtptr=0;
-	int pred[3]={0}, yuv[3]={0};
+	int yuv[3]={0};
 	int sym[3]={0};
-	int estim[3]={0};
 	int64_t usize=0;
-#ifdef USE_ROWS
 	int psize=0;
 	int16_t *pixels=0;
-#endif
-#ifdef USE_RLE
-	int64_t res=0, csize=0;
-	uint8_t *cbuf=0, *cptr[3]={0};
-	int run[3]={0}, runestim[3]={0};
+#ifdef USE_AC
+	uint64_t lo=0, hi=0xFFFFFFFFFFFF, code=0;
+#else
+	uint64_t cache=0;
+	int nbits=0;
 #endif
 #ifdef LOUD
 	double t=time_sec2();
 #endif
-#ifdef PROFILER
-	void *prof_ctx=prof_start();
+#ifdef RICE2ESTIM
+	//int zcnt[3]={0}, tcnt[3]={0};
+	int zrun[3]={0}, prev[3]={0}, xhat0[3]={1<<RSHIFT, 1<<RSHIFT, 1<<RSHIFT}, xhat[3]={1<<RSHIFT, 1<<RSHIFT, 1<<RSHIFT};
+	int64_t ricesize=0, rice2size=0;
 #endif
 
 	if(argc!=3)
@@ -380,46 +367,6 @@ int c59_codec(int argc, char **argv)
 		return 1;
 	}
 	usize=(int64_t)3*iw*ih;
-#ifdef USE_RLE
-	cbuf=(uint8_t*)malloc(usize);
-	if(!cbuf)
-	{
-		CRASH("Alloc error");
-		return 1;
-	}
-	if(fwd)
-	{
-		res=(int64_t)iw*ih;
-		cptr[0]=cbuf+0*res;
-		cptr[1]=cbuf+1*res;
-		cptr[2]=cbuf+2*res;
-	}
-	else
-	{
-		struct stat info={0};
-		int64_t csizes[3]={0}, nread;
-		int idx;
-
-		fread(csizes+0, 1, 4, fsrc);
-		fread(csizes+1, 1, 4, fsrc);
-		fread(csizes+2, 1, 4, fsrc);
-		idx=(int)ftell(fsrc);
-		stat(srcfn, &info);
-		nread=fread(cbuf, 1, (size_t)info.st_size-idx, fsrc);
-		cptr[0]=cbuf;
-		cptr[1]=cptr[0]+csizes[0];
-		cptr[2]=cptr[1]+csizes[1];
-		if(cptr[2]+csizes[2]!=cbuf+nread)
-			printf("size expected %lld  got %lld+%lld+%lld = %lld\n"
-				, nread
-				, csizes[0]
-				, csizes[1]
-				, csizes[2]
-				, csizes[0]+csizes[1]+csizes[2]
-			);
-	}
-#endif
-#ifdef USE_ROWS
 	psize=(iw+2*XPAD)*(int)sizeof(int16_t[NCH*NROWS*NVAL]);
 	pixels=(int16_t*)malloc(psize);
 	if(!pixels)
@@ -430,7 +377,6 @@ int c59_codec(int argc, char **argv)
 		return 1;
 	}
 	memset(pixels, 0, psize);
-#endif
 	fdst=fopen(dstfn, "wb");
 	if(!fdst)
 	{
@@ -441,70 +387,551 @@ int c59_codec(int argc, char **argv)
 	memset(wtbuf, 0, sizeof(wtbuf));
 	rdptr=rdbuf+sizeof(uint64_t)+BUFSIZE;
 	wtptr=wtbuf+sizeof(uint64_t);
+#ifdef USE_AC
+#if 1
+	static const double xestim4[]=
+	{
+#define ESTIM(X) (X)*(1<<RSHIFT)
+		ESTIM(1./32),
+	//	ESTIM(1./16),
+	//	ESTIM(1./8),
+	//	ESTIM(1./4),
+	//	ESTIM(1./2),
+	//	ESTIM(1),
+		ESTIM(2),
+		ESTIM(4),
+		ESTIM(8),
+		ESTIM(16),
+		ESTIM(32),
+		ESTIM(64),
+		ESTIM(128),
+		ESTIM(256),
+		ESTIM(512),
+		ESTIM(1024),
+		ESTIM(2048),
+		ESTIM(4096),
+		ESTIM(8192),
+		ESTIM(16384),
+		ESTIM(32768),
+		ESTIM(65536),
+#undef  ESTIM
+	};
+#endif
+#if 0
+	static const double xestim3[]=
+	{
+#define ESTIM(X) (X)*(1<<RSHIFT)
+		ESTIM(1),
+		ESTIM(1.414),
+		ESTIM(2),
+		ESTIM(2.828),
+		ESTIM(4),
+		ESTIM(5.657),
+		ESTIM(8),
+		ESTIM(11.314),
+		ESTIM(16),
+		ESTIM(22.627),
+		ESTIM(32),
+		ESTIM(45.254),
+		ESTIM(64),
+		ESTIM(90.509),
+		ESTIM(128),
+		ESTIM(181.019),
+		ESTIM(256),
+#undef  ESTIM
+	};
+#endif
+#if 0
+	static const double xestim[]=
+	{
+#define ESTIM(X) (X)*(1<<RSHIFT)
+		ESTIM(0),
+		ESTIM(0.25),
+		ESTIM(0.35),
+		ESTIM(0.5),
+		ESTIM(0.75),
+		ESTIM(1),
+		ESTIM(1.5),
+		ESTIM(2),
+		ESTIM(3),
+		ESTIM(5),
+		ESTIM(8),
+		ESTIM(16),
+		ESTIM(32),
+		ESTIM(64),
+		ESTIM(128),
+		ESTIM(256),
+		ESTIM(512),
+#undef  ESTIM
+	};
+#endif
+	double xestim2[NCTX+1];
+	for(int ctx=0;ctx<=NCTX;++ctx)
+		xestim2[ctx]=exp2((double)ctx*(9-0.6)/NCTX+0.6)*(1<<RSHIFT);
+	//	xestim2[ctx]=exp2((double)ctx*(9-0.58)/NCTX+0.58)*(1<<RSHIFT);
+
+	//int ctx0=-1;
+	for(int hx=0, ctx=0;hx<_countof(ctxtable);++hx)
+	{
+		ctx+=hx>xestim4[ctx+1];
+		//if(ctx>NCTX-1)
+		//	CRASH("");
+		ctxtable[hx]=ctx;
+#if 0
+		double x, nbits;
+		int ctx;
+
+		x=(double)hx;
+		if(x<1./(1<<(PROBBITS+RSHIFT)))
+			x=1./(1<<(PROBBITS+RSHIFT));
+		nbits=log2(x)*0.25;
+		ctx=(int)ROUND64(nbits);
+		//if(ctx<0)
+		//	ctx=0;
+		//int ctx=(31-6)-LZCNT32(hx*hx+1);
+		CLAMP2(ctx, 0, NCTX-1);
+		ctxtable[hx]=ctx;
+		//if(!hx||!ctx||hx==_countof(ctxtable)-1)
+		if(ctx!=ctx0)
+			printf("hx %5d  ctx %2d\n", hx, ctx);
+		ctx0=ctx;
+#endif
+	}
+	for(int ctx=0;ctx<NCTX;++ctx)
+	{
+		int32_t hist[NLEVELS+1]={0}, hsum=0, c=0;
+		double invx=(1<<RSHIFT)/xestim4[ctx+1], codelen=0;
+		//double invx=(2<<RSHIFT)/(xestim4[ctx]+xestim4[ctx+1]), codelen=0;
+		//double invx=exp2((double)-(ctx-6)), codelen=0;
+		//double invx=exp2(ctx*0.5), codelen=0;
+		//if(invx<1./(1<<PROBBITS))
+		//	invx=1./(1<<PROBBITS);
+		//invx=1./invx;
+		for(int ks=0;ks<NLEVELS;++ks)
+		{
+			int freq;
+			//double scale=ks;
+			//
+			//CLAMP2(scale, 1, 2);
+			codelen+=invx;
+			if(codelen>PROBBITS)
+				codelen=PROBBITS;
+			freq=(int)ROUND64(exp2(-(double)TRUNC64(codelen-PROBBITS+2)+2));
+		//	freq=(int)ROUND64(exp2(-codelen)*(1<<PROBBITS));
+			hsum+=hist[ks]=freq;
+		}
+		if(fwd)//
+		{
+			printf("ctx %3d  x  %12.6lf\n", ctx, 1/invx);
+			print_hist(hist);//
+		}
+		for(int ks=0;ks<=NLEVELS;++ks)
+		{
+			int32_t freq=hist[ks];
+			int32_t cdf=hsum?(int32_t)(((uint64_t)c<<PROBBITS)/hsum):ks<<PROBBITS>>DEPTH;
+			CLAMP2(cdf, ks, (1<<PROBBITS)-NLEVELS+ks);
+			//if(cdf>(1<<PROBBITS)-NLEVELS+ks)
+			//	cdf=(1<<PROBBITS)-NLEVELS+ks;
+			cdftable[ks<<RSHIFT|ctx]=cdf;
+
+			if(ks&&cdftable[(ks-1)<<RSHIFT|ctx]>=cdftable[ks<<RSHIFT|ctx])//
+				CRASH("Invalid CDF");
+			if(ks<NLEVELS&&cdftable[ks<<RSHIFT|ctx]>(1<<PROBBITS)-1)//
+				CRASH("Invalid CDF");
+
+			c+=freq;
+		}
+	}
+#if 0
+	//for(int k=0;k<NCTX;++k)
+	//{
+	//	int nbypass=31-LZCNT32((bounds[k]>>RSHIFT)+1);
+	//	printf("%2d  %2d  %5d  %3d\n", k, nbypass, bounds[k], bounds[k]>>RSHIFT);
+	//}
+	for(int ctx=0;ctx<NCTX;++ctx)
+	{
+		int32_t hist[NLEVELS+1]={0}, hsum=0, c=0;
+		double invx=1/sqrt(exp2(ctx)-1+(1./(1<<PROBBITS))), codelen=0;
+		//double nbypass=(double)ctx/2-RSHIFT+1, codelen=0;
+		//double nbypass=log2((pow(2, ctx*0.5)-1)/(1<<RSHIFT)+1);
+		for(int ks=0;ks<NLEVELS;++ks)
+		{
+			int freq;
+
+			freq=(int)ROUND64(exp2(-codelen)*(1<<PROBBITS));
+			//if(freq<2)
+			//	freq=2;
+			hsum+=hist[ks]=freq;
+			codelen+=invx;
+			if(codelen>PROBBITS)
+				codelen=PROBBITS;
+		}
+		if(fwd)//
+		{
+			printf("ctx %3d  x  %12.6lf\n", ctx, 1/invx);
+			print_hist(hist);//
+		}
+		for(int ks=0;ks<=NLEVELS;++ks)
+		{
+			int32_t freq=hist[ks];
+			int32_t cdf=(c<<PROBBITS)/hsum;
+			if(cdf>(1<<PROBBITS)-NLEVELS+ks)
+				cdf=(1<<PROBBITS)-NLEVELS+ks;
+			cdftable[ks<<RSHIFT|ctx]=cdf;
+			if(ks&&cdftable[(ks-1)<<RSHIFT|ctx]>=cdftable[ks<<RSHIFT|ctx])//
+				CRASH("Invalid CDF");
+			//if(cdftable[ks<<RSHIFT|ctx]>(1<<PROBBITS)-1)//
+			//	CRASH("Invalid CDF");
+			c+=freq;
+		}
+	}
+#endif
+#if 1
+	if(fwd)
+	{
+		static uint8_t *const rdend=rdbuf+sizeof(uint64_t)+BUFSIZE-3;
+		static uint8_t *const wtend=wtbuf+sizeof(uint64_t)+BUFSIZE-sizeof(uint32_t);//AC renorm
+
+		for(int k=0;k<1024;++k)
+		{
+			int val=k-512;
+			val=val<<(32-DEPTH)>>(32-DEPTH);
+			val=val<<1^val>>31;
+			packsign[k]=val<<RSHIFT;
+		}
+		fwrite(&tag, 1, 2, fdst);
+		fwrite(&iw, 1, 3, fdst);
+		fwrite(&ih, 1, 3, fdst);
+		for(int ky=0;ky<ih;++ky)
+		{
+			int16_t *rptr=pixels+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NVAL;
+			for(int kx=0;kx<iw;++kx)
+			{
+				int lookup[3], cdf[3], freq[3];
+				uint32_t reg;
+
+				reg=*(uint32_t*)rdptr;
+				if(rdptr>=rdend)
+				{
+					fread(rdbuf+sizeof(uint64_t), 1, BUFSIZE, fsrc);
+					rdptr-=BUFSIZE;
+					reg|=*(uint32_t*)rdptr;
+				}
+				rdptr+=3;
+				yuv[0]=(uint8_t)(reg>>0*8);
+				yuv[1]=(uint8_t)(reg>>1*8);
+				yuv[2]=(uint8_t)(reg>>2*8);
+				yuv[0]-=yuv[1];
+				yuv[2]-=yuv[1];
+				yuv[1]+=(yuv[0]+yuv[2])>>2;
+				yuv[2]-=yuv[0]>>2;
+				sym[0]=packsignptr[yuv[0]-((rptr[0+(0+0*NCH)*NROWS*NVAL]+rptr[0+(0-1*NCH)*NROWS*NVAL])>>1)];
+				sym[1]=packsignptr[yuv[1]-((rptr[0+(1+0*NCH)*NROWS*NVAL]+rptr[0+(1-1*NCH)*NROWS*NVAL])>>1)];
+				sym[2]=packsignptr[yuv[2]-((rptr[0+(2+0*NCH)*NROWS*NVAL]+rptr[0+(2-1*NCH)*NROWS*NVAL])>>1)];
+				lookup[0]=sym[0]+ctxtable[rptr[1+(0-1*NCH)*NROWS*NVAL]];
+				lookup[1]=sym[1]+ctxtable[rptr[1+(1-1*NCH)*NROWS*NVAL]];
+				lookup[2]=sym[2]+ctxtable[rptr[1+(2-1*NCH)*NROWS*NVAL]];
+#ifdef RICE2ESTIM
+				{
+					int nbypass[3];
+					int s2[]=
+					{
+						sym[0]>>RSHIFT,
+						sym[1]>>RSHIFT,
+						sym[2]>>RSHIFT,
+					};
+					
+					nbypass[0]=31-LZCNT32((xhat[0]>>RSHIFT)+1);
+					nbypass[1]=31-LZCNT32((xhat[1]>>RSHIFT)+1);
+					nbypass[2]=31-LZCNT32((xhat[2]>>RSHIFT)+1);
+					ricesize+=(int64_t)(s2[0]>>nbypass[0])+1+nbypass[0];
+					ricesize+=(int64_t)(s2[1]>>nbypass[1])+1+nbypass[1];
+					ricesize+=(int64_t)(s2[2]>>nbypass[2])+1+nbypass[2];
+					//nbypass[0]=32-LZCNT32(xhat[0]);
+					//nbypass[1]=32-LZCNT32(xhat[1]);
+					//nbypass[2]=32-LZCNT32(xhat[2]);
+					//nbypass[0]=31^LZCNT32((rptr[1+(0-1*NCH)*NROWS*NVAL]>>RSHIFT)+1);
+					//nbypass[1]=31^LZCNT32((rptr[1+(1-1*NCH)*NROWS*NVAL]>>RSHIFT)+1);
+					//nbypass[2]=31^LZCNT32((rptr[1+(2-1*NCH)*NROWS*NVAL]>>RSHIFT)+1);
+
+					//Rice 2
+					for(int kc=0;kc<3;++kc)
+					{
+						if(!s2[kc])
+						{
+							if(prev[kc])
+								xhat0[kc]=xhat[kc];
+							++zrun[kc];
+						}
+						else
+						{
+							int ricek, negk, unarylen;
+
+							ricek=32-RSHIFT-LZCNT32(xhat0[kc]);
+							negk=-ricek;
+							if(ricek<0)ricek=0;
+							if(negk<0)negk=0;
+							while(zrun[kc]>=1<<negk)
+							{
+								++rice2size;
+								zrun[kc]-=1<<negk;
+							}
+							unarylen=0;
+							while(negk)
+							{
+								--negk;
+								++unarylen;
+								if(zrun[kc]&1<<negk)
+									rice2size+=(int64_t)unarylen+1;
+								zrun[kc]&=~(1<<negk);
+							}
+							rice2size+=(int64_t)(s2[kc]>>ricek)+1+ricek;
+							xhat0[kc]=xhat[kc];
+						}
+						xhat[kc]+=((s2[kc]<<RSHIFT)-xhat[kc])>>(RSHIFT+1);
+						prev[kc]=s2[kc];
+					}
+					//if(nbypass[0]<RSHIFT)
+					//{
+					//	int shift=1<<(RSHIFT-nbypass[0]);
+					//	if(sym[0])
+					//	{
+					//		while(zrun[0])
+					//		{
+					//			int sym2=zrun[0];
+					//			if(sym2>shift)
+					//				sym2=shift;
+					//			rice2size+=;
+					//			zrun[0]-=shift;
+					//		}
+					//		zrun[0]=0;
+					//	}
+					//}
+					//zrun[0]+=!sym[0];
+					//zrun[1]+=!sym[1];
+					//zrun[2]+=!sym[2];
+					//zcnt[0]+=!sym[0];
+					//zcnt[1]+=!sym[1];
+					//zcnt[2]+=!sym[2];
+					//++tcnt[0];
+					//++tcnt[1];
+					//++tcnt[2];
+				}
+#endif
+				rptr[0+(0+0*NCH)*NROWS*NVAL]=yuv[0];
+				rptr[0+(1+0*NCH)*NROWS*NVAL]=yuv[1];
+				rptr[0+(2+0*NCH)*NROWS*NVAL]=yuv[2];
+				rptr[1+(0+0*NCH)*NROWS*NVAL]=(2*rptr[1+(0-1*NCH)*NROWS*NVAL]+sym[0]+rptr[1+(0+3*NCH)*NROWS*NVAL])>>2;
+				rptr[1+(1+0*NCH)*NROWS*NVAL]=(2*rptr[1+(1-1*NCH)*NROWS*NVAL]+sym[1]+rptr[1+(1+3*NCH)*NROWS*NVAL])>>2;
+				rptr[1+(2+0*NCH)*NROWS*NVAL]=(2*rptr[1+(2-1*NCH)*NROWS*NVAL]+sym[2]+rptr[1+(2+3*NCH)*NROWS*NVAL])>>2;
+				rptr+=NCH*NROWS*NVAL;
+				cdf[0]=cdftable[lookup[0]+(0<<RSHIFT)];
+				cdf[1]=cdftable[lookup[1]+(0<<RSHIFT)];
+				cdf[2]=cdftable[lookup[2]+(0<<RSHIFT)];
+				freq[0]=cdftable[lookup[0]+(1<<RSHIFT)]-cdf[0];
+				freq[1]=cdftable[lookup[1]+(1<<RSHIFT)]-cdf[1];
+				freq[2]=cdftable[lookup[2]+(1<<RSHIFT)]-cdf[2];
+#ifdef FIFOVAL
+				sym[0]>>=RSHIFT;
+				sym[1]>>=RSHIFT;
+				sym[2]>>=RSHIFT;
+				fifoval_enqueue(sym[2]<<18^sym[1]<<9^sym[0]);
+#endif
+				for(int kc=0;kc<3;++kc)
+				{
+					uint64_t x;
+
+					x=hi-lo;
+					if(x<=0xFFFF)
+					{
+						*(uint32_t*)wtptr=(uint32_t)(lo>>32);
+						if(wtptr>=wtend)
+						{
+							fwrite(wtbuf+sizeof(uint64_t), 1, BUFSIZE, fdst);
+							wtptr-=BUFSIZE;
+							*(uint32_t*)wtptr=(uint32_t)(lo>>32);
+						}
+						wtptr+=sizeof(uint32_t);
+						lo<<=32;
+						hi=hi<<32|0xFFFFFFFF;
+						if(hi<lo)
+							hi=~0ULL;
+						x=hi-lo;
+					}
+					//if(freq[kc]>(1<<PROBBITS)-1||cdf[kc]>(1<<PROBBITS)-1)//
+					//	CRASH("");
+
+					lo+=x*cdf[kc]>>PROBBITS;
+					hi=lo+(x*freq[kc]>>PROBBITS)-1;
+				}
+			}
+		}
+		lo=lo<<32|lo>>32;
+		*(uint64_t*)wtptr=lo;
+		if(wtptr>=wtend)
+		{
+			fwrite(wtbuf+sizeof(uint64_t), 1, BUFSIZE, fdst);
+			wtptr-=BUFSIZE;
+			*(uint64_t*)wtptr=lo;
+		}
+		wtptr+=sizeof(uint64_t);
+		(void)rdend;
+		(void)wtend;
+	}
+	else//dec
+	{
+		static uint8_t *const rdend=rdbuf+sizeof(uint64_t)+BUFSIZE-sizeof(uint32_t);//AC renorm
+		static uint8_t *const wtend=wtbuf+sizeof(uint64_t)+BUFSIZE-3;
+		int CDF2symsize=(int)sizeof(uint32_t[NCTX<<PROBBITS]);
+		uint32_t *CDF2sym=(uint32_t*)malloc(CDF2symsize);
+		//uint64_t cache2=0;
+
+		if(!CDF2sym)
+			CRASH("Allloc error");
+		for(int ctx=0;ctx<NCTX;++ctx)
+		{
+			int idx=0;
+			for(int ks=0;ks<=NLEVELS;++ks)
+			{
+				int start=cdftable[ks<<RSHIFT|ctx], end=cdftable[(ks+1)<<RSHIFT|ctx], freq=end-start;
+				while(idx<end)
+					CDF2sym[ctx<<PROBBITS|idx++]=(freq<<PROBBITS|start)<<DEPTH|ks;
+			}
+			//if(idx!=1<<PROBBITS)//
+			//	CRASH("");
+		}
+		for(int k=0;k<512;++k)
+		{
+			int val=k;
+			val=val>>1^-(val&1);
+		//	val=val<<(32-DEPTH)>>(32-DEPTH);
+			packsign[k]=val;
+		}
+		fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
+		fread(&code, 1, 8, fsrc);
+		code=code<<32|code>>32;
+		//fread(&cache, 1, 8, fsrc);
+		//fread(&cache2, 1, 8, fsrc);
+		for(int ky=0;ky<ih;++ky)
+		{
+			int16_t *rptr=pixels+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NVAL;
+			for(int kx=0;kx<iw;++kx)
+			{
+				uint32_t reg;
+				int ctx[3];
+
+				ctx[0]=ctxtable[rptr[1+(0-1*NCH)*NROWS*NVAL]];
+				ctx[1]=ctxtable[rptr[1+(1-1*NCH)*NROWS*NVAL]];
+				ctx[2]=ctxtable[rptr[1+(2-1*NCH)*NROWS*NVAL]];
+				for(int kc=0;kc<3;++kc)
+				{
+					uint64_t x;
+					int tmp, cdf, freq;
+
+					x=hi-lo;
+					if(x<=0xFFFF)//unpredictable branch
+					{
+						uint32_t c2;
+
+						c2=*(uint32_t*)rdptr;
+						if(rdptr>=rdend)
+						{
+
+							fread(rdbuf+sizeof(uint64_t), 1, BUFSIZE, fsrc);
+							rdptr-=BUFSIZE;
+							c2|=*(uint32_t*)rdptr;
+						}
+						code=code<<32|c2;
+						rdptr+=sizeof(uint32_t);
+						lo<<=32;
+						hi=hi<<32|0xFFFFFFFF;
+						if(hi<lo)
+							hi=~0ULL;
+						x=hi-lo;
+					}
+					tmp=(int)(((code-lo)<<PROBBITS|((1ULL<<PROBBITS)-1))/x);//128-bit div
+
+					//if((uint32_t)tmp>(1<<PROBBITS)-1)//
+					//	CRASH("");
+					
+					tmp=CDF2sym[ctx[kc]<<PROBBITS|tmp];//cache miss
+					sym[kc]=tmp&(NLEVELS-1);
+					cdf=(tmp>>DEPTH)&((1<<PROBBITS)-1);
+					freq=tmp>>(PROBBITS+DEPTH);
+					lo+=x*cdf>>PROBBITS;
+					hi=lo+(x*freq>>PROBBITS)-1;
+
+					//if(code<lo||code>=hi)//
+					//	CRASH("");
+				}
+#ifdef FIFOVAL
+				if(fifoval_check(sym[2]<<DEPTH*2^sym[1]<<DEPTH^sym[0]))
+					CRASH("");
+#endif
+				rptr[1+(0+0*NCH)*NROWS*NVAL]=(2*rptr[1+(0-1*NCH)*NROWS*NVAL]+(sym[0]<<RSHIFT)+rptr[1+(0+3*NCH)*NROWS*NVAL])>>2;
+				rptr[1+(1+0*NCH)*NROWS*NVAL]=(2*rptr[1+(1-1*NCH)*NROWS*NVAL]+(sym[1]<<RSHIFT)+rptr[1+(1+3*NCH)*NROWS*NVAL])>>2;
+				rptr[1+(2+0*NCH)*NROWS*NVAL]=(2*rptr[1+(2-1*NCH)*NROWS*NVAL]+(sym[2]<<RSHIFT)+rptr[1+(2+3*NCH)*NROWS*NVAL])>>2;
+				sym[0]=packsign[sym[0]];
+				sym[1]=packsign[sym[1]];
+				sym[2]=packsign[sym[2]];
+				sym[0]+=(rptr[0+(0+0*NCH)*NROWS*NVAL]+rptr[0+(0-1*NCH)*NROWS*NVAL])>>1;
+				sym[1]+=(rptr[0+(1+0*NCH)*NROWS*NVAL]+rptr[0+(1-1*NCH)*NROWS*NVAL])>>1;
+				sym[2]+=(rptr[0+(2+0*NCH)*NROWS*NVAL]+rptr[0+(2-1*NCH)*NROWS*NVAL])>>1;
+				sym[0]<<=32-DEPTH;
+				sym[1]<<=32-DEPTH;
+				sym[2]<<=32-DEPTH;
+				sym[0]>>=32-DEPTH;
+				sym[1]>>=32-DEPTH;
+				sym[2]>>=32-DEPTH;
+				rptr[0+(0+0*NCH)*NROWS*NVAL]=sym[0];
+				rptr[0+(1+0*NCH)*NROWS*NVAL]=sym[1];
+				rptr[0+(2+0*NCH)*NROWS*NVAL]=sym[2];
+				rptr+=NCH*NROWS*NVAL;
+				sym[2]+=sym[0]>>2;
+				sym[1]-=(sym[0]+sym[2])>>2;
+				sym[2]+=sym[1];
+				sym[0]+=sym[1];
+				reg=sym[2]<<16|sym[1]<<8|sym[0];
+				memcpy(wtptr, &reg, sizeof(reg));
+				if(wtptr>=wtend)
+				{
+					fwrite(wtbuf+sizeof(uint64_t), 1, BUFSIZE, fdst);
+					wtptr-=BUFSIZE;
+					memcpy(wtptr, &reg, sizeof(uint64_t));
+				}
+				wtptr+=3;
+			}
+		}
+		(void)rdend;
+		(void)wtend;
+	}
+#endif
+#else
 	for(int ks=0;ks<1<<(DEPTH+RSHIFT);++ks)
 	{
 		int val=(ks>>RSHIFT)+1;
 		val=LZCNT32(val);
 		val^=31;
-		if(val>7)
-			val=7;
+		if(val>NCTX-1)
+			val=NCTX-1;
 		log2table[ks]=val;
 	}
 	if(fwd)
 	{
 		static uint8_t *const rdend=rdbuf+sizeof(uint64_t)+BUFSIZE-3;
 		static uint8_t *const wtend=wtbuf+sizeof(uint64_t)+BUFSIZE-sizeof(uint64_t);
-#ifdef USE_RLE
-		uint64_t cache[3]={0};
-		int nbits[3]={0};
-#else
-		uint64_t cache=0;
-		int nbits=0;
-#endif
+
 		for(int k=0;k<1024;++k)
 		{
 			int val=k-512;
-		//	val=val<<(32-DEPTH)>>(32-DEPTH);
+			val=val<<(32-DEPTH)>>(32-DEPTH);
 			val=val<<1^val>>31;
-			packsign[k]=val;
+			packsign[k]=val<<RSHIFT;
 		}
-#if 0
-		for(int ks=0;ks<1<<DEPTH;++ks)
-		{
-			uint32_t code;
-			int kb, nbypass, codelen, nzeros;
-
-			kb=0;
-			nzeros=ks>>kb;
-			codelen=nzeros+1+kb;
-			code=ks;
-			nbypass=kb^31;
-			code<<=nbypass;
-			code|=1<<31;
-			code>>=nbypass;
-			if(nzeros>RLIMIT-1)
-				code=ks, codelen=RLIMIT+DEPTH;
-			enctable[ks]=code<<8|codelen;
-		}
-#else
 		for(int ks=0;ks<1<<DEPTH;++ks)
 		{
 			for(int kb=0;kb<8;++kb)
 			{
-#if 0
-				uint32_t nbypass, code, nzeros, codelen;
-				
-				nzeros=ks>>kb;
-				nbypass=kb;
-				if(nbypass>1)
-					nbypass=1;
-				code=1<<nbypass|(ks&((1<<nbypass)-1));
-				codelen=nzeros+1+nbypass;
-
-				if(nzeros>RLIMIT-1)
-					code=ks, codelen=RLIMIT+DEPTH;
-				enctable[ks<<3|kb]=code<<8|codelen;
-#else
 				uint32_t code;
 				int nbypass, codelen, nzeros;
 
@@ -518,32 +945,20 @@ int c59_codec(int argc, char **argv)
 				if(nzeros>RLIMIT-1)
 					code=ks, codelen=RLIMIT+DEPTH;
 				enctable[ks<<3|kb]=code<<8|codelen;
-#endif
 			}
 		}
-#endif
 		fwrite(&tag, 1, 2, fdst);
 		fwrite(&iw, 1, 3, fdst);
 		fwrite(&ih, 1, 3, fdst);
-		for(int ky=0, idx=0;ky<ih;++ky)
+		for(int ky=0;ky<ih;++ky)
 		{
-#ifdef USE_ROWS
-			int16_t *rows[]=
+			int16_t *rptr=pixels+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NVAL;
+			for(int kx=0;kx<iw;++kx)
 			{
-				pixels+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,
-				pixels+(XPAD*NCH*NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
-			};
-#endif
-			for(int kx=0;kx<iw;++kx, ++idx)
-			{
-				uint64_t reg;
-#ifndef USE_RLE
 				uint64_t code[3];
-				int codelen[3];
-#endif
-				int nbypass[3];
+				uint32_t codelen[3], reg;
 
-				memcpy(&reg, rdptr, sizeof(uint64_t));
+				memcpy(&reg, rdptr, sizeof(reg));
 				if(rdptr>=rdend)
 				{
 					uint64_t d2;
@@ -554,222 +969,32 @@ int c59_codec(int argc, char **argv)
 					reg|=d2;
 				}
 				rdptr+=3;
-				//reg=acme_read(&rdptr, 3, fsrc);
-#ifdef USE_ROWS
-#ifdef USE_CG
-				{
-					int N[3], W[3], NW[3];
-					
-					NW[0]	=rows[1][0+(0-1*NCH)*NROWS*NVAL];
-					NW[1]	=rows[1][0+(1-1*NCH)*NROWS*NVAL];
-					NW[2]	=rows[1][0+(2-1*NCH)*NROWS*NVAL];
-					N[0]	=rows[1][0+(0+0*NCH)*NROWS*NVAL];
-					N[1]	=rows[1][0+(1+0*NCH)*NROWS*NVAL];
-					N[2]	=rows[1][0+(2+0*NCH)*NROWS*NVAL];
-					W[0]	=rows[0][0+(0-1*NCH)*NROWS*NVAL];
-					W[1]	=rows[0][0+(1-1*NCH)*NROWS*NVAL];
-					W[2]	=rows[0][0+(2-1*NCH)*NROWS*NVAL];
-					NW[0]=N[0]+W[0]-NW[0];
-					NW[1]=N[1]+W[1]-NW[1];
-					NW[2]=N[2]+W[2]-NW[2];
-					MEDIAN3V_CLOB(pred[0], N[0], W[0], NW[0]);
-					MEDIAN3V_CLOB(pred[1], N[1], W[1], NW[1]);
-					MEDIAN3V_CLOB(pred[2], N[2], W[2], NW[2]);
-				}
-#elif defined USE_SELECT
-				{
-					int NW[]=
-					{
-						rows[1][0+(0-1*NCH)*NROWS*NVAL],
-						rows[1][0+(1-1*NCH)*NROWS*NVAL],
-						rows[1][0+(2-1*NCH)*NROWS*NVAL],
-					};
-					int N[]=
-					{
-						rows[1][0+(0+0*NCH)*NROWS*NVAL],
-						rows[1][0+(1+0*NCH)*NROWS*NVAL],
-						rows[1][0+(2+0*NCH)*NROWS*NVAL],
-					};
-					int W[]=
-					{
-						rows[0][0+(0-1*NCH)*NROWS*NVAL],
-						rows[0][0+(1-1*NCH)*NROWS*NVAL],
-						rows[0][0+(2-1*NCH)*NROWS*NVAL],
-					};
-					int t0[]=
-					{
-						N[0]-NW[0],
-						N[1]-NW[1],
-						N[2]-NW[2],
-					};
-					int t1[]=
-					{
-						W[0]-NW[0],
-						W[1]-NW[1],
-						W[2]-NW[2],
-					};
-					pred[0]=(t0[0]-t1[0])*(t0[0]+t1[0])>0?N[0]:W[0];
-					pred[1]=(t0[1]-t1[1])*(t0[1]+t1[1])>0?N[1]:W[1];
-					pred[2]=(t0[2]-t1[2])*(t0[2]+t1[2])>0?N[2]:W[2];
-				}
-#else
-				pred[0]=(rows[1][0+(0+0*NCH)*NROWS*NVAL]+rows[0][0+(0-1*NCH)*NROWS*NVAL])>>1;
-				pred[1]=(rows[1][0+(1+0*NCH)*NROWS*NVAL]+rows[0][0+(1-1*NCH)*NROWS*NVAL])>>1;
-				pred[2]=(rows[1][0+(2+0*NCH)*NROWS*NVAL]+rows[0][0+(2-1*NCH)*NROWS*NVAL])>>1;
-//#ifdef FIFOVAL
-//				if(FIFOVAL==3)
-//					fifoval_enqueue(pred[2]<<DEPTH*2^pred[1]<<DEPTH^pred[0]);
-//#endif
-#endif
-				estim[0]=rows[0][1+(0-1*NCH)*NROWS*NVAL];
-				estim[1]=rows[0][1+(1-1*NCH)*NROWS*NVAL];
-				estim[2]=rows[0][1+(2-1*NCH)*NROWS*NVAL];
-//#ifdef FIFOVAL
-//				if(FIFOVAL==3)
-//					fifoval_enqueue(estim[2]<<DEPTH*2^estim[1]<<DEPTH^estim[0]);
-//#endif
-#endif
-				nbypass[0]=log2table[estim[0]];
-				nbypass[1]=log2table[estim[1]];
-				nbypass[2]=log2table[estim[2]];
-				yuv[0]=(uint8_t)(reg>> 0);
-				yuv[1]=(uint8_t)(reg>> 8);
-				yuv[2]=(uint8_t)(reg>>16);
+				yuv[0]=(uint8_t)(reg>>0*8);
+				yuv[1]=(uint8_t)(reg>>1*8);
+				yuv[2]=(uint8_t)(reg>>2*8);
 				yuv[0]-=yuv[1];
 				yuv[2]-=yuv[1];
 				yuv[1]+=(yuv[0]+yuv[2])>>2;
 				yuv[2]-=yuv[0]>>2;
-				sym[0]=packsignptr[yuv[0]-pred[0]];
-				sym[1]=packsignptr[yuv[1]-pred[1]];
-				sym[2]=packsignptr[yuv[2]-pred[2]];
-				//sym[0]=sym[0]<<23>>23;
-				//sym[1]=(int8_t)sym[1];
-				//sym[2]=sym[2]<<23>>23;
-				//sym[0]=sym[0]<<1^sym[0]>>31;
-				//sym[1]=sym[1]<<1^sym[1]>>31;
-				//sym[2]=sym[2]<<1^sym[2]>>31;
-#ifdef USE_ROWS
-				rows[0][0+(0+0*NCH)*NROWS*NVAL]=yuv[0];
-				rows[0][0+(1+0*NCH)*NROWS*NVAL]=yuv[1];
-				rows[0][0+(2+0*NCH)*NROWS*NVAL]=yuv[2];
-				rows[0][1+(0+0*NCH)*NROWS*NVAL]=(2*rows[0][1+(0-1*NCH)*NROWS*NVAL]+(sym[0]<<RSHIFT)+rows[1][1+(0+3*NCH)*NROWS*NVAL])>>2;
-				rows[0][1+(1+0*NCH)*NROWS*NVAL]=(2*rows[0][1+(1-1*NCH)*NROWS*NVAL]+(sym[1]<<RSHIFT)+rows[1][1+(1+3*NCH)*NROWS*NVAL])>>2;
-				rows[0][1+(2+0*NCH)*NROWS*NVAL]=(2*rows[0][1+(2-1*NCH)*NROWS*NVAL]+(sym[2]<<RSHIFT)+rows[1][1+(2+3*NCH)*NROWS*NVAL])>>2;
-				rows[0]+=NCH*NROWS*NVAL;
-				rows[1]+=NCH*NROWS*NVAL;
-#else
-				pred[0]=yuv[0];
-				pred[1]=yuv[1];
-				pred[2]=yuv[2];
-				estim[0]+=(int)((sym[0]<<RSHIFT)-estim[0])>>(RSHIFT+1);
-				estim[1]+=(int)((sym[1]<<RSHIFT)-estim[1])>>(RSHIFT+1);
-				estim[2]+=(int)((sym[2]<<RSHIFT)-estim[2])>>(RSHIFT+1);
-#endif
-#if defined FIFOVAL && !defined USE_RLE
-				fifoval_enqueue(sym[2]<<DEPTH*2^sym[1]<<DEPTH^sym[0]);
-				fifoval_enqueue(yuv[2]<<DEPTH*2^yuv[1]<<DEPTH^yuv[0]);
-#endif
-#ifdef USE_RLE
-				for(int kc=0;kc<3;++kc)
-				{
-//#ifdef FIFOVAL
-//					if((uint32_t)(idx-1600)<200&&kc==FIFOVAL)//
-//						printf("enc 0x%016zX  %2d\n", (size_t)cache[kc], nbits[kc]);
-//#endif
-					//if(ky==2&&kx==162&&kc==2)//
-					//if(kc==2)
-					//{
-					//	if(ky==2&&(kx==160||kx==161||kx==162))//
-					//		printf("");
-					//}
-					if(!sym[kc]&&idx<res-1)
-						++run[kc];
-					else
-					{
-						//uint64_t code=(uint64_t)(run[kc]!=0)<<63;
-						//int nb2=nbits[kc]+1;
-						//cache[kc]|=code>>nbits[kc];
-						//if(nb2>=64)
-						//{
-						//	*(uint64_t*)cptr[kc]=cache[kc];
-						//	cptr[kc]+=sizeof(uint64_t);
-						//	cache[kc]=code<<(64-nbits[kc]);
-						//	nb2-=64;
-						//	if(!nbits[kc])
-						//		cache[kc]=0;
-						//}
-						//nbits[kc]=nb2;
-						
-						//if(kc==2)
-						//{
-						//	if(ky==2&&kx>=160)//
-						//		printf("");
-						//}
-						if(run[kc])
-						{
-							int nbypass2=31-LZCNT32((runestim[kc]>>1)+1);
-							int nzeros=run[kc]>>nbypass2, stopbit=1, bypassmask=(1<<nbypass2)-1, codelen=nzeros+stopbit+nbypass2;
-							uint64_t code=run[kc];
-							if(nzeros>MAXRUNBITS-1)
-								nzeros=MAXRUNBITS, stopbit=0, nbypass2=MAXRUNBITS, bypassmask=~0, codelen=2*MAXRUNBITS;
-							code&=(uint32_t)bypassmask;
-							code|=(uint64_t)stopbit<<nbypass2;
-							code<<=63-codelen;
-							++codelen;//prepend true bit (run)
-							code|=1ULL<<63;
+				sym[0]=packsignptr[yuv[0]-((rptr[0+(0+0*NCH)*NROWS*NVAL]+rptr[0+(0-1*NCH)*NROWS*NVAL])>>1)];
+				sym[1]=packsignptr[yuv[1]-((rptr[0+(1+0*NCH)*NROWS*NVAL]+rptr[0+(1-1*NCH)*NROWS*NVAL])>>1)];
+				sym[2]=packsignptr[yuv[2]-((rptr[0+(2+0*NCH)*NROWS*NVAL]+rptr[0+(2-1*NCH)*NROWS*NVAL])>>1)];
+				code[0]=enctable[sym[0]+log2table[rptr[1+(0-1*NCH)*NROWS*NVAL]]];
+				code[1]=enctable[sym[1]+log2table[rptr[1+(1-1*NCH)*NROWS*NVAL]]];
+				code[2]=enctable[sym[2]+log2table[rptr[1+(2-1*NCH)*NROWS*NVAL]]];
+				rptr[0+(0+0*NCH)*NROWS*NVAL]=yuv[0];
+				rptr[0+(1+0*NCH)*NROWS*NVAL]=yuv[1];
+				rptr[0+(2+0*NCH)*NROWS*NVAL]=yuv[2];
+				rptr[1+(0+0*NCH)*NROWS*NVAL]=(2*rptr[1+(0-1*NCH)*NROWS*NVAL]+sym[0]+rptr[1+(0+3*NCH)*NROWS*NVAL])>>2;
+				rptr[1+(1+0*NCH)*NROWS*NVAL]=(2*rptr[1+(1-1*NCH)*NROWS*NVAL]+sym[1]+rptr[1+(1+3*NCH)*NROWS*NVAL])>>2;
+				rptr[1+(2+0*NCH)*NROWS*NVAL]=(2*rptr[1+(2-1*NCH)*NROWS*NVAL]+sym[2]+rptr[1+(2+3*NCH)*NROWS*NVAL])>>2;
 #ifdef FIFOVAL
-							if(kc==FIFOVAL)
-								fifoval_enqueue(1<<MAXRUNBITS|run[kc]);
+				sym[0]>>=3;
+				sym[1]>>=3;
+				sym[2]>>=3;
+				fifoval_enqueue(sym[2]<<18^sym[1]<<9^sym[0]);
 #endif
-							
-							codelen+=nbits[kc];
-							cache[kc]|=code>>nbits[kc];
-							if(codelen>=64)
-							{
-								*(uint64_t*)cptr[kc]=cache[kc];
-								cptr[kc]+=sizeof(uint64_t);
-								cache[kc]=code<<(64-nbits[kc]);
-								codelen-=64;
-								if(!nbits[kc])
-									cache[kc]=0;
-							}
-							nbits[kc]=codelen;
-
-							runestim[kc]+=(2*run[kc]-runestim[kc])>>2;
-						}
-						{
-							uint64_t code=enctable[8*sym[kc]+nbypass[kc]];
-							int codelen=(uint8_t)code;
-
-							code>>=8;
-							if(!run[kc])
-								++codelen;//prepend zero bit (not run)
-							run[kc]=0;
-							code<<=64-codelen;
-#ifdef FIFOVAL
-							if(kc==FIFOVAL)
-								fifoval_enqueue(sym[kc]);
-#endif
-
-							codelen+=nbits[kc];
-							cache[kc]|=code>>nbits[kc];
-							if(codelen>=64)
-							{
-								*(uint64_t*)cptr[kc]=cache[kc];
-								cptr[kc]+=sizeof(uint64_t);
-								cache[kc]=code<<(64-nbits[kc]);
-								codelen-=64;
-								if(!nbits[kc])
-									cache[kc]=0;
-							}
-							nbits[kc]=codelen;
-						}
-					}
-				}
-#else
-				code[0]=enctable[8*sym[0]+nbypass[0]];
-				code[1]=enctable[8*sym[1]+nbypass[1]];
-				code[2]=enctable[8*sym[2]+nbypass[2]];
+				rptr+=NCH*NROWS*NVAL;
 				codelen[0]=(uint8_t)code[0];
 				codelen[1]=(uint8_t)code[1];
 				codelen[2]=(uint8_t)code[2];
@@ -800,31 +1025,14 @@ int c59_codec(int argc, char **argv)
 						memcpy(wtptr, &cache, sizeof(uint64_t));
 					}
 					wtptr+=sizeof(uint64_t);
-					//acme_write(&wtptr, 8, fdst, cache);
 					cache=code[0]<<(64-nbits);
 					codelen[2]-=64;
 					if(!nbits)
 						cache=0;
 				}
 				nbits=codelen[2];
-#endif
 			}
 		}
-#ifdef USE_RLE
-		*(uint64_t*)cptr[0]=cache[0]; cptr[0]+=sizeof(uint64_t);
-		*(uint64_t*)cptr[1]=cache[1]; cptr[1]+=sizeof(uint64_t);
-		*(uint64_t*)cptr[2]=cache[2]; cptr[2]+=sizeof(uint64_t);
-		cptr[0]=(uint8_t*)(cptr[0]-(cbuf+0*res));
-		cptr[1]=(uint8_t*)(cptr[1]-(cbuf+1*res));
-		cptr[2]=(uint8_t*)(cptr[2]-(cbuf+2*res));
-		csize=0;
-		csize+=fwrite(cptr+0, 1, 4, fdst);
-		csize+=fwrite(cptr+1, 1, 4, fdst);
-		csize+=fwrite(cptr+2, 1, 4, fdst);
-		csize+=fwrite(cbuf+0*res, 1, (size_t)cptr[0], fdst);
-		csize+=fwrite(cbuf+1*res, 1, (size_t)cptr[1], fdst);
-		csize+=fwrite(cbuf+2*res, 1, (size_t)cptr[2], fdst);
-#else
 		memcpy(wtptr, &cache, sizeof(uint64_t));
 		if(wtptr>=wtend)
 		{
@@ -833,8 +1041,6 @@ int c59_codec(int argc, char **argv)
 			memcpy(wtptr, &cache, sizeof(uint64_t));
 		}
 		wtptr+=sizeof(uint64_t);
-		//acme_write(&wtptr, 8, fdst, cache);
-#endif
 		(void)rdend;
 		(void)wtend;
 	}
@@ -842,14 +1048,8 @@ int c59_codec(int argc, char **argv)
 	{
 		static uint8_t *const rdend=rdbuf+sizeof(uint64_t)+BUFSIZE-sizeof(uint64_t);
 		static uint8_t *const wtend=wtbuf+sizeof(uint64_t)+BUFSIZE-3;
-#ifdef USE_RLE
-		uint64_t cache[3]={0}, cache2[3]={0};
-		int nbits[3]={0};
-		int run0[3]={0};
-#else
-		uint64_t cache=0, cache2=0;
-		int nbits=0;
-#endif
+		uint64_t cache2=0;
+
 		for(int k=0;k<512;++k)
 		{
 			int val=k;
@@ -858,202 +1058,20 @@ int c59_codec(int argc, char **argv)
 			packsign[k]=val;
 		}
 		fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
-#ifdef USE_RLE
-		cache[0]=*(uint64_t*)cptr[0], cptr[0]+=sizeof(uint64_t), cache2[0]=*(uint64_t*)cptr[0], cptr[0]+=sizeof(uint64_t);
-		cache[1]=*(uint64_t*)cptr[1], cptr[1]+=sizeof(uint64_t), cache2[1]=*(uint64_t*)cptr[1], cptr[1]+=sizeof(uint64_t);
-		cache[2]=*(uint64_t*)cptr[2], cptr[2]+=sizeof(uint64_t), cache2[2]=*(uint64_t*)cptr[2], cptr[2]+=sizeof(uint64_t);
-#else
 		fread(&cache, 1, 8, fsrc);
 		fread(&cache2, 1, 8, fsrc);
-	//	cache	=acme_read(&rdptr, 8, fsrc);
-	//	cache2	=acme_read(&rdptr, 8, fsrc);
-#endif
-#ifdef _MSC_VER
-		int idx=0;
-#endif
 		for(int ky=0;ky<ih;++ky)
 		{
-#ifdef USE_ROWS
-			int16_t *rows[]=
-			{
-				pixels+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,
-				pixels+(XPAD*NCH*NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
-			};
-#endif
+			int16_t *rptr=pixels+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NVAL;
 			for(int kx=0;kx<iw;++kx)
 			{
-				uint64_t code, reg;
+				uint64_t code;
+				uint32_t reg;
 				int nzeros, prefix, nbypass[3];
 
-#ifdef USE_ROWS
-#ifdef USE_CG
-				{
-					int N[3], W[3], NW[3];
-					
-					NW[0]	=rows[1][0+(0-1*NCH)*NROWS*NVAL];
-					NW[1]	=rows[1][0+(1-1*NCH)*NROWS*NVAL];
-					NW[2]	=rows[1][0+(2-1*NCH)*NROWS*NVAL];
-					N[0]	=rows[1][0+(0+0*NCH)*NROWS*NVAL];
-					N[1]	=rows[1][0+(1+0*NCH)*NROWS*NVAL];
-					N[2]	=rows[1][0+(2+0*NCH)*NROWS*NVAL];
-					W[0]	=rows[0][0+(0-1*NCH)*NROWS*NVAL];
-					W[1]	=rows[0][0+(1-1*NCH)*NROWS*NVAL];
-					W[2]	=rows[0][0+(2-1*NCH)*NROWS*NVAL];
-					NW[0]=N[0]+W[0]-NW[0];
-					NW[1]=N[1]+W[1]-NW[1];
-					NW[2]=N[2]+W[2]-NW[2];
-					MEDIAN3V_CLOB(pred[0], N[0], W[0], NW[0]);
-					MEDIAN3V_CLOB(pred[1], N[1], W[1], NW[1]);
-					MEDIAN3V_CLOB(pred[2], N[2], W[2], NW[2]);
-				}
-#elif defined USE_SELECT
-				{
-					int NW[]=
-					{
-						rows[1][0+(0-1*NCH)*NROWS*NVAL],
-						rows[1][0+(1-1*NCH)*NROWS*NVAL],
-						rows[1][0+(2-1*NCH)*NROWS*NVAL],
-					};
-					int N[]=
-					{
-						rows[1][0+(0+0*NCH)*NROWS*NVAL],
-						rows[1][0+(1+0*NCH)*NROWS*NVAL],
-						rows[1][0+(2+0*NCH)*NROWS*NVAL],
-					};
-					int W[]=
-					{
-						rows[0][0+(0-1*NCH)*NROWS*NVAL],
-						rows[0][0+(1-1*NCH)*NROWS*NVAL],
-						rows[0][0+(2-1*NCH)*NROWS*NVAL],
-					};
-					int t0[]=
-					{
-						N[0]-NW[0],
-						N[1]-NW[1],
-						N[2]-NW[2],
-					};
-					int t1[]=
-					{
-						W[0]-NW[0],
-						W[1]-NW[1],
-						W[2]-NW[2],
-					};
-					pred[0]=(t0[0]-t1[0])*(t0[0]+t1[0])>0?N[0]:W[0];
-					pred[1]=(t0[1]-t1[1])*(t0[1]+t1[1])>0?N[1]:W[1];
-					pred[2]=(t0[2]-t1[2])*(t0[2]+t1[2])>0?N[2]:W[2];
-				}
-#else
-				pred[0]=(rows[1][0+(0+0*NCH)*NROWS*NVAL]+rows[0][0+(0-1*NCH)*NROWS*NVAL])>>1;
-				pred[1]=(rows[1][0+(1+0*NCH)*NROWS*NVAL]+rows[0][0+(1-1*NCH)*NROWS*NVAL])>>1;
-				pred[2]=(rows[1][0+(2+0*NCH)*NROWS*NVAL]+rows[0][0+(2-1*NCH)*NROWS*NVAL])>>1;
-//#ifdef FIFOVAL
-//				if(FIFOVAL==3)
-//					fifoval_check(pred[2]<<DEPTH*2^pred[1]<<DEPTH^pred[0]);
-//#endif
-#endif
-				estim[0]=rows[0][1+(0-1*NCH)*NROWS*NVAL];
-				estim[1]=rows[0][1+(1-1*NCH)*NROWS*NVAL];
-				estim[2]=rows[0][1+(2-1*NCH)*NROWS*NVAL];
-//#ifdef FIFOVAL
-//				if(FIFOVAL==3)
-//					fifoval_check(estim[2]<<DEPTH*2^estim[1]<<DEPTH^estim[0]);
-//#endif
-#endif
-				nbypass[0]=log2table[estim[0]];
-				nbypass[1]=log2table[estim[1]];
-				nbypass[2]=log2table[estim[2]];
-#ifdef USE_RLE
-				for(int kc=0;kc<3;++kc)
-				{
-//#ifdef FIFOVAL
-//					if((uint32_t)(idx-1600)<200&&kc==FIFOVAL)//
-//						printf("dec 0x%016zX  0x%016zX  %2d\n", (size_t)cache[kc], (uint64_t)cache2[kc], nbits[kc]);
-//#endif
-//					if(ky==2&&(kx==160||kx==161||kx==162)&&kc==2)//
-//						printf("");
-					if(run[kc])
-						--run[kc], sym[kc]=0;
-					else
-					{
-						if(nbits[kc]>=64)
-						{
-							cache[kc]=cache2[kc];
-							cache2[kc]=*(uint64_t*)cptr[kc];
-							cptr[kc]+=sizeof(uint64_t);
-							nbits[kc]-=64;
-						}
-						code=cache[kc]<<nbits[kc];
-						if(nbits[kc])
-							code|=cache2[kc]>>(64-nbits[kc]);
-
-						if(!run0[kc])//previous symbol was not from a run
-						{
-							run[kc]=code>>63;
-							code<<=1;
-							++nbits[kc];
-						}
-						if(run[kc])
-						{
-							int nbypass2=31-LZCNT32((runestim[kc]>>1)+1);
-
-							nzeros=(int)_lzcnt_u64(code);
-							prefix=nzeros<<nbypass2;
-							if(nzeros>MAXRUNBITS-1)
-								nzeros=MAXRUNBITS-1, nbypass2=MAXRUNBITS, prefix=0;
-							code<<=nzeros+1;
-							run[kc]=(int)(code>>(63-nbypass2)>>1);
-							//if(!nbypass2)
-							//	run[kc]=0;
-							//code<<=nbypass2;
-							run[kc]|=prefix;
-							run0[kc]=run[kc];
-#ifdef FIFOVAL
-							if(kc==FIFOVAL)
-								fifoval_check(1<<MAXRUNBITS|run[kc]);
-#endif
-							nbits[kc]+=nzeros+1+nbypass2;
-							
-							runestim[kc]+=(2*run[kc]-runestim[kc])>>2;
-							--run[kc];
-							sym[kc]=0;
-						}
-						else
-						{
-#if 0
-							int codelen;
-
-							nzeros=(int)LZCNT64(code);
-							sym[kc]=nzeros;
-							codelen=nzeros+1;
-							if(nzeros>RLIMIT-1)
-								sym[kc]=(int)(code<<RLIMIT>>(64-DEPTH)), codelen=RLIMIT+DEPTH;
-#ifdef FIFOVAL
-							if(kc==FIFOVAL)
-								fifoval_check(sym[kc]);
-#endif
-							nbits[kc]+=codelen;
-#else
-							nzeros=(int)LZCNT64(code);
-							prefix=nzeros<<nbypass[kc];
-							if(nzeros>RLIMIT-1)
-								nzeros=RLIMIT-1, nbypass[kc]=DEPTH, prefix=0;
-							code<<=nzeros+1;
-							sym[kc]=(int)(code>>(63-nbypass[kc])>>1);
-							//if(!nbypass[kc])
-							//	sym[kc]=0;
-							//code<<=nbypass[kc];
-							sym[kc]|=prefix;
-#ifdef FIFOVAL
-							if(kc==FIFOVAL)
-								fifoval_check(sym[kc]);
-#endif
-							nbits[kc]+=nzeros+1+nbypass[kc];
-#endif
-							run0[kc]=0;
-						}
-					}
-				}
-#else
+				nbypass[0]=log2table[rptr[1+(0-1*NCH)*NROWS*NVAL]];
+				nbypass[1]=log2table[rptr[1+(1-1*NCH)*NROWS*NVAL]];
+				nbypass[2]=log2table[rptr[1+(2-1*NCH)*NROWS*NVAL]];
 				if(nbits>=64)
 				{
 					cache=cache2;
@@ -1068,7 +1086,6 @@ int c59_codec(int argc, char **argv)
 						cache2|=d2;
 					}
 					rdptr+=8;
-					//cache2=acme_read(&rdptr, 8, fsrc);
 					nbits-=64;
 				}
 				code=cache<<nbits;
@@ -1118,63 +1135,31 @@ int c59_codec(int argc, char **argv)
 				}
 #endif
 				nbits+=nzeros+1+nbypass[2];
-#endif
-#ifdef USE_ROWS
-				//rows[0][1+(0+0*NCH)*NROWS*NVAL]=(estim[0]+(sym[0]<<RSHIFT))>>2;
-				//rows[0][1+(1+0*NCH)*NROWS*NVAL]=(estim[1]+(sym[1]<<RSHIFT))>>2;
-				//rows[0][1+(2+0*NCH)*NROWS*NVAL]=(estim[2]+(sym[2]<<RSHIFT))>>2;
-				rows[0][1+(0+0*NCH)*NROWS*NVAL]=(2*rows[0][1+(0-1*NCH)*NROWS*NVAL]+(sym[0]<<RSHIFT)+rows[1][1+(0+3*NCH)*NROWS*NVAL])>>2;
-				rows[0][1+(1+0*NCH)*NROWS*NVAL]=(2*rows[0][1+(1-1*NCH)*NROWS*NVAL]+(sym[1]<<RSHIFT)+rows[1][1+(1+3*NCH)*NROWS*NVAL])>>2;
-				rows[0][1+(2+0*NCH)*NROWS*NVAL]=(2*rows[0][1+(2-1*NCH)*NROWS*NVAL]+(sym[2]<<RSHIFT)+rows[1][1+(2+3*NCH)*NROWS*NVAL])>>2;
-#else
-				estim[0]+=(int)((sym[0]<<RSHIFT)-estim[0])>>(RSHIFT+1);
-				estim[1]+=(int)((sym[1]<<RSHIFT)-estim[1])>>(RSHIFT+1);
-				estim[2]+=(int)((sym[2]<<RSHIFT)-estim[2])>>(RSHIFT+1);
-#endif
+				rptr[1+(0+0*NCH)*NROWS*NVAL]=(2*rptr[1+(0-1*NCH)*NROWS*NVAL]+(sym[0]<<RSHIFT)+rptr[1+(0+3*NCH)*NROWS*NVAL])>>2;
+				rptr[1+(1+0*NCH)*NROWS*NVAL]=(2*rptr[1+(1-1*NCH)*NROWS*NVAL]+(sym[1]<<RSHIFT)+rptr[1+(1+3*NCH)*NROWS*NVAL])>>2;
+				rptr[1+(2+0*NCH)*NROWS*NVAL]=(2*rptr[1+(2-1*NCH)*NROWS*NVAL]+(sym[2]<<RSHIFT)+rptr[1+(2+3*NCH)*NROWS*NVAL])>>2;
 				sym[0]=packsign[sym[0]];
 				sym[1]=packsign[sym[1]];
 				sym[2]=packsign[sym[2]];
-				//if(ky==1052&&kx>=1108)//
-				//	printf("");
-				sym[0]+=pred[0];
-				sym[1]+=pred[1];
-				sym[2]+=pred[2];
+				sym[0]+=(rptr[0+(0+0*NCH)*NROWS*NVAL]+rptr[0+(0-1*NCH)*NROWS*NVAL])>>1;
+				sym[1]+=(rptr[0+(1+0*NCH)*NROWS*NVAL]+rptr[0+(1-1*NCH)*NROWS*NVAL])>>1;
+				sym[2]+=(rptr[0+(2+0*NCH)*NROWS*NVAL]+rptr[0+(2-1*NCH)*NROWS*NVAL])>>1;
 				sym[0]<<=32-DEPTH;
 				sym[1]<<=32-DEPTH;
 				sym[2]<<=32-DEPTH;
 				sym[0]>>=32-DEPTH;
 				sym[1]>>=32-DEPTH;
 				sym[2]>>=32-DEPTH;
-#if defined FIFOVAL && !defined USE_RLE
-				if(fifoval_check(sym[2]<<DEPTH*2^sym[1]<<DEPTH^sym[0]))
-				{
-					printf("%016zX\n", (size_t)cache);
-					printf("%016zX\n", (size_t)cache2);
-					CRASH("");
-				}
-#endif
-#ifdef USE_ROWS
-				rows[0][0+(0+0*NCH)*NROWS*NVAL]=sym[0];
-				rows[0][0+(1+0*NCH)*NROWS*NVAL]=sym[1];
-				rows[0][0+(2+0*NCH)*NROWS*NVAL]=sym[2];
-				rows[0]+=NCH*NROWS*NVAL;
-				rows[1]+=NCH*NROWS*NVAL;
-#else
-				pred[0]=sym[0];
-				pred[1]=sym[1];
-				pred[2]=sym[2];
-#endif
+				rptr[0+(0+0*NCH)*NROWS*NVAL]=sym[0];
+				rptr[0+(1+0*NCH)*NROWS*NVAL]=sym[1];
+				rptr[0+(2+0*NCH)*NROWS*NVAL]=sym[2];
+				rptr+=NCH*NROWS*NVAL;
 				sym[2]+=sym[0]>>2;
 				sym[1]-=(sym[0]+sym[2])>>2;
 				sym[2]+=sym[1];
 				sym[0]+=sym[1];
-				reg=(uint64_t)sym[2]<<16|(uint64_t)sym[1]<<8|sym[0];
-				//sym[1]<<=8;
-				//sym[2]<<=16;
-				//sym[0]|=sym[1];
-				//sym[0]|=sym[2];
-			//	reg=sym[0];
-				memcpy(wtptr, &reg, sizeof(uint64_t));
+				reg=sym[2]<<16|sym[1]<<8|sym[0];
+				memcpy(wtptr, &reg, sizeof(reg));
 				if(wtptr>=wtend)
 				{
 					fwrite(wtbuf+sizeof(uint64_t), 1, BUFSIZE, fdst);
@@ -1182,29 +1167,28 @@ int c59_codec(int argc, char **argv)
 					memcpy(wtptr, &reg, sizeof(uint64_t));
 				}
 				wtptr+=3;
-				//acme_write(&wtptr, 3, fdst, (uint64_t)sym[2]<<16|(uint64_t)sym[1]<<8|sym[0]);
-#ifdef _MSC_VER
-				++idx;
-#endif
 			}
 		}
 		(void)rdend;
 		(void)wtend;
 	}
+#endif
 	if(wtptr>wtbuf+sizeof(uint64_t))
 		fwrite(wtbuf+sizeof(uint64_t), 1, wtptr-(wtbuf+sizeof(uint64_t)), fdst);
 	fclose(fsrc);
 	fclose(fdst);
-#ifdef USE_ROWS
 	free(pixels);
-#endif
 #ifdef LOUD
 	t=time_sec2()-t;
 	if(fwd)
 	{
 		int64_t csize=0;
 		struct stat info={0};
-
+		
+#ifdef RICE2ESTIM
+		printf("%12.2lf\n", ricesize/8.);
+		printf("%12.2lf\n", rice2size/8.);
+#endif
 		stat(dstfn, &info);
 		csize=info.st_size;
 		printf("3*%7d*%7d  \"%s\"\n", iw, ih, srcfn);
@@ -1216,13 +1200,7 @@ int c59_codec(int argc, char **argv)
 		, t*1024*1024*1000/usize
 	);
 #endif
-#ifdef PROFILER
-	prof_end(prof_ctx);
-#endif
 	(void)usize;
-#ifdef USE_RLE
-	(void)csize;
-#endif
 	(void)&time_sec2;
 	(void)packsignptr;
 	return 0;
