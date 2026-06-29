@@ -133,10 +133,10 @@ int c59_codec(int argc, char **argv);//near portable rapid
 //	#define CODEC_EXT c53
 //	#define CODEC_EXT c54
 //	#define CODEC_EXT c55
-//	#define CODEC_EXT c56
+	#define CODEC_EXT c56
 //	#define CODEC_EXT c57
 //	#define CODEC_EXT c58
-	#define CODEC_EXT c59
+//	#define CODEC_EXT c59
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -236,7 +236,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-HUGE-ppm/space_huge.ppm"		//X
 	//	"C:/dataset-ic16-ppm/big_building.ppm"		//16-bit
 	//	"C:/dataset-ic8-ppm/big_building.ppm"
-		"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_05.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_13.ppm"
@@ -260,7 +260,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-RAW-ppm/a0014-WP_CRW_6320.ppm"
 	//	"C:/dataset-sintel-ppm"
 	//	"C:/dataset-sony-ppm/DSC00315.ppm"
-	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
+		"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/dataset-synth2-ppm/20240407 blank.ppm"

@@ -30,8 +30,10 @@
 
 #ifdef _MSC_VER
 	#define LOUD
-	#define ENABLE_GUIDE
+//	#define ENABLE_GUIDE
 //	#define DEBUG_LZ
+
+//	#define FIFOVAL
 #endif
 
 
@@ -40,12 +42,6 @@
 
 //runtime
 #if 1
-#define CLAMP2(X, LO, HI)\
-	do\
-	{\
-		if((X)<(LO))X=LO;\
-		if((X)>(HI))X=HI;\
-	}while(0)
 #ifdef _MSC_VER
 #	define ALIGN(N) __declspec(align(N))
 #	define INLINE __forceinline static
@@ -56,33 +52,17 @@
 #		define _countof(A) (sizeof(A)/sizeof(*(A)))
 #	endif
 #endif
+#define CLAMP2(X, L, H) X=(X)<(L)?L:X, X=(X)>(H)?H:X
 #if defined _M_X64 || defined __x86_64__
-#define FLOOR_LOG2(X)\
-	(sizeof(X)==8?63-(int32_t)_lzcnt_u64(X):31-_lzcnt_u32((uint32_t)(X)))
+#define LZCNT32 _lzcnt_u32
+#define LZCNT64 _lzcnt_u64
+#define TZCNT32 _tzcnt_u32
+#define TZCNT64 _tzcnt_u64
 #else
-INLINE int floor_log2_64(uint64_t n)
-{
-	int	logn=-!n;
-	int	sh=(n>=1ULL<<32)<<5;	logn+=sh, n>>=sh;
-		sh=(n>=1<<16)<<4;	logn+=sh, n>>=sh;
-		sh=(n>=1<< 8)<<3;	logn+=sh, n>>=sh;
-		sh=(n>=1<< 4)<<2;	logn+=sh, n>>=sh;
-		sh=(n>=1<< 2)<<1;	logn+=sh, n>>=sh;
-		sh= n>=1<< 1;		logn+=sh;
-	return logn;
-}
-INLINE int floor_log2_32(uint32_t n)
-{
-	int	logn=-!n;
-	int	sh=(n>=1<<16)<<4;	logn+=sh, n>>=sh;
-		sh=(n>=1<< 8)<<3;	logn+=sh, n>>=sh;
-		sh=(n>=1<< 4)<<2;	logn+=sh, n>>=sh;
-		sh=(n>=1<< 2)<<1;	logn+=sh, n>>=sh;
-		sh= n>=1<< 1;		logn+=sh;
-	return logn;
-}
-#define FLOOR_LOG2(X)\
-	(sizeof(X)==8?floor_log2_64(X):floor_log2_32((uint32_t)(X)))
+#define LZCNT32 __builtin_clz
+#define LZCNT64 __builtin_clzll
+#define TZCNT32 __builtin_ctz
+#define TZCNT64 __builtin_ctzll
 #endif
 static void crash(const char *file, int line, const char *format, ...)
 {
@@ -156,41 +136,113 @@ static void guide_check(const uint8_t *image, const uint8_t *im0, int kx, int ky
 	}
 }
 #endif
+#ifdef FIFOVAL
+static ptrdiff_t fifoidx=0, fifocap=0, fifoidx2=0;
+static uint32_t *fifoval=0;
+static void fifoval_enqueue(uint32_t val)
+{
+	if(fifoidx+1>=fifocap)
+	{
+		void *p=0;
+
+		if(!fifocap)
+			fifocap=1;
+		fifocap<<=1;
+		p=realloc(fifoval, fifocap*sizeof(uint32_t));
+		if(!p)
+		{
+			CRASH("Alloc error");
+			return;
+		}
+		fifoval=(uint32_t*)p;
+	}
+	fifoval[fifoidx++]=val;
+}
+static void fifoval_check(uint32_t val)
+{
+	uint32_t val0=fifoval[fifoidx2++];
+	if(val!=val0)
+	{
+		--fifoidx2;
+		printf(
+			"\n"
+			"FIFO Error  at %10lld,  remaining %10lld\n"
+			"    0x%08X  !=  original 0x%08X\n"
+			"\n"
+			, fifoidx2
+			, fifoidx-fifoidx2//current element was not decoded successfully
+			, val, val0
+		);
+		for(int k=-32;k<32;++k)
+		{
+			ptrdiff_t idx=fifoidx2+k;
+			if((size_t)idx<(size_t)fifoidx)
+			{
+				printf(
+					"%10td  0x%08X"
+					, idx
+					, fifoval[idx]
+				);
+				if(idx<fifoidx2)
+					printf("  OK");
+				if(idx==fifoidx2)
+					printf("  !=  corrupt 0x%08X", val);
+				printf("\n");
+			}
+		}
+		CRASH("");
+	}
+}
+#endif
 #endif
 
 enum
 {
 	LBITS=9,//log2 lookup table size
-	EBITS=11,//log2 number of collision cells
+	EBITS=14,//log2 number of collision cells
 	ESIZE=(1<<EBITS),
-	EMASK=ESIZE-1,
+//	EMASK=ESIZE-1,
+
+	CTRBITS=7,
 
 	LZAC_MIN=5,		//tune
 	LZAC_QBITS=6,		//tune
 	LZAC_QMAX=(1<<LZAC_QBITS),
 
-	LZAC_STOREBITS=24,
+	LZAC_STOREBITS=20,
 	LZAC_USEBITS=10,	//tune
-	LZAC_SHIFT=LZAC_STOREBITS-LZAC_USEBITS,
+//	LZAC_SHIFT=LZAC_STOREBITS-LZAC_USEBITS,
 
-	LZAC_ESTIMBITS=3,
-	LZAC_ESTIMLR=5,		//tune
+//	LZAC_ESTIMBITS=3,
+//	LZAC_ESTIMLR=5,		//tune
+	
+	LZAC_CTXBITS=12,
+//	LZAC_CTXBITS=14,
+//	LZAC_MODEHIST=8,
+//	LZAC_GAMMA_L=28,
+//	LZAC_NCTX=8,
 
-	LZAC_MODEHIST=8,
-	LZAC_GAMMA_L=28,
-	LZAC_NCTX=8,
+//	LZAC_LR_MODE=6,		//tune
+//	LZAC_LR_FIXED=5,
+//	LZAC_LR_GAMMA_U=6,
+//	LZAC_LR_GAMMA_B=7,
 
-	LZAC_LR_MODE=6,		//tune
-	LZAC_LR_FIXED=5,
-	LZAC_LR_GAMMA_U=6,
-	LZAC_LR_GAMMA_B=7,
-
-//	BUFSIZE=512*1024,	//buffering/streaming is incompatible with LZ
+	RICEBITS=3,
+	RICELIMIT=28,
 };
-typedef struct _SymCtx
+typedef struct _LZAC2Stats
 {
-	uint8_t sym, ctx;
-} SymCtx;
+	int32_t
+		litlen_ustats[RICELIMIT*RICELIMIT], litlen_bstats[(RICELIMIT+1)*512],
+		matchlen_ustats[RICELIMIT*RICELIMIT], matchlen_bstats[(RICELIMIT+1)*512],
+		backtrack_ustats[RICELIMIT*RICELIMIT], backtrack_bstats[(RICELIMIT+1)*512],
+		sym_stats[3][1<<LZAC_CTXBITS][256];
+} LZAC2Stats;
+static LZAC2Stats stats;
+//typedef struct _SymCtx
+//{
+//	uint8_t sym, ctx;
+//} SymCtx;
 typedef struct _ETable
 {
 	int32_t etable[ESIZE], estart, eend, ecount;
@@ -198,78 +250,24 @@ typedef struct _ETable
 static ETable tables[1<<LBITS];
 typedef struct _ACState
 {
-	uint64_t low, range, code;
+	uint64_t lo, hi, code;
 	uint8_t *ptr, *end;
 } ACState;
-#if 0
-static uint8_t rdbuf[BUFSIZE+sizeof(uint64_t)], wtbuf[BUFSIZE+sizeof(uint64_t)];
-INLINE uint64_t acme_read(uint8_t **pptr, ptrdiff_t size, FILE *f)
+static uint32_t ctrtable[1<<CTRBITS];
+INLINE void codebit(ACState *ac, int32_t *pcell, int32_t *pbit, const int fwd)
 {
-	uint8_t *ptr=*pptr;
-	uint64_t data=*(uint64_t*)ptr;
-	ptrdiff_t left;
-
-	/*
-	overflow:
-	|                    ______left______   ______right_____
-	|                   /                \ /                \
-	|buf1start ... ... [datastart  buf1end|buf2start  dataend] ...
-	|                   \________________    _______________/
-	|                                    size
-	*/
+	uint64_t x;
+	int32_t cell, ctr, prob, p0;
+	int bit;
 	
-	left=rdbuf+BUFSIZE-ptr;
-	ptr+=size;
-	if(left<size)
-	{
-		fread(rdbuf, 1, BUFSIZE, f);
-		ptr=(rdbuf+size)-left;
-		left<<=3;
-		data&=0xFFFFFFFFFFFFFFFF>>(64-left);
-		data|=*(uint64_t*)rdbuf<<left;
-	}
-	*pptr=ptr;
-	return data;
-}
-INLINE void acme_write(uint8_t **pptr, ptrdiff_t size, FILE *f, uint64_t data)
-{
-	uint8_t *ptr=*pptr;
-	ptrdiff_t left;
-	
-	/*
-	overflow:
-	|                    ______left______   ______right_____
-	|                   /                \ /                \
-	|buf1start ... ... [datastart  buf1end|buf2start  dataend] ...
-	|                   \________________    _______________/
-	|                                    size
-	*/
-	
-	*(uint64_t*)ptr=data;
-	left=wtbuf+BUFSIZE-ptr;
-	ptr+=size;
-	if(left<size)
-	{
-		fwrite(wtbuf, 1, BUFSIZE, f);
-		ptr=(wtbuf+size)-left;
-		left<<=3;
-		data>>=left;
-		*(uint64_t*)wtbuf=data;
-	}
-	*pptr=ptr;
-}
-#endif
-INLINE void codebit(ACState *ac, int32_t *pp0, int32_t *bit, const int fwd, const int lr)
-{
-	int rbit;
-	uint64_t r2, mid;
-	
-	int32_t p0r=*pp0;
-	int32_t p0=p0r>>LZAC_SHIFT;
-
+	cell=*pcell;
+	x=ac->hi-ac->lo;
+	ctr=ctrtable[cell&((1<<CTRBITS)-1)];
+	prob=cell>>CTRBITS;
+	p0=cell>>(CTRBITS+LZAC_STOREBITS-LZAC_USEBITS);
 	p0+=p0<0;
 	p0+=1<<LZAC_USEBITS>>1;
-	if(ac->range<=0xFFFF)
+	if(x<=0xFFFF)
 	{
 		if(ac->ptr>=ac->end)
 		{
@@ -279,31 +277,38 @@ INLINE void codebit(ACState *ac, int32_t *pp0, int32_t *bit, const int fwd, cons
 			return;
 		}
 		if(fwd)
-			*(uint32_t*)ac->ptr=(uint32_t)(ac->low>>32);
+			*(uint32_t*)ac->ptr=(uint32_t)(ac->lo>>32);
 		else
 			ac->code=ac->code<<32|*(uint32_t*)ac->ptr;
 		ac->ptr+=sizeof(uint32_t);
-		ac->low<<=32;
-		ac->range=ac->range<<32|0xFFFFFFFF;
-		if(ac->range>~ac->low)
-			ac->range=~ac->low;
+		ac->lo<<=32;
+		ac->hi=ac->hi<<32|0xFFFFFFFF;
+		if(ac->hi<ac->lo)
+			ac->hi=~0ULL;
+		x=ac->hi-ac->lo;
 	}
-	r2=ac->range*p0>>LZAC_USEBITS;
-	mid=ac->low+r2;
-	ac->range-=r2;
-	--r2;
+	x=ac->lo+(x*p0>>LZAC_USEBITS);
+	bit=*pbit;
+	bit=fwd?bit:ac->code>=x;
+	*pbit=bit;
+#ifdef FIFOVAL
+	//const int breakidx=45;
+	//if(fifoidx==breakidx)//
+	//	printf("");
+	//if(fifoidx2==breakidx)//
+	//	printf("");
+	if((uint32_t)(p0-1)>=(1<<LZAC_USEBITS))
+		CRASH("");
 	if(fwd)
-		rbit=*bit;
+		fifoval_enqueue(cell<<1^bit);
 	else
-		*bit=rbit=ac->code>=mid;
-	if(rbit)
-		ac->low=mid;
-	else
-		ac->range=r2;
-
-	p0r+=((!rbit<<LZAC_STOREBITS)-(1<<LZAC_STOREBITS>>1)-p0r)>>lr;
-	*pp0=p0r;
+		fifoval_check(cell<<1^bit);
+#endif
+	*(bit?&ac->lo:&ac->hi)=x+bit-1;
+	prob+=((((1-2*bit)<<(LZAC_STOREBITS-1))-prob)>>(uint8_t)ctr);
+	*pcell=prob<<CTRBITS|ctr>>16;
 }
+#if 0
 static void codefixed(ACState *ac, int32_t *stats, int *psym, const int nbits, const int fwd)//stats[1<<NBITS]
 {
 	int sym=0;
@@ -333,7 +338,7 @@ static void codegamma(ACState *ac, int32_t *stats, int *psym, const int fwd)//sy
 		if(sym<1)
 			CRASH("");
 #endif
-		nbits=FLOOR_LOG2(sym);
+		nbits=31^LZCNT32(sym);
 	}
 	do
 	{
@@ -357,12 +362,170 @@ static void codegamma(ACState *ac, int32_t *stats, int *psym, const int fwd)//sy
 	if(!fwd)
 		*psym=sym;
 }
-static int32_t
-	stats_mode[LZAC_MODEHIST],
-	stats_matchlen[2*LZAC_GAMMA_L+1],
-	stats_backtrack[2*LZAC_GAMMA_L+1],
-	stats_qlen[LZAC_QMAX],
-	stats_sym[3*LZAC_NCTX][256];
+//static int32_t
+//	stats_mode[LZAC_MODEHIST],
+//	stats_matchlen[2*LZAC_GAMMA_L+1],
+//	stats_backtrack[2*LZAC_GAMMA_L+1],
+//	stats_qlen[LZAC_QMAX],
+//	stats_sym[3*LZAC_NCTX][256];
+#endif
+static int codefixed(ACState *ac, int32_t *stats, int sym, const int nbits, const int fwd)//stats[1<<NBITS]
+{
+	for(int kb=nbits-1, tidx=1;kb>=0;--kb)
+	{
+		int bit=sym>>kb&1;
+		codebit(ac, stats+tidx, &bit, fwd);
+		sym|=bit<<kb;
+		tidx=2*tidx+bit;
+	}
+#ifdef FIFOVAL
+	if(fwd)
+		fifoval_enqueue((uint32_t)(size_t)stats^sym);
+	else
+		fifoval_check((uint32_t)(size_t)stats^sym);
+#endif
+	return sym;
+}
+static int coderice(ACState *ac, int32_t *ustats, int32_t *bstats, int sym, int *pestim, int ricelimit, int maxbits, const int fwd)
+{
+	int ricek, q, tidx, bit, limitflag, ricek2, tidx2, nbits;
+	//ustats[RICELIMIT_SYM*RICELIMIT_SYM], bstats[(RICELIMIT_SYM+1)*MIN(NLEVELS, 512)]
+	ricek=31-LZCNT32((*pestim>>RICEBITS)+1);
+	q=sym>>ricek;
+	tidx=0;
+	ustats+=ricek*ricelimit;
+	do
+	{
+		bit=tidx>=q;
+		codebit(ac, ustats+tidx, &bit, fwd);
+		if(bit)
+			break;
+		++tidx;
+	}
+	while(tidx<ricelimit);
+	q=tidx<<ricek;
+	limitflag=0;
+	nbits=maxbits;
+	if(maxbits>9)
+		nbits=9;
+	bstats+=(ptrdiff_t)ricek<<nbits;//ctx
+	ricek2=ricek;
+	if(tidx>=ricelimit)
+	{
+		limitflag=1;
+		sym-=q;
+		ricek2=(1<<maxbits)-q;
+		if(ricek2<=0)
+			CRASH("ricek2<=0");
+		ricek2=32-LZCNT32(ricek2);
+		tidx=0;
+	}
+	tidx+=1<<maxbits>>ricek2;//tidx=0b1xx...
+	tidx2=1;
+	if(tidx<=511)
+		tidx2=tidx;
+	for(int kb=ricek2-1;kb>=0;--kb)
+	{
+		bit=sym>>kb&1;
+		codebit(ac, bstats+tidx2, &bit, fwd);
+		tidx=2*tidx+bit;
+		if(tidx<=511)
+			tidx2=tidx;
+	}
+#ifdef _MSC_VER
+	if(fwd&&tidx-(1<<maxbits)!=sym)
+		CRASH("enc rice");
+#endif
+	if(limitflag)
+		tidx+=q;
+	sym=tidx-(1<<maxbits);
+	*pestim+=((sym<<RICEBITS)-*pestim)>>(RICEBITS+1);
+#ifdef FIFOVAL
+	if(fwd)
+		fifoval_enqueue(sym);
+	else
+		fifoval_check(sym);
+#endif
+	return sym;
+}
+static void findmatch(uint8_t *imptr, uint8_t *imstart, uint8_t *searchend, uint8_t *imend, int *ret_matchlen, int *ret_matchidx)
+{
+	uint64_t x;
+	ETable *table;
+	int matchlen=0, matchidx=0, ctr;
+
+	x=*(uint64_t*)imptr+1;
+	x^=x>>33;
+	x*=0xFF51AFD7ED558CCDULL;
+	x^=x>>33;
+//	x*=0xC4CEB9FE1A85EC53ULL;
+//	x^=x>>33;
+	table=tables+(x>>(64-LBITS));
+	ctr=table->ecount;
+	while(ctr)
+	{
+		int tidx=(table->estart+ctr-1)&((1<<EBITS)-1);
+		int idx=table->etable[tidx], len=0;
+		uint8_t *search1=imstart+idx;
+		uint8_t *search2=imptr;
+		uint64_t cmp1=~0ULL, cmp2=~0ULL;
+		uint64_t c1, c2;
+
+		if(*(uint32_t*)search1==*(uint32_t*)search2)
+		{
+			for(;;)
+			{
+				cmp1=((uint64_t*)search1)[0]^((uint64_t*)search2)[0];//22%
+				cmp2=((uint64_t*)search1)[1]^((uint64_t*)search2)[1];
+				if((cmp1|cmp2)||search2>=searchend)
+					break;
+				search1+=sizeof(uint64_t[2]);
+				search2+=sizeof(uint64_t[2]);
+			}
+			c1=TZCNT64(cmp1)>>3;
+			c2=TZCNT64(cmp2)>>3;
+			if(!cmp1)
+				len+=(int)c2;
+			len+=(int)(search2-imptr+c1);
+			if(len>imend-imptr)
+				len=(int)(imend-imptr);
+			if(len>matchlen||(len==matchlen&&idx>matchidx))
+				matchidx=idx, matchlen=len;
+		}
+		--ctr;
+	}
+	table->etable[table->eend]=(int32_t)(imptr-imstart);
+	table->eend=(table->eend+1)&((1<<EBITS)-1);
+	if(table->ecount>=1<<EBITS)
+		table->estart=(table->estart+1)&((1<<EBITS)-1);
+	else
+		++table->ecount;
+	*ret_matchlen=matchlen;
+	*ret_matchidx=matchidx;
+}
+#if 0
+static void memfill(void *dst, const void *src, size_t dstbytes, size_t srcbytes)
+{
+	size_t copied;
+	char *d=(char*)dst;
+	const char *s=(const char*)src;
+
+	if(dstbytes<srcbytes)
+	{
+		memcpy(dst, src, dstbytes);
+		return;
+	}
+	copied=srcbytes;
+	memcpy(d, s, srcbytes);
+	while((copied<<1)<=dstbytes)
+	{
+		memcpy(d+copied, d, copied);
+		copied<<=1;
+	}
+	if(copied<dstbytes)
+		memcpy(d+copied, d, dstbytes-copied);
+}
+#endif
 int c56_codec(int argc, char **argv)
 {
 	const int16_t tag='5'|'6'<<8;
@@ -370,16 +533,17 @@ int c56_codec(int argc, char **argv)
 	const char *srcfn=0, *dstfn=0;
 	int fwd=0, iw=0, ih=0;
 	int rowstride=0;
-	int estim[]={32, 32, 32};
-	int prevmode=1, prevqlen=0, prevmatchlen=0, prevbacktrack=0;
-#ifdef LZ_SINGLECHANNEL
-	const
-#endif
+//	int estim[]={32, 32, 32};
+//	int prevmode=1, prevqlen=0, prevmatchlen=0, prevbacktrack=0;
+//#ifdef LZ_SINGLECHANNEL
+//	const
+//#endif
 	int kc=0;
 	ptrdiff_t usize=0, csize=0, headersize=0, cap=0;
 	uint8_t *buf=0, *image=0, *streamstart=0, *streamend=0;
 	ACState ac={0};
 	uint8_t *imptr=0, *imend=0;
+	int32_t litlen_estim=1<<RICEBITS, matchlen_estim=1<<RICEBITS, backtrack_estim=1<<RICEBITS;
 #ifdef ENABLE_GUIDE
 	static uint8_t *im0=0;
 #endif
@@ -397,9 +561,9 @@ int c56_codec(int argc, char **argv)
 	int debug_block=0;
 #endif
 
-	(void)prevqlen;
-	(void)prevmatchlen;
-	(void)prevbacktrack;
+	//(void)prevqlen;
+	//(void)prevmatchlen;
+	//(void)prevbacktrack;
 	if(argc!=3)
 	{
 		printf(
@@ -500,6 +664,8 @@ int c56_codec(int argc, char **argv)
 		usize=(ptrdiff_t)3*iw*ih;
 		cap=(ptrdiff_t)7*iw*ih;
 		buf=(uint8_t*)malloc(cap);
+		if(!buf)
+			CRASH("Alloc error");
 #ifdef _MSC_VER
 		memset(buf, 0, cap);
 #endif
@@ -535,18 +701,172 @@ int c56_codec(int argc, char **argv)
 		}
 		fclose(fsrc);
 	}
-	memset(stats_mode, 0, sizeof(stats_mode));
-	memset(stats_matchlen, 0, sizeof(stats_matchlen));
-	memset(stats_backtrack, 0, sizeof(stats_backtrack));
-	memset(stats_qlen, 0, sizeof(stats_qlen));
-	memset(stats_sym, 0, sizeof(stats_sym));
-	ac.range=0xFFFFFFFFFFFF;
+	//memset(stats_mode, 0, sizeof(stats_mode));
+	//memset(stats_matchlen, 0, sizeof(stats_matchlen));
+	//memset(stats_backtrack, 0, sizeof(stats_backtrack));
+	//memset(stats_qlen, 0, sizeof(stats_qlen));
+	//memset(stats_sym, 0, sizeof(stats_sym));
+	memset(&stats, 0, sizeof(stats));
+	ac.hi=0xFFFFFFFFFFFF;
 	ac.ptr=streamstart;
 	ac.end=streamend;
 	imptr=image;
 	imend=image+usize;
+	for(int k=0;k<1<<CTRBITS;++k)
+	{
+		int next=k+1, sh=31^LZCNT32(k+2);
+		if(next>(1<<CTRBITS)-1)
+			next=(1<<CTRBITS)-1;
+		ctrtable[k]=next<<16|sh;
+	}
 	if(fwd)
 	{
+#if 1
+		uint8_t *imptr0=imptr, *searchend=image+usize-sizeof(uint64_t[2]);
+
+		//[lit_len/Rice][literals/fixed8...][match_len/Rice][offset/Rice]
+		memset(tables, 0, sizeof(tables));
+		for(;;)
+		{
+			int matchlen=0, matchidx=0;
+
+			if(imptr<imend)
+			{
+				findmatch(imptr, image, searchend, imend, &matchlen, &matchidx);
+#if 0
+				uint64_t x;
+				ETable *table;
+				int ctr;
+
+				x=*(uint64_t*)imptr+1;
+				x^=x>>33;
+				x*=0xFF51AFD7ED558CCDULL;
+				x^=x>>33;
+				x*=0xC4CEB9FE1A85EC53ULL;
+				x^=x>>33;
+				table=tables+(x>>(64-LBITS));
+				ctr=table->ecount;
+				while(ctr)
+				{
+					int tidx=(table->estart+ctr-1)&((1<<EBITS)-1);
+					int idx=table->etable[tidx], len=0;
+					uint8_t *search1=image+idx;
+					uint8_t *search2=imptr;
+					uint64_t cmp1=~0ULL, cmp2=~0ULL;
+					uint64_t c1, c2;
+
+					if(*(uint32_t*)search1==*(uint32_t*)search2)
+					{
+						for(;;)
+						{
+							cmp1=((uint64_t*)search1)[0]^((uint64_t*)search2)[0];//22%
+							cmp2=((uint64_t*)search1)[1]^((uint64_t*)search2)[1];
+							if((cmp1|cmp2)||search2>=searchend)
+								break;
+							search1+=sizeof(uint64_t[2]);
+							search2+=sizeof(uint64_t[2]);
+						}
+						c1=TZCNT64(cmp1)>>3;
+						c2=TZCNT64(cmp2)>>3;
+						if(!cmp1)
+							len+=(int)c2;
+						len+=(int)(search2-imptr+c1);
+						if(len>imend-imptr)
+							len=(int)(imend-imptr);
+						if(len>matchlen||(len==matchlen&&idx>matchidx))
+							matchidx=idx, matchlen=len;
+					}
+					--ctr;
+				}
+				table->etable[table->eend]=(int32_t)(imptr-image);
+				table->eend=(table->eend+1)&((1<<EBITS)-1);
+				if(table->ecount>=1<<EBITS)
+					table->estart=(table->estart+1)&((1<<EBITS)-1);
+				else
+					++table->ecount;
+#endif
+				if(matchlen<=LZAC_MIN)
+				{
+					++imptr;
+					continue;
+				}
+#if 1
+			//again:
+				{
+					uint8_t *imptr1=imptr;
+					int matchlen1=0, matchidx1=0;
+					int matchlen2=0, matchidx2=0;
+					int matchlen3=0, matchidx3=0;
+					int matchlen4=0, matchidx4=0;
+					//int matchlen5=0, matchidx5=0;
+
+					findmatch(imptr+1, image, searchend, imend, &matchlen1, &matchidx1);
+					findmatch(imptr+2, image, searchend, imend, &matchlen2, &matchidx2);
+					findmatch(imptr+3, image, searchend, imend, &matchlen3, &matchidx3);
+					findmatch(imptr+4, image, searchend, imend, &matchlen4, &matchidx4);
+					//findmatch(imptr+5, image, searchend, imend, &matchlen5, &matchidx5);
+					if(matchlen1>matchlen+LZAC_MIN)
+					{
+						imptr=imptr1+1;
+						matchlen=matchlen1;
+						matchidx=matchidx1;
+						//goto again;
+					}
+					if(matchlen2>matchlen+LZAC_MIN)
+					{
+						imptr=imptr1+2;
+						matchlen=matchlen2;
+						matchidx=matchidx2;
+					}
+					if(matchlen3>matchlen+LZAC_MIN)
+					{
+						imptr=imptr1+3;
+						matchlen=matchlen3;
+						matchidx=matchidx3;
+					}
+					if(matchlen4>matchlen+LZAC_MIN)
+					{
+						imptr=imptr1+4;
+						matchlen=matchlen4;
+						matchidx=matchidx4;
+					}
+					//if(matchlen5>matchlen+LZAC_MIN)
+					//{
+					//	imptr=imptr1+5;
+					//	matchlen=matchlen5;
+					//	matchidx=matchidx5;
+					//}
+				}
+#endif
+			}
+			coderice(&ac, stats.litlen_ustats, stats.litlen_bstats, (int)(imptr-imptr0), &litlen_estim, RICELIMIT, RICELIMIT, 1);
+			kc=(uint32_t)(imptr0-image)%3;
+			while(imptr0<imptr)
+			{
+				codefixed(&ac
+					, stats.sym_stats[kc][((imptr0[-2]-imptr0[-1])<<6^imptr0[-1])&((1<<LZAC_CTXBITS)-1)]
+				//	, stats.sym_stats[((imptr0[-3]-imptr0[-1])<<12^(imptr0[-2]-imptr0[-1])<<6^imptr0[-1])&((1<<LZAC_CTXBITS)-1)]
+					, *imptr0, 8, 1
+				);
+				++imptr0;
+				++kc;
+				if(kc>2)
+					kc=0;
+			}
+			if(imptr>=imend)
+				break;
+			coderice(&ac, stats.matchlen_ustats, stats.matchlen_bstats, matchlen, &matchlen_estim, RICELIMIT, RICELIMIT, 1);
+			coderice(&ac, stats.backtrack_ustats, stats.backtrack_bstats, (int)(imptr-image-matchidx), &backtrack_estim, RICELIMIT, RICELIMIT, 1);
+			imptr+=matchlen;
+			imptr0=imptr;
+			if(imptr>=imend)
+				break;
+		}
+		*(uint64_t*)ac.ptr=ac.lo<<32|ac.lo>>32;//flush
+		ac.ptr+=sizeof(uint64_t);
+		streamend=ac.ptr;
+#endif
+#if 0
 		const int queuesize=sizeof(SymCtx[LZAC_QMAX]);
 		SymCtx *queue=(SymCtx*)malloc(queuesize);
 		int qcount=0, qstart=0, qend=0;
@@ -791,7 +1111,7 @@ int c56_codec(int argc, char **argv)
 			}
 			else//encode pixel normally
 			{
-				int ctx=FLOOR_LOG2(estim[kc]*estim[kc]+1);
+				int ctx=31^LZCNT32(estim[kc]*estim[kc]+1);
 				if(ctx>LZAC_NCTX-1)
 					ctx=LZAC_NCTX-1;
 				int
@@ -868,9 +1188,109 @@ int c56_codec(int argc, char **argv)
 		*(uint64_t*)ac.ptr=ac.low;//flush
 		ac.ptr+=sizeof(uint64_t);
 		streamend=ac.ptr;
+#endif
 	}
 	else//dec
 	{
+		int litlen, matchlen, bt;
+		uint8_t *srcptr, *matchend;
+
+		ac.code=*(uint64_t*)ac.ptr;//load
+		ac.ptr+=sizeof(uint64_t);
+		ac.code=ac.code<<32|ac.code>>32;
+		while(imptr<imend)
+		{
+			litlen=coderice(&ac, stats.litlen_ustats, stats.litlen_bstats, 0, &litlen_estim, RICELIMIT, RICELIMIT, 0);
+			kc=(uint32_t)(imptr-image)%3;
+			while(litlen--)
+			{
+				*imptr=codefixed(&ac
+					, stats.sym_stats[kc][((imptr[-2]-imptr[-1])<<6^imptr[-1])&((1<<LZAC_CTXBITS)-1)]
+				//	, stats.sym_stats[((imptr[-3]-imptr[-1])<<12^(imptr[-2]-imptr[-1])<<6^imptr[-1])&((1<<LZAC_CTXBITS)-1)]
+					, 0, 8, 0
+				);
+#ifdef ENABLE_GUIDE
+				if(*imptr!=g_image[imptr-image])
+					CRASH("guide  %d", imptr-image);
+#endif
+				++imptr;
+				++kc;
+				if(kc>2)
+					kc=0;
+			}
+			if(imptr>=imend)
+				break;
+			matchlen=coderice(&ac, stats.matchlen_ustats, stats.matchlen_bstats, 0, &matchlen_estim, RICELIMIT, RICELIMIT, 0);
+			bt=coderice(&ac, stats.backtrack_ustats, stats.backtrack_bstats, 0, &backtrack_estim, RICELIMIT, RICELIMIT, 0);
+			srcptr=imptr-bt;
+			matchend=imptr+matchlen;
+
+#if 1
+			if(bt<matchlen)//overlap
+			{
+				size_t copied=bt;
+
+				while((size_t)(copied-1)<((size_t)matchlen+bt-1))
+				{
+					memcpy(imptr, srcptr, copied);
+					imptr+=copied;
+					copied+=copied;
+					if(copied>(size_t)(matchend-imptr))
+						copied=matchend-imptr;
+				}
+				//if(imptr!=matchend)
+				//	CRASH("");
+			}
+			else//disjoint
+				memcpy(imptr, srcptr, matchlen);
+			imptr=matchend;
+#endif
+			//while(imptr<matchend)
+			//{
+			//	*imptr=imptr[-bt];
+			//	++imptr;
+			//}
+#if 0
+			if(bt==1)
+			{
+				memset(imptr, imptr[-1], matchlen);
+				imptr+=matchlen;
+			}
+			else
+			{
+				while(imptr<matchend)
+					*imptr++=*srcptr++;
+			}
+#endif
+
+			//X
+#if 0
+			//if(bt==1)
+			//	printf("");
+			if(matchlen>bt)
+			{
+				uint8_t *fillend=imptr+bt, *s0=srcptr;
+
+				while(imptr<fillend)
+					*imptr++=*srcptr++;
+				srcptr=s0;
+			}
+			while(imptr<matchend)
+			{
+				*(uint64_t*)imptr=*(uint64_t*)srcptr;
+#ifdef ENABLE_GUIDE
+				if(*imptr!=g_image[imptr-image])
+					CRASH("guide  %d", imptr-image);
+#endif
+				srcptr+=sizeof(uint64_t);
+				imptr+=sizeof(uint64_t);
+			}
+			imptr=matchend;
+#endif
+			//while(imptr<matchend)
+			//	*imptr++=*srcptr++;
+		}
+#if 0
 		ac.code=*(uint64_t*)ac.ptr;//load
 		ac.ptr+=sizeof(uint64_t);
 		ac.code=ac.code<<32|ac.code>>32;
@@ -913,7 +1333,7 @@ int c56_codec(int argc, char **argv)
 			{
 				while(imptr<fillend)
 				{
-					int ctx=FLOOR_LOG2(estim[kc]*estim[kc]+1);
+					int ctx=31^LZCNT32(estim[kc]*estim[kc]+1);
 					if(ctx>LZAC_NCTX-1)
 						ctx=LZAC_NCTX-1;
 					int
@@ -1029,6 +1449,7 @@ int c56_codec(int argc, char **argv)
 #endif
 			}
 		}
+#endif
 	}
 	{
 		FILE *fdst=fopen(dstfn, "wb");

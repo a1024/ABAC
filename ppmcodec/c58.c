@@ -125,7 +125,7 @@ enum
 #define	ALIGN(N) __attribute__((aligned(N)))
 #endif
 #endif
-#define CLAMP2(X, LO, HI) X=X>LO?X:LO, X=X<HI?X:HI
+#define CLAMP2(X, L, H) X=X<(L)?L:X, X=X>(H)?H:X
 #define CVTFP32_I32(X) _mm_cvt_ss2si(_mm_set_ss(X))
 #define CVTTFP32_I32(X) _mm_cvtt_ss2si(_mm_set_ss(X))
 #define CVTFP64_I64(X) _mm_cvtsd_si64(_mm_set_sd(X))

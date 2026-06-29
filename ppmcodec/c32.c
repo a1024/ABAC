@@ -259,6 +259,27 @@ static void prof_print(ptrdiff_t usize)
 
 //cRCT
 #if 1
+typedef enum _RCTInfoIdx
+{
+	II_OCH_Y,
+	II_OCH_U,
+	II_OCH_V,
+
+	II_PERM_Y,
+	II_PERM_U,
+	II_PERM_V,
+
+	II_COEFF_U_SUB_Y,
+	II_COEFF_V_SUB_Y,
+	II_COEFF_V_SUB_U,
+
+//	II_COEFF_Y_SUB_U,
+//	II_COEFF_Y_SUB_V,
+//	II_COEFF_U_SUB_V_NBLI,
+//	II_COEFF_V_SUB_U_NBLI,
+
+	II_COUNT,
+} RCTInfoIdx;
 #ifndef ENABLE_RCT_EXTENSION
 #define OCHLIST\
 	OCH(Y400) OCH(Y040) OCH(Y004)\
@@ -333,27 +354,6 @@ static const char *och_names[]=
 	OCHLIST
 #undef  OCH
 };
-typedef enum _RCTInfoIdx
-{
-	II_OCH_Y,
-	II_OCH_U,
-	II_OCH_V,
-
-	II_PERM_Y,
-	II_PERM_U,
-	II_PERM_V,
-
-	II_COEFF_U_SUB_Y,
-	II_COEFF_V_SUB_Y,
-	II_COEFF_V_SUB_U,
-
-//	II_COEFF_Y_SUB_U,
-//	II_COEFF_Y_SUB_V,
-//	II_COEFF_U_SUB_V_NBLI,
-//	II_COEFF_V_SUB_U_NBLI,
-
-	II_COUNT,
-} RCTInfoIdx;
 //YUV = RCT * RGB	watch out for permutation in last row
 //luma: averaging	chroma: subtraction
 //example: _400_40X_3X1 == [1 0 0; -1 0 1; -3/4 1 -1/4]
@@ -574,6 +574,23 @@ static const char *rct_names[RCT_COUNT]=
 #endif
 
 
+static void acme_write(FILE *f, const uint8_t *buf, size_t size)
+{
+	enum
+	{
+		CHUNKSIZE=2<<20,
+	};
+	const uint8_t *ptr=buf, *end=buf+size;
+	
+	while(ptr<end)
+	{
+		size_t delta=end-ptr;
+		if(delta>CHUNKSIZE)
+			delta=CHUNKSIZE;
+		fwrite(ptr, 1, delta, f);
+		ptr+=delta;
+	}
+}
 #ifdef WG4_PRINTMAXERR
 static uint32_t maxerror[16*8]={0};
 #endif
@@ -2000,7 +2017,8 @@ static void save_ppm(const char *fn, const uint8_t *image, int iw, int ih)
 		return;
 	}
 	fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
-	fwrite(image, 1, (ptrdiff_t)3*iw*ih, fdst);
+	acme_write(fdst, image, (ptrdiff_t)3*iw*ih);
+//	fwrite(image, 1, (ptrdiff_t)3*iw*ih, fdst);
 	fclose(fdst);
 }
 static void decorr1d(uint8_t *data, int count, int bytestride, int bestrct, int *rhist)
@@ -5441,6 +5459,8 @@ int c32_codec(int argc, char **argv)
 			if(streamptr<image)
 				LOG_ERROR("OOB ptr %016zX < %016zX", streamptr, image);
 #endif
+		//	acme_write(fdst, streamptr, streamstart-streamptr);
+		//	csize2+=streamstart-streamptr;
 			csize2+=fwrite(streamptr, 1, streamstart-streamptr, fdst);
 			fclose(fdst);
 			

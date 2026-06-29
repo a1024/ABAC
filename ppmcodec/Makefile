@@ -285,4 +285,4 @@ c59:
 #	clang -Wall -O3 -s -Dc59_codec=main c59.c -o c59
 
 c59-debug:
-	clang -Wall -O3 -g -D_DEBUG -mavx2 -mlzcnt codec.c util.c c59.c -o c59 -static
+	clang -Wall -O3 -g -D_DEBUG codec.c util.c c59.c -o c59 -static

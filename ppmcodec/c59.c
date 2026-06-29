@@ -27,18 +27,18 @@
 
 #ifdef _MSC_VER
 	#define LOUD
-	#define RICE2ESTIM
+//	#define RICE2ESTIM
 
-//	#define FIFOVAL 3
+	#define FIFOVAL
 #endif
 
-	#define USE_AC
+//	#define USE_AC
 
 
 enum
 {
 	DEPTH=9,
-	RLIMIT=12,
+	RLIMIT=9,
 	BUFSIZE=512<<10,
 #ifdef USE_AC
 	NCTX=16,//POT
@@ -919,7 +919,8 @@ int c59_codec(int argc, char **argv)
 	if(fwd)
 	{
 		static uint8_t *const rdend=rdbuf+sizeof(uint64_t)+BUFSIZE-3;
-		static uint8_t *const wtend=wtbuf+sizeof(uint64_t)+BUFSIZE-sizeof(uint64_t);
+		static uint8_t *const wtend=wtbuf+sizeof(uint64_t)+BUFSIZE;
+	//	static uint8_t *const wtend=wtbuf+sizeof(uint64_t)+BUFSIZE-sizeof(uint64_t);
 
 		for(int k=0;k<1024;++k)
 		{
@@ -932,6 +933,19 @@ int c59_codec(int argc, char **argv)
 		{
 			for(int kb=0;kb<8;++kb)
 			{
+#if 1
+				uint32_t code;
+				int nzeros, stopbit, nbypass, codelen;
+				
+				nbypass=kb;
+				nzeros=ks>>kb;
+				stopbit=nzeros<RLIMIT;
+				codelen=nzeros+1+kb;
+				if(nzeros>=RLIMIT)
+					nzeros=RLIMIT, stopbit=0, nbypass=DEPTH, codelen=RLIMIT+DEPTH;
+				code=(ks&((1<<nbypass)-1))<<(nzeros+stopbit)|stopbit<<nzeros;
+				enctable[ks<<3|kb]=code<<8|codelen;
+#else
 				uint32_t code;
 				int nbypass, codelen, nzeros;
 
@@ -945,6 +959,7 @@ int c59_codec(int argc, char **argv)
 				if(nzeros>RLIMIT-1)
 					code=ks, codelen=RLIMIT+DEPTH;
 				enctable[ks<<3|kb]=code<<8|codelen;
+#endif
 			}
 		}
 		fwrite(&tag, 1, 2, fdst);
@@ -992,7 +1007,7 @@ int c59_codec(int argc, char **argv)
 				sym[0]>>=3;
 				sym[1]>>=3;
 				sym[2]>>=3;
-				fifoval_enqueue(sym[2]<<18^sym[1]<<9^sym[0]);
+				fifoval_enqueue((sym[2]<<DEPTH^sym[1])<<DEPTH^sym[0]);
 #endif
 				rptr+=NCH*NROWS*NVAL;
 				codelen[0]=(uint8_t)code[0];
@@ -1001,6 +1016,27 @@ int c59_codec(int argc, char **argv)
 				code[0]>>=8;
 				code[1]>>=8;
 				code[2]>>=8;
+#if 1
+				int tmp;
+				cache|=code[0]<<nbits;
+				nbits+=codelen[0];
+				cache|=code[1]<<nbits;
+				nbits+=codelen[1];
+				cache|=code[2]<<nbits;
+				nbits+=codelen[2];
+				*(uint64_t*)wtptr=cache;
+				tmp=nbits>>3;//FPC renorm
+				nbits&=7;
+				wtptr+=tmp;
+				if(wtptr>=wtend)
+				{
+					fwrite(wtbuf+sizeof(uint64_t), 1, BUFSIZE, fdst);
+					wtptr-=BUFSIZE;
+					*(uint64_t*)(wtptr-tmp)=cache;
+				}
+				cache>>=tmp<<3;
+#endif
+#if 0
 				{
 					uint8_t s0=64-codelen[0];
 					uint8_t s1=64-codelen[0]-codelen[1];
@@ -1031,6 +1067,7 @@ int c59_codec(int argc, char **argv)
 						cache=0;
 				}
 				nbits=codelen[2];
+#endif
 			}
 		}
 		memcpy(wtptr, &cache, sizeof(uint64_t));
@@ -1046,9 +1083,10 @@ int c59_codec(int argc, char **argv)
 	}
 	else//dec
 	{
-		static uint8_t *const rdend=rdbuf+sizeof(uint64_t)+BUFSIZE-sizeof(uint64_t);
+		static uint8_t *const rdend=rdbuf+sizeof(uint64_t)+BUFSIZE;
+		//static uint8_t *const rdend=rdbuf+sizeof(uint64_t)+BUFSIZE-sizeof(uint64_t);
 		static uint8_t *const wtend=wtbuf+sizeof(uint64_t)+BUFSIZE-3;
-		uint64_t cache2=0;
+		//uint64_t cache2=0;
 
 		for(int k=0;k<512;++k)
 		{
@@ -1058,20 +1096,62 @@ int c59_codec(int argc, char **argv)
 			packsign[k]=val;
 		}
 		fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
-		fread(&cache, 1, 8, fsrc);
-		fread(&cache2, 1, 8, fsrc);
+		//fread(&cache, 1, 8, fsrc);
+		//fread(&cache2, 1, 8, fsrc);
 		for(int ky=0;ky<ih;++ky)
 		{
 			int16_t *rptr=pixels+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NVAL;
 			for(int kx=0;kx<iw;++kx)
 			{
-				uint64_t code;
+				//uint64_t code;
 				uint32_t reg;
 				int nzeros, prefix, nbypass[3];
 
 				nbypass[0]=log2table[rptr[1+(0-1*NCH)*NROWS*NVAL]];
 				nbypass[1]=log2table[rptr[1+(1-1*NCH)*NROWS*NVAL]];
 				nbypass[2]=log2table[rptr[1+(2-1*NCH)*NROWS*NVAL]];
+				//FPC renorm
+				cache|=*(uint64_t*)rdptr<<nbits;
+				int inc=(63-nbits)>>3;
+				rdptr+=inc;
+				if(rdptr>=rdend)
+				{
+					fread(rdbuf+sizeof(uint64_t), 1, BUFSIZE, fsrc);
+					rdptr-=BUFSIZE;
+					cache|=*(uint64_t*)(rdptr-inc)<<nbits;
+				}
+				nbits|=56;
+
+				nzeros=(int)TZCNT64(cache);
+				prefix=nzeros<<nbypass[0];
+				if(nzeros>RLIMIT-1)
+					nzeros=RLIMIT-1, nbypass[0]=DEPTH, prefix=0;
+				cache>>=nzeros+1;
+				sym[0]=(int)(cache&((1ULL<<nbypass[0])-1));
+				cache>>=nbypass[0];
+				sym[0]|=prefix;
+				nbits-=nzeros+1+nbypass[0];
+				
+				nzeros=(int)TZCNT64(cache);
+				prefix=nzeros<<nbypass[1];
+				if(nzeros>RLIMIT-1)
+					nzeros=RLIMIT-1, nbypass[1]=DEPTH, prefix=0;
+				cache>>=nzeros+1;
+				sym[1]=(int)(cache&((1ULL<<nbypass[1])-1));
+				cache>>=nbypass[1];
+				sym[1]|=prefix;
+				nbits-=nzeros+1+nbypass[1];
+				
+				nzeros=(int)TZCNT64(cache);
+				prefix=nzeros<<nbypass[2];
+				if(nzeros>RLIMIT-1)
+					nzeros=RLIMIT-1, nbypass[2]=DEPTH, prefix=0;
+				cache>>=nzeros+1;
+				sym[2]=(int)(cache&((1ULL<<nbypass[2])-1));
+				cache>>=nbypass[2];
+				sym[2]|=prefix;
+				nbits-=nzeros+1+nbypass[2];
+#if 0
 				if(nbits>=64)
 				{
 					cache=cache2;
@@ -1126,15 +1206,11 @@ int c59_codec(int argc, char **argv)
 					sym[2]=0;
 			//	code<<=nbypass[2];
 				sym[2]|=prefix;
-#ifdef FIFOVAL
-				if(fifoval_check(sym[2]<<DEPTH*2^sym[1]<<DEPTH^sym[0]))
-				{
-					printf("%016llX\n", cache);
-					printf("%016llX\n", cache2);
-					CRASH("");
-				}
-#endif
 				nbits+=nzeros+1+nbypass[2];
+#endif
+#ifdef FIFOVAL
+				fifoval_check((sym[2]<<DEPTH^sym[1])<<DEPTH^sym[0]);
+#endif
 				rptr[1+(0+0*NCH)*NROWS*NVAL]=(2*rptr[1+(0-1*NCH)*NROWS*NVAL]+(sym[0]<<RSHIFT)+rptr[1+(0+3*NCH)*NROWS*NVAL])>>2;
 				rptr[1+(1+0*NCH)*NROWS*NVAL]=(2*rptr[1+(1-1*NCH)*NROWS*NVAL]+(sym[1]<<RSHIFT)+rptr[1+(1+3*NCH)*NROWS*NVAL])>>2;
 				rptr[1+(2+0*NCH)*NROWS*NVAL]=(2*rptr[1+(2-1*NCH)*NROWS*NVAL]+(sym[2]<<RSHIFT)+rptr[1+(2+3*NCH)*NROWS*NVAL])>>2;
