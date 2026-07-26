@@ -9,6 +9,7 @@
 //	#define LPCB_TEST
 //	#define RELEASE
 //	#define PROFILER
+//	#define C60TEST
 
 #ifdef PROFILER
 #include"util.h"
@@ -74,6 +75,7 @@ int c56_codec(int argc, char **argv);//LZAC (synth)
 int c57_codec(int argc, char **argv);//fast Rice
 int c58_codec(int argc, char **argv);//bit coding with plain histograms (c12)
 int c59_codec(int argc, char **argv);//near portable rapid
+int c60_codec(int argc, char **argv);//lossy wavelet FSE/AC
 #endif
 
 
@@ -133,10 +135,11 @@ int c59_codec(int argc, char **argv);//near portable rapid
 //	#define CODEC_EXT c53
 //	#define CODEC_EXT c54
 //	#define CODEC_EXT c55
-	#define CODEC_EXT c56
+//	#define CODEC_EXT c56
 //	#define CODEC_EXT c57
 //	#define CODEC_EXT c58
 //	#define CODEC_EXT c59
+	#define CODEC_EXT c60
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -176,13 +179,13 @@ int main(int argc, char **argv)
 //	return c34_codec(_countof(args), (char**)args);
 #else
 	const char dstfn[]=//OVERWRITTEN
-		"C:/dataset-a-temp/zzz.ppm"
-	//	"C:/Projects/datasets/zzz.ppm"
+	//	"C:/dataset-a-temp/zzz.ppm"
+		"C:/Projects/datasets/zzz.ppm"
 	//	"D:/ML/zzz.ppm"
 	;
 	const char tmpfn[]=//OVERWRITTEN
-		"C:/dataset-a-temp/zzz.lsim"
-	//	"C:/Projects/datasets/zzz.lsim"
+	//	"C:/dataset-a-temp/zzz.lsim"
+		"C:/Projects/datasets/zzz.lsim"
 	//	"D:/ML/zzz.lsim"
 	;
 	const char srcfn[]=
@@ -260,7 +263,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-RAW-ppm/a0014-WP_CRW_6320.ppm"
 	//	"C:/dataset-sintel-ppm"
 	//	"C:/dataset-sony-ppm/DSC00315.ppm"
-		"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
+	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/dataset-synth2-ppm/20240407 blank.ppm"
@@ -275,6 +278,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-synth2-ppm/20241006 linux.ppm"
 	//	"C:/dataset-synth2-ppm/20241110 4 serpinski_triangle.ppm"
 	//	"C:/dataset-synth2-ppm/art.ppm"
+	//	"C:/dataset-synth2-ppm/cursive_ru.ppm"			//0.1 MP
 	//	"C:/dataset-synthetic-ppm/20240409 1 LPCB.ppm"
 	//	"C:/dataset-synth-ppm/20240421 1 the front.ppm"
 	//	"C:/dataset-synth-ppm/20240516 4 DSC_0054.ppm"
@@ -297,36 +301,40 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_jon-flobrant-32821.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_kim-daniel-594.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
-	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"	//blurry
-	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0802.ppm"
-	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0807.ppm"	//hard
-	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0808.ppm"	//crisp+grad
+	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"		//blurry
+		"C:/Projects/datasets/dataset-DIV2K-ppm/0802.ppm"		//lemons
+	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0807.ppm"		//hard
+	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0808.ppm"		//crisp+grad
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0843.ppm"
-	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
+	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0890.ppm"		//2.7 MP DIV2K median complexity
+	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0891.ppm"		//3.4 MP
+	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"	//3 MP
 	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-01.ppm"
 	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/astro-02.ppm"
 	//	"C:/Projects/datasets/dataset-GDCC2020-ppm/photo-40.ppm"
 	//	"C:/Projects/datasets/dataset-kodak2-ppm/IMG0023.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim04.ppm"
 	//	"C:/Projects/datasets/dataset-kodak-ppm/kodim23.ppm"
-	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"	//12 MP
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/canon_eos_1100d_03.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/olympus_xz1_16.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA12811.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13779.ppm"
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13799.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13803.ppm"
 	//	"C:/Projects/datasets/dataset-LPCB-ppm/PIA13882.ppm"
-	//	"C:/Projects/datasets/dataset-LPCB-ppm/sony_a55_11.ppm"	//noisy, hard
-	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"	//large hard
-	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13844.ppm"	//large normal
-	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13845.ppm"	//large easy
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/sony_a55_11.ppm"		//noisy, hard
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13843.ppm"		//large hard
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13844.ppm"		//large normal
+	//	"C:/Projects/datasets/dataset-LPCB-ppm/STA13845.ppm"		//large easy
 	//	"C:/Projects/datasets/dataset-sintel-ppm"
 	//	"C:/Projects/datasets/dataset-synth2-ppm/20240405 1 CPU-load.ppm"
 	//	"C:/Projects/datasets/dataset-synth2-ppm/20240405 2 CPU-load.ppm"
 	//	"C:/Projects/datasets/dataset-synth2-ppm/20240407 blank.ppm"
 	//	"C:/Projects/datasets/dataset-synth2-ppm/20240409 1 LPCB.ppm"
-	//	"C:/Projects/datasets/dataset-synth2-ppm/art.ppm"
+	//	"C:/Projects/datasets/dataset-synth2-ppm/art.ppm"		//16 MP
 	//	"C:/Projects/datasets/enwik8"
 	//	"C:/Projects/datasets/kodim13.ppm"
 	//	"C:/Projects/datasets/kodim13.ppm"
@@ -335,7 +343,8 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/kodim13-small4.PPM"
 	//	"C:/Projects/datasets/kodim24.ppm"
 	//	"C:/Projects/datasets/lena.ppm"
-	//	"C:/Projects/datasets/space_huge.ppm"
+	//	"C:/Projects/datasets/lena.ppm"
+	//	"C:/Projects/datasets/space_huge.ppm"				//122 MP
 	//	"C:/Projects/datasets/space_huge.ppm"
 	//	"C:/Projects/datasets/temp.c18"
 	//	"C:/Projects/datasets/zzzpng.ppm"
@@ -442,6 +451,9 @@ int main(int argc, char **argv)
 	nprinted+=acme_strftime(buf+nprinted, sizeof(buf)-1-nprinted, "%Y-%m-%d_%H%M%S");
 	printf("%s  <- COPIED\n", buf);
 	copy_to_clipboard(buf, nprinted);
+#elif defined C60TEST
+	void c60_test(const char *argv0, const char *fn, const char *tmpfn, const char *tmpfn2);
+	c60_test(argv[0], srcfn, tmpfn, dstfn);
 #else
 	if(CODEC_FUNC(_countof(encargs), (char**)encargs))
 		return 1;

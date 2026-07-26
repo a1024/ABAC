@@ -95,18 +95,13 @@ enum
 
 //runtime
 #if 1
-#define CLAMP2(X, LO, HI)\
-	do\
-	{\
-		if((X)<(LO))X=LO;\
-		if((X)>(HI))X=HI;\
-	}while(0)
+#define CLAMP2(X, L, H) X=X<(L)?L:X, X=X>(H)?H:X
 #ifdef _MSC_VER
 #	define	ALIGN(N) __declspec(align(N))
-#	define AWM_INLINE __forceinline static
+#	define INLINE __forceinline static
 #else
 #	define	ALIGN(N) __attribute__((aligned(N)))
-#	define AWM_INLINE __attribute__((always_inline)) inline static
+#	define INLINE __attribute__((always_inline)) inline static
 #	ifndef _countof
 #		define _countof(A) (sizeof(A)/sizeof(*(A)))
 #	endif
@@ -115,7 +110,7 @@ enum
 #define FLOOR_LOG2(X)\
 	(sizeof(X)==8?63-(int32_t)_lzcnt_u64(X):31-_lzcnt_u32((uint32_t)(X)))
 #else
-AWM_INLINE int floor_log2_64(uint64_t n)
+INLINE int floor_log2_64(uint64_t n)
 {
 	int	logn=-!n;
 	int	sh=(n>=1ULL<<32)<<5;	logn+=sh, n>>=sh;
@@ -126,7 +121,7 @@ AWM_INLINE int floor_log2_64(uint64_t n)
 		sh= n>=1<< 1;		logn+=sh;
 	return logn;
 }
-AWM_INLINE int floor_log2_32(uint32_t n)
+INLINE int floor_log2_32(uint32_t n)
 {
 	int	logn=-!n;
 	int	sh=(n>=1<<16)<<4;	logn+=sh, n>>=sh;
@@ -443,7 +438,7 @@ static const float qtable_chroma[]=
 #endif
 };
 #ifdef USE_DCT8
-AWM_INLINE void cvti2f(float *block)
+INLINE void cvti2f(float *block)
 {
 	__m256i a[8];
 
@@ -465,7 +460,7 @@ AWM_INLINE void cvti2f(float *block)
 	_mm256_store_ps(block+6*8, _mm256_cvtepi32_ps(a[6]));
 	_mm256_store_ps(block+7*8, _mm256_cvtepi32_ps(a[7]));
 }
-AWM_INLINE void cvtf2i(float *block)
+INLINE void cvtf2i(float *block)
 {
 	__m256 a[8];
 
@@ -487,7 +482,7 @@ AWM_INLINE void cvtf2i(float *block)
 	_mm256_store_si256((__m256i*)block+6, _mm256_cvtps_epi32(a[6]));
 	_mm256_store_si256((__m256i*)block+7, _mm256_cvtps_epi32(a[7]));
 }
-AWM_INLINE void rgb2yuv(float *c0, float *c1, float *c2)
+INLINE void rgb2yuv(float *c0, float *c1, float *c2)
 {
 	__m256 half=_mm256_set1_ps(128);
 	for(int k=0;k<8;++k)
@@ -516,7 +511,7 @@ AWM_INLINE void rgb2yuv(float *c0, float *c1, float *c2)
 		_mm256_store_ps(c2+k*8, yuv[2]);
 	}
 }
-AWM_INLINE void yuv2rgb(float *c0, float *c1, float *c2)
+INLINE void yuv2rgb(float *c0, float *c1, float *c2)
 {
 	__m256 half=_mm256_set1_ps(128);
 	__m256 vmin=_mm256_setzero_ps();
@@ -547,7 +542,7 @@ AWM_INLINE void yuv2rgb(float *c0, float *c1, float *c2)
 		_mm256_store_ps(c2+k*8, rgb[2]);
 	}
 }
-AWM_INLINE void dct_fwd(float *block)//DCT-II
+INLINE void dct_fwd(float *block)//DCT-II
 {
 	/*
 	DCTii8 =
@@ -623,7 +618,7 @@ AWM_INLINE void dct_fwd(float *block)//DCT-II
 	_mm256_store_ps(block+3*8, a[6]);
 	_mm256_store_ps(block+7*8, a[7]);
 }
-AWM_INLINE void dct_inv(float *block)//DCT-III
+INLINE void dct_inv(float *block)//DCT-III
 {
 	//Chen factorization
 	__m256 c7=_mm256_set1_ps(0.1950903220161282678482848684770f);//cosd(90*7/8) = sind(90*1/8) = s1
@@ -700,7 +695,7 @@ AWM_INLINE void dct_inv(float *block)//DCT-III
 	_mm256_store_ps(block+6*8, b[6]);
 	_mm256_store_ps(block+7*8, b[7]);
 }
-AWM_INLINE void transpose(float *block)
+INLINE void transpose(float *block)
 {
 	__m128 a[4], b[4];
 	
@@ -746,7 +741,7 @@ AWM_INLINE void transpose(float *block)
 	_mm_store_ps(block+6*8, a[2]);
 	_mm_store_ps(block+7*8, a[3]);
 }
-AWM_INLINE void gain(float *block, float *g)
+INLINE void gain(float *block, float *g)
 {
 	__m256 a[8];
 
@@ -778,7 +773,7 @@ AWM_INLINE void gain(float *block, float *g)
 	_mm256_store_ps(block+7*8, a[7]);
 }
 #else
-AWM_INLINE void cvti2f(float *block)
+INLINE void cvti2f(float *block)
 {
 	__m128i a[4];
 
@@ -792,7 +787,7 @@ AWM_INLINE void cvti2f(float *block)
 	_mm_store_ps(block+2*4, _mm_cvtepi32_ps(a[2]));
 	_mm_store_ps(block+3*4, _mm_cvtepi32_ps(a[3]));
 }
-AWM_INLINE void cvtf2i(float *block)
+INLINE void cvtf2i(float *block)
 {
 	__m128 a[4];
 
@@ -806,7 +801,7 @@ AWM_INLINE void cvtf2i(float *block)
 	_mm_store_si128((__m128i*)block+2, _mm_cvtps_epi32(a[2]));
 	_mm_store_si128((__m128i*)block+3, _mm_cvtps_epi32(a[3]));
 }
-AWM_INLINE void rgb2yuv(float *c0, float *c1, float *c2)
+INLINE void rgb2yuv(float *c0, float *c1, float *c2)
 {
 	__m128 half=_mm_set1_ps(128);
 	for(int k=0;k<4;++k)
@@ -837,7 +832,7 @@ AWM_INLINE void rgb2yuv(float *c0, float *c1, float *c2)
 		_mm_store_ps(c2+k*4, yuv[2]);
 	}
 }
-AWM_INLINE void yuv2rgb(float *c0, float *c1, float *c2)
+INLINE void yuv2rgb(float *c0, float *c1, float *c2)
 {
 	__m128 half=_mm_set1_ps(128);
 	__m128 vmin=_mm_setzero_ps();
@@ -870,7 +865,7 @@ AWM_INLINE void yuv2rgb(float *c0, float *c1, float *c2)
 		_mm_store_ps(c2+k*4, rgb[2]);
 	}
 }
-AWM_INLINE void dct_fwd(float *block)//DCT-II
+INLINE void dct_fwd(float *block)//DCT-II
 {
 	__m128 c3=_mm_set1_ps(0.3826834323650897717284599840304f);//cosd(90*3/4) = sind(90*1/4) = s1
 	__m128 c2=_mm_set1_ps(0.7071067811865475244008443621048f);//cosd(90*2/4) = sind(90*2/4) = s2 = sqrt(2)
@@ -898,7 +893,7 @@ AWM_INLINE void dct_fwd(float *block)//DCT-II
 	_mm_store_ps(block+1*4, a[2]);
 	_mm_store_ps(block+3*4, a[3]);
 }
-AWM_INLINE void dct_inv(float *block)//DCT-III
+INLINE void dct_inv(float *block)//DCT-III
 {
 	__m128 half=_mm_set1_ps(0.5f);
 	__m128 c3=_mm_set1_ps(0.3826834323650897717284599840304f);//cosd(90*3/4) = sind(90*1/4) = s1
@@ -936,7 +931,7 @@ AWM_INLINE void dct_inv(float *block)//DCT-III
 	_mm_store_ps(block+2*4, a[2]);
 	_mm_store_ps(block+3*4, a[3]);
 }
-AWM_INLINE void transpose(float *block)
+INLINE void transpose(float *block)
 {
 	__m128 a[4];
 	
@@ -952,7 +947,7 @@ AWM_INLINE void transpose(float *block)
 	_mm_store_ps(block+2*4, a[2]);
 	_mm_store_ps(block+3*4, a[3]);
 }
-AWM_INLINE void gain(float *block, float *g)
+INLINE void gain(float *block, float *g)
 {
 	__m128 a[4];
 
@@ -972,7 +967,7 @@ AWM_INLINE void gain(float *block, float *g)
 	_mm_store_ps(block+3*4, a[3]);
 }
 #endif
-AWM_INLINE void pulse(float *block, int size, int x1, int y1, int x2, int y2)
+INLINE void pulse(float *block, int size, int x1, int y1, int x2, int y2)
 {
 	float dc=block[0];
 	float ac1=block[size*y1+x1];
@@ -982,7 +977,7 @@ AWM_INLINE void pulse(float *block, int size, int x1, int y1, int x2, int y2)
 	block[size*y1+x1]=ac1;
 	block[size*y2+x2]=ac2;
 }
-AWM_INLINE void dc_predict(int16_t **rows, int32_t *weights, int32_t *estim, int32_t *ret_p1, int32_t *ret_pred, int32_t *ret_ctx)
+INLINE void dc_predict(int16_t **rows, int32_t *weights, int32_t *estim, int32_t *ret_p1, int32_t *ret_pred, int32_t *ret_ctx)
 {
 	int
 		NNN	=rows[3][0+0*NCH*NROWS*NVAL],
@@ -1025,7 +1020,7 @@ AWM_INLINE void dc_predict(int16_t **rows, int32_t *weights, int32_t *estim, int
 	*ret_pred=pred;
 	*ret_ctx=ctx;
 }
-AWM_INLINE void dc_update(int16_t **rows, int32_t *weights, int32_t *estim, int32_t p1, int32_t curr, int32_t sym)
+INLINE void dc_update(int16_t **rows, int32_t *weights, int32_t *estim, int32_t p1, int32_t curr, int32_t sym)
 {
 	int
 		eNEEE	=rows[1][1+3*NCH*NROWS*NVAL],

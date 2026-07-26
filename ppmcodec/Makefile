@@ -286,3 +286,6 @@ c59:
 
 c59-debug:
 	clang -Wall -O3 -g -D_DEBUG codec.c util.c c59.c -o c59 -static
+
+c60:
+	clang -Wall -O3 -s -Dc60_codec=main -mavx2 -mlzcnt $(SRC_ZYDIS2) c60.c -o c60 $(LIBS)

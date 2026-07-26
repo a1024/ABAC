@@ -72,6 +72,7 @@ add_executable(codec
 	c57.c
 	c58.c
 	c59.c
+	c60.c
 	codec.c
 	util.c
 

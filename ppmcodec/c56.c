@@ -198,8 +198,10 @@ static void fifoval_check(uint32_t val)
 
 enum
 {
-	LBITS=9,//log2 lookup table size
-	EBITS=14,//log2 number of collision cells
+//	LBITS=9,
+//	EBITS=14,
+	LBITS=12,//log2 lookup table size
+	EBITS=10,//log2 number of collision cells
 	ESIZE=(1<<EBITS),
 //	EMASK=ESIZE-1,
 
@@ -236,7 +238,8 @@ typedef struct _LZAC2Stats
 		litlen_ustats[RICELIMIT*RICELIMIT], litlen_bstats[(RICELIMIT+1)*512],
 		matchlen_ustats[RICELIMIT*RICELIMIT], matchlen_bstats[(RICELIMIT+1)*512],
 		backtrack_ustats[RICELIMIT*RICELIMIT], backtrack_bstats[(RICELIMIT+1)*512],
-		sym_stats[3][1<<LZAC_CTXBITS][256];
+		sym_ustats[RICELIMIT*RICELIMIT], sym_bstats[(RICELIMIT+1)*512];
+	//	sym_stats[3][1<<LZAC_CTXBITS][256];
 } LZAC2Stats;
 static LZAC2Stats stats;
 //typedef struct _SymCtx
@@ -389,6 +392,7 @@ static int codefixed(ACState *ac, int32_t *stats, int sym, const int nbits, cons
 static int coderice(ACState *ac, int32_t *ustats, int32_t *bstats, int sym, int *pestim, int ricelimit, int maxbits, const int fwd)
 {
 	int ricek, q, tidx, bit, limitflag, ricek2, tidx2, nbits;
+
 	//ustats[RICELIMIT_SYM*RICELIMIT_SYM], bstats[(RICELIMIT_SYM+1)*MIN(NLEVELS, 512)]
 	ricek=31-LZCNT32((*pestim>>RICEBITS)+1);
 	q=sym>>ricek;
@@ -503,6 +507,227 @@ static void findmatch(uint8_t *imptr, uint8_t *imstart, uint8_t *searchend, uint
 	*ret_matchlen=matchlen;
 	*ret_matchidx=matchidx;
 }
+typedef struct _LZRectangle
+{
+	int x, y, dx, dy;
+} LZRectangle;
+typedef struct _Instruction
+{
+	LZRectangle;
+	int x0, y0;
+} Instruction;
+static void findredundancy2D(uint8_t *image, int iw, int ih, int kx, int ky, LZRectangle *ret)
+{
+	uint64_t x;
+	ETable *table;
+//	int matchlen=0, matchidx=0;
+	LZRectangle rect={0};
+	int bestsum=1, bestcount=0;
+	int ctr=0;
+	int rowstride=3*iw;
+	uint8_t *imptr=image+rowstride*ky+3*kx;
+	uint8_t *rowend=image+rowstride*(ky+1);
+	uint8_t *imend=image+3*iw*ih;
+
+	x=*(uint64_t*)imptr+1;
+	x^=x>>33;
+	x*=0xFF51AFD7ED558CCDULL;
+	x^=x>>33;
+//	x*=0xC4CEB9FE1A85EC53ULL;
+//	x^=x>>33;
+	table=tables+(x>>(64-LBITS));
+	ctr=table->ecount;
+	while(ctr)
+	{
+		int tidx=(table->estart+ctr-1)&((1<<EBITS)-1);
+		int idx=table->etable[tidx], len=0;
+
+#if 1
+
+		if((*(uint32_t*)(image+3*idx)&0xFFFFFF)==(*(uint32_t*)(image+3*(iw*ky+kx))&0xFFFFFF))
+		{
+			int sy=idx/iw, sx=idx%iw, dx=1, dy=1;
+			uint8_t *p1=image+3*(iw*sy+sx);
+			uint8_t *p2=image+3*(iw*ky+kx);
+			int sum=1, count=0, stop=0;
+
+		again:
+			while(stop!=3)
+			{
+				if(!(stop&1))
+				{
+					if(kx+dx>=iw||sx+dx>=iw)
+						stop|=1;
+					else
+					{
+						for(int y2=0, yidx=3*dx;y2<dy;++y2, yidx+=rowstride)//expand right
+						{
+							int sum2=sum
+								+abs(p2[yidx+0]-p1[yidx+0])
+								+abs(p2[yidx+1]-p1[yidx+1])
+								+abs(p2[yidx+2]-p1[yidx+2])
+							;
+							int count2=count+3;
+							if(sum2>count2)
+							{
+								stop|=1;
+								break;
+							}
+							sum=sum2;
+							count=count2;
+						}
+						if(!(stop&1))
+							++dx;
+					}
+				}
+				if(!(stop&2))
+				{
+					if(ky+dy>=ih)
+						stop|=2;
+					else
+					{
+						for(int x2=0, xidx=dy*rowstride;x2<dx;++x2, xidx+=3)//expand down
+						{
+							int sum2=sum
+								+abs(p2[xidx+0]-p1[xidx+0])
+								+abs(p2[xidx+1]-p1[xidx+1])
+								+abs(p2[xidx+2]-p1[xidx+2])
+							;
+							int count2=count+3;
+							if(sum2>count2)
+							{
+								stop|=2;
+								break;
+							}
+							sum=sum2;
+							count=count2;
+						}
+						if(!(stop&2))
+							++dy;
+					}
+				}
+			}
+#if 1
+			if(sx+dx>iw||sy+dy>ih||kx+dx>iw||ky+dy>ih)//
+			{
+				stop=0;
+				dx=1;
+				dy=1;
+				goto again;
+			}
+#endif
+			if((int64_t)bestsum*count>(int64_t)sum*bestcount)
+			{
+				bestcount=count;
+				bestsum=sum;
+				rect.x=sx;
+				rect.y=sy;
+				rect.dx=dx;
+				rect.dy=dy;
+			}
+		}
+#endif
+#if 0
+		int sy=idx/iw, sx=idx%iw;
+		int sum=0, count=0, xmin=0;
+
+		xmin=kx;
+		if(xmin<sx)
+			xmin=sx;
+		xmin=iw-xmin;
+		for(;;)
+		{
+			uint8_t *p1=image+3*(iw*sy+sx);
+			uint8_t *p2=image+3*(iw*ky+kx);
+			uint8_t *end2=image+3*(iw*ky+xmin);
+			int width=0;
+			int sum0=sum, count0=count;
+
+			for(;;)
+			{
+				int sum2=sum+abs(p2[0]-p1[0])+abs(p2[1]-p1[1])+abs(p2[2]-p1[2]);
+				int count2=count+3;
+				if(p2>=end2||sum2>=count2||width>xmin)
+				{
+					if(width<xmin)
+					{
+					}
+					break;
+				}
+				sum=sum2;
+				count=count2;
+				p1+=3;
+				p2+=3;
+				++width;
+			}
+		}
+#endif
+#if 0
+		uint8_t *search1=image+idx;
+		uint8_t *search2=imptr;
+		uint64_t cmp1=~0ULL, cmp2=~0ULL;
+		uint64_t c1, c2;
+
+		if(*(uint32_t*)search1==*(uint32_t*)search2)
+		{
+#if 0
+			int sum=0, count=0;
+
+			for(;;)
+			{
+				uint8_t *start1=search1, *start2=search2;
+
+				if(start2+rowstride>imend||sum>=count)
+					break;
+				for(;;)
+				{
+					int sum2=sum+abs(search2[0]-search1[0])+abs(search2[1]-search1[1])+abs(search2[2]-search1[2]);
+					int count2=count+3;
+					if(search2>=rowend||sum2>=count2)
+						break;
+					sum=sum2;
+					count=count2;
+					search1+=3;
+					search2+=3;
+				}
+				search1=start1+rowstride;
+				search2=start2+rowstride;
+			}
+#endif
+#if 0
+			for(;;)
+			{
+				cmp1=((uint64_t*)search1)[0]^((uint64_t*)search2)[0];//22%
+				cmp2=((uint64_t*)search1)[1]^((uint64_t*)search2)[1];
+				if((cmp1|cmp2)||search2>=searchend)
+					break;
+				search1+=sizeof(uint64_t[2]);
+				search2+=sizeof(uint64_t[2]);
+			}
+			c1=TZCNT64(cmp1)>>3;
+			c2=TZCNT64(cmp2)>>3;
+			if(!cmp1)
+				len+=(int)c2;
+			len+=(int)(search2-imptr+c1);
+			if(len>imend-imptr)
+				len=(int)(imend-imptr);
+			if(len>matchlen||(len==matchlen&&idx>matchidx))
+				matchidx=idx, matchlen=len;
+#endif
+		}
+#endif
+		--ctr;
+	}
+	table->etable[table->eend]=(int32_t)((imptr-image)/3);
+	table->eend=(table->eend+1)&((1<<EBITS)-1);
+	if(table->ecount>=1<<EBITS)
+		table->estart=(table->estart+1)&((1<<EBITS)-1);
+	else
+		++table->ecount;
+	memcpy(ret, &rect, sizeof(*ret));
+	//*ret_matchlen=matchlen;
+	//*ret_matchidx=matchidx;
+}
 #if 0
 static void memfill(void *dst, const void *src, size_t dstbytes, size_t srcbytes)
 {
@@ -526,6 +751,18 @@ static void memfill(void *dst, const void *src, size_t dstbytes, size_t srcbytes
 		memcpy(d+copied, d, dstbytes-copied);
 }
 #endif
+static void ppm_save(const char *fn, const uint8_t *image, int iw, int ih)
+{
+	FILE *fdst=fopen(fn, "wb");
+	if(!fdst)
+	{
+		CRASH("Cannot open \"%s\" for writing", fn);
+		return;
+	}
+	fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
+	fwrite(image, 1, (ptrdiff_t)3*iw*ih, fdst);
+	fclose(fdst);
+}
 int c56_codec(int argc, char **argv)
 {
 	const int16_t tag='5'|'6'<<8;
@@ -544,6 +781,7 @@ int c56_codec(int argc, char **argv)
 	ACState ac={0};
 	uint8_t *imptr=0, *imend=0;
 	int32_t litlen_estim=1<<RICEBITS, matchlen_estim=1<<RICEBITS, backtrack_estim=1<<RICEBITS;
+	int32_t sym_estim[3]={1<<RICEBITS, 1<<RICEBITS, 1<<RICEBITS};
 #ifdef ENABLE_GUIDE
 	static uint8_t *im0=0;
 #endif
@@ -723,7 +961,89 @@ int c56_codec(int argc, char **argv)
 	{
 #if 1
 		uint8_t *imptr0=imptr, *searchend=image+usize-sizeof(uint64_t[2]);
+		
+#if 0
+		{
+			int saved=0;
+			int64_t res=(int64_t)iw*ih;
+			int cap=(int)res, rcount=0;
+			Instruction *rects=(Instruction*)malloc(cap*sizeof(Instruction));
+			uint8_t *mask=(uint8_t*)malloc(res);
+			double t=time_sec();
+			if(!rects||!mask)
+				CRASH("Alloc error");
+			memset(mask, 0, res);
+			for(int ky=0;ky<ih;++ky)
+			{
+				for(int kx=0;kx<iw;++kx)
+				{
+					if(!mask[iw*ky+kx])
+					{
+						LZRectangle rect={0};
 
+						findredundancy2D(image, iw, ih, kx, ky, &rect);
+
+						if(rect.dx>=2&&rect.dy>=1&&rcount<cap)
+						{
+							for(int ky2=0;ky2<rect.dy;++ky2)
+							{
+								for(int kx2=0;kx2<rect.dx;++kx2)
+								{
+									LZRectangle rect2={0};
+									findredundancy2D(image, iw, ih, kx, ky, &rect2);
+								}
+							}
+							Instruction *instr=rects+rcount++;
+							memcpy(instr, &rect, sizeof(rect));
+							instr->x0=kx;
+							instr->y0=ky;
+							for(int ky2=0;ky2<rect.dy;++ky2)
+							{
+								for(int kx2=0;kx2<rect.dx;++kx2)
+									mask[iw*(ky+ky2)+kx+kx2]=1;
+							}
+#if 1
+							if(instr->x0+instr->dx>iw||instr->x+instr->dx>iw||instr->y0+instr->dy>ih||instr->y+instr->dy>ih)//
+								CRASH("");
+#endif
+						}
+					}
+				}
+				printf("%5d  %12.6lf mins\r", ky+1, (time_sec()-t)*(ih-(ky+1))/(60*(ky+1)));
+			}
+			printf("\n");
+			for(int k=0;k<res;++k)
+				saved+=mask[k];
+			printf("Saved %d/%lld bytes  %8.4lf%%\n", 3*saved, 3*res, 100.*(double)(res-saved)/res);
+			for(int k=rcount-1;k>=0;--k)
+			{
+				Instruction *instr=rects+k;
+
+				for(int ky=instr->dy-1;ky>=0;--ky)
+				{
+					for(int kx=instr->dx-1;kx>=0;--kx)
+					{
+						int idx1=3*(iw*(instr->y0+ky)+instr->x0+kx);
+						int idx2=3*(iw*(instr->y+ky)+instr->x+kx);
+						//image[idx2+0]=0xFF;
+						//image[idx2+1]=0x00;
+						//image[idx2+2]=0xFF;
+						image[idx2+0]-=image[idx1+0];
+						image[idx2+1]-=image[idx1+1];
+						image[idx2+2]-=image[idx1+2];
+					}
+				}
+			}
+			ppm_save("20260630Tu_0705pm.ppm", image, iw, ih);
+			//for(int ky=0;ky<ih;++ky)
+			//{
+			//	for(int kx=0;kx<iw;++kx)
+			//	{
+			//	}
+			//}
+			exit(0);
+		}
+#endif
 		//[lit_len/Rice][literals/fixed8...][match_len/Rice][offset/Rice]
 		memset(tables, 0, sizeof(tables));
 		for(;;)
@@ -733,84 +1053,27 @@ int c56_codec(int argc, char **argv)
 			if(imptr<imend)
 			{
 				findmatch(imptr, image, searchend, imend, &matchlen, &matchidx);
-#if 0
-				uint64_t x;
-				ETable *table;
-				int ctr;
-
-				x=*(uint64_t*)imptr+1;
-				x^=x>>33;
-				x*=0xFF51AFD7ED558CCDULL;
-				x^=x>>33;
-				x*=0xC4CEB9FE1A85EC53ULL;
-				x^=x>>33;
-				table=tables+(x>>(64-LBITS));
-				ctr=table->ecount;
-				while(ctr)
-				{
-					int tidx=(table->estart+ctr-1)&((1<<EBITS)-1);
-					int idx=table->etable[tidx], len=0;
-					uint8_t *search1=image+idx;
-					uint8_t *search2=imptr;
-					uint64_t cmp1=~0ULL, cmp2=~0ULL;
-					uint64_t c1, c2;
-
-					if(*(uint32_t*)search1==*(uint32_t*)search2)
-					{
-						for(;;)
-						{
-							cmp1=((uint64_t*)search1)[0]^((uint64_t*)search2)[0];//22%
-							cmp2=((uint64_t*)search1)[1]^((uint64_t*)search2)[1];
-							if((cmp1|cmp2)||search2>=searchend)
-								break;
-							search1+=sizeof(uint64_t[2]);
-							search2+=sizeof(uint64_t[2]);
-						}
-						c1=TZCNT64(cmp1)>>3;
-						c2=TZCNT64(cmp2)>>3;
-						if(!cmp1)
-							len+=(int)c2;
-						len+=(int)(search2-imptr+c1);
-						if(len>imend-imptr)
-							len=(int)(imend-imptr);
-						if(len>matchlen||(len==matchlen&&idx>matchidx))
-							matchidx=idx, matchlen=len;
-					}
-					--ctr;
-				}
-				table->etable[table->eend]=(int32_t)(imptr-image);
-				table->eend=(table->eend+1)&((1<<EBITS)-1);
-				if(table->ecount>=1<<EBITS)
-					table->estart=(table->estart+1)&((1<<EBITS)-1);
-				else
-					++table->ecount;
-#endif
 				if(matchlen<=LZAC_MIN)
 				{
 					++imptr;
 					continue;
 				}
-#if 1
-			//again:
 				{
 					uint8_t *imptr1=imptr;
 					int matchlen1=0, matchidx1=0;
 					int matchlen2=0, matchidx2=0;
 					int matchlen3=0, matchidx3=0;
 					int matchlen4=0, matchidx4=0;
-					//int matchlen5=0, matchidx5=0;
 
 					findmatch(imptr+1, image, searchend, imend, &matchlen1, &matchidx1);
 					findmatch(imptr+2, image, searchend, imend, &matchlen2, &matchidx2);
 					findmatch(imptr+3, image, searchend, imend, &matchlen3, &matchidx3);
 					findmatch(imptr+4, image, searchend, imend, &matchlen4, &matchidx4);
-					//findmatch(imptr+5, image, searchend, imend, &matchlen5, &matchidx5);
 					if(matchlen1>matchlen+LZAC_MIN)
 					{
 						imptr=imptr1+1;
 						matchlen=matchlen1;
 						matchidx=matchidx1;
-						//goto again;
 					}
 					if(matchlen2>matchlen+LZAC_MIN)
 					{
@@ -830,24 +1093,32 @@ int c56_codec(int argc, char **argv)
 						matchlen=matchlen4;
 						matchidx=matchidx4;
 					}
-					//if(matchlen5>matchlen+LZAC_MIN)
-					//{
-					//	imptr=imptr1+5;
-					//	matchlen=matchlen5;
-					//	matchidx=matchidx5;
-					//}
 				}
-#endif
 			}
 			coderice(&ac, stats.litlen_ustats, stats.litlen_bstats, (int)(imptr-imptr0), &litlen_estim, RICELIMIT, RICELIMIT, 1);
 			kc=(uint32_t)(imptr0-image)%3;
 			while(imptr0<imptr)
 			{
-				codefixed(&ac
-					, stats.sym_stats[kc][((imptr0[-2]-imptr0[-1])<<6^imptr0[-1])&((1<<LZAC_CTXBITS)-1)]
-				//	, stats.sym_stats[((imptr0[-3]-imptr0[-1])<<12^(imptr0[-2]-imptr0[-1])<<6^imptr0[-1])&((1<<LZAC_CTXBITS)-1)]
-					, *imptr0, 8, 1
-				);
+				int NW, N, W, pred, sym;
+
+				NW=imptr0[-rowstride-3];
+				N=imptr0[-rowstride];
+				W=imptr0[-3];
+				if(kc)
+				{
+					NW-=imptr0[-rowstride-3-1];
+					N-=imptr0[-rowstride-1];
+					W-=imptr0[-3-1];
+				}
+				pred=abs(N-NW)>abs(W-NW)?N:W;
+				if(kc)
+				{
+					pred+=imptr0[-1];
+					CLAMP2(pred, 0, 255);
+				}
+				sym=(int8_t)(*imptr0-pred);
+				sym=sym<<1^sym>>31;
+				coderice(&ac, stats.sym_ustats, stats.sym_bstats, sym, sym_estim+kc, RICELIMIT, 8, 1);
 				++imptr0;
 				++kc;
 				if(kc>2)
@@ -1204,11 +1475,27 @@ int c56_codec(int argc, char **argv)
 			kc=(uint32_t)(imptr-image)%3;
 			while(litlen--)
 			{
-				*imptr=codefixed(&ac
-					, stats.sym_stats[kc][((imptr[-2]-imptr[-1])<<6^imptr[-1])&((1<<LZAC_CTXBITS)-1)]
-				//	, stats.sym_stats[((imptr[-3]-imptr[-1])<<12^(imptr[-2]-imptr[-1])<<6^imptr[-1])&((1<<LZAC_CTXBITS)-1)]
-					, 0, 8, 0
-				);
+				int NW, N, W, pred, sym;
+
+				NW=imptr[-rowstride-3];
+				N=imptr[-rowstride];
+				W=imptr[-3];
+				if(kc)
+				{
+					NW-=imptr[-rowstride-3-1];
+					N-=imptr[-rowstride-1];
+					W-=imptr[-3-1];
+				}
+				pred=abs(N-NW)>abs(W-NW)?N:W;
+				if(kc)
+				{
+					pred+=imptr[-1];
+					CLAMP2(pred, 0, 255);
+				}
+				sym=coderice(&ac, stats.sym_ustats, stats.sym_bstats, 0, sym_estim+kc, RICELIMIT, 8, 0);
+				sym=sym>>1^sym<<31>>31;
+				sym=(uint8_t)(sym+pred);
+				*imptr=sym;
 #ifdef ENABLE_GUIDE
 				if(*imptr!=g_image[imptr-image])
 					CRASH("guide  %d", imptr-image);
@@ -1498,5 +1785,6 @@ int c56_codec(int argc, char **argv)
 	);
 #endif
 	(void)time_sec;
+	(void)codefixed;
 	return 0;
 }
