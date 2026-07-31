@@ -18,10 +18,23 @@
 #include<immintrin.h>
 #include<sys/stat.h>
 #if defined _WIN32 || defined WIN32
-#define WIN32_LEAN_AND_MEAN
+//#define WIN32_LEAN_AND_MEAN
 #include<Windows.h>
 #include<Psapi.h>
 #include<tlhelp32.h>
+
+#define STRICT_TYPED_ITEMIDS
+#include<shlobj.h>
+#include<objbase.h>	// For COM headers
+#include<shobjidl.h>	// for IFileDialogEvents and IFileDialogControlEvents
+#include<shlwapi.h>
+#include<knownfolders.h>// for KnownFolder APIs/datatypes/function headers
+#include<propvarutil.h>	// for PROPVAR-related functions
+#include<propkey.h>	// for the Property key APIs/datatypes
+#include<propidl.h>	// for the Property System APIs
+#include<strsafe.h>	// for StringCchPrintfW
+#include<shtypes.h>	// for COMDLG_FILTERSPEC
+#include<combaseapi.h>	// for IID_PPV_ARGS
 #endif
 
 
@@ -29,7 +42,11 @@
 #define CALCSCORE(CSIZE, ENC, DEC) ((CSIZE)*(1./(1024*1024))+(ENC)+(DEC)*2)
 
 
-static char g_buf[8192]={0}, g_buf2[8192]={0};
+enum
+{
+	BUF_SIZE=8192,
+};
+static char g_buf[BUF_SIZE]={0}, g_buf2[BUF_SIZE]={0};
 
 //runtime
 #ifdef _MSC_VER
@@ -45,13 +62,10 @@ static char g_buf[8192]={0}, g_buf2[8192]={0};
 #		define _countof(A) (sizeof(A)/sizeof(*(A)))
 #	endif
 #endif
-#define CLAMP2(X, LO, HI)\
-	do\
-	{\
-		if((X)<(LO))X=LO;\
-		if((X)>(HI))X=HI;\
-	}while(0)
+#define CLAMP2(X, L, H) X=X<(L)?L:X, X=X>(H)?H:X
 #define SWAPVAR(A, B, TEMP) TEMP=A, A=B, B=TEMP
+#define UTF8TOWCHAR(U8, LEN, RET_U16, BUF_SIZE, RET_LEN)	RET_LEN=MultiByteToWideChar(CP_UTF8, 0, U8, LEN, RET_U16, BUF_SIZE)
+#define WCHARTOUTF8(WSTR, LEN, RET_UTF8, BUF_SIZE, RET_LEN)	RET_LEN=WideCharToMultiByte(CP_UTF8, 0, WSTR, LEN, RET_UTF8, BUF_SIZE, 0, 0)
 static void crash(const char *file, int line, const char *format, ...)
 {
 	printf("%s(%d):\n", file, line);
@@ -91,7 +105,7 @@ static double time_sec(void)//time since first call
 #define ARRAY_DECL(TYPENAME_ARRAY, TYPENAME_ELEMENT)\
 	typedef struct _##TYPENAME_ARRAY\
 	{\
-		ptrdiff_t count, cap, esize;\
+		intptr_t count, cap, esize;\
 		void (*destructor)(void*);\
 		TYPENAME_ELEMENT data[];\
 	} *TYPENAME_ARRAY
@@ -100,7 +114,7 @@ static double time_sec(void)//time since first call
 #define ARRAY_ALLOC(ARRAYNAME, PAD, DESTRUCTOR, ERR_RET, ZEROMEM)\
 	do\
 	{\
-		ptrdiff_t _cap=(PAD)*sizeof(ARRAYNAME->data[0]);\
+		intptr_t _cap=(PAD)*sizeof(ARRAYNAME->data[0]);\
 		ARRAYNAME=malloc(sizeof(*ARRAYNAME)+_cap);\
 		if(!ARRAYNAME)\
 		{\
@@ -119,7 +133,7 @@ static double time_sec(void)//time since first call
 #define ARRAY_COPY(ARRAYNAME, SRC, LEN, PAD, ERR_RET)\
 	do\
 	{\
-		ptrdiff_t _count=(LEN), _pad=(PAD), _cap=(_count+_pad)*sizeof(ARRAYNAME->data[0]);\
+		intptr_t _count=(LEN), _pad=(PAD), _cap=(_count+_pad)*sizeof(ARRAYNAME->data[0]);\
 		ARRAYNAME=malloc(sizeof(*ARRAYNAME)+_cap);\
 		if(!ARRAYNAME)\
 		{\
@@ -139,7 +153,7 @@ static double time_sec(void)//time since first call
 	{\
 		if((ARRAYNAME)->destructor)\
 		{\
-			ptrdiff_t k;\
+			intptr_t k;\
 			\
 			for(k=0;k<(ARRAYNAME)->count;++k)\
 				(ARRAYNAME)->destructor(ARRAYNAME->data+k);\
@@ -180,7 +194,7 @@ static double time_sec(void)//time since first call
 #define ARRAY_PUSHBACKN(ARRAYNAME, DATA, COUNT)\
 	do\
 	{\
-		ptrdiff_t _delta=COUNT;\
+		intptr_t _delta=COUNT;\
 		memcpy(&ARRAY_BACK(ARRAYNAME, 0), DATA, _delta*sizeof(ARRAYNAME->data[0]));\
 		ARRAYNAME->count+=_delta;\
 	}while(0)
@@ -188,7 +202,7 @@ static double time_sec(void)//time since first call
 #define ARRAY_POPBACKN(ARRAYNAME, COUNT)\
 	do\
 	{\
-		ptrdiff_t _delta=COUNT;\
+		intptr_t _delta=COUNT;\
 		ARRAYNAME->count-=_delta;\
 		memset(&ARRAY_BACK(ARRAYNAME), 0, _delta*sizeof(ARRAYNAME->data[0]));\
 	}while(0);
@@ -267,106 +281,6 @@ static void get_filetitle(const char *fn, int len, int *idx_start, int *idx_end)
 	if(idx_end)
 		*idx_end=kpoint;
 }
-#if 0
-ARRAY_DECL(Filenames, String);
-static Filenames get_filenames(const char *path, const char **extensions, int extCount, int fullyqualified)
-{
-#if defined _MSC_VER || defined _WIN32
-	String searchpath=0;
-	Filenames filenames=0;
-	WIN32_FIND_DATAA data={0};
-	void *hSearch=0;
-	int success=0;
-	const char *extension=0;
-	ptrdiff_t len=0;
-	
-	searchpath=filter_path(path, 0, 1, 10);
-	ARRAY_PUSHBACK(searchpath, '*');
-
-	hSearch=FindFirstFileA(searchpath->data, &data);//skip .
-	if(hSearch==INVALID_HANDLE_VALUE)
-	{
-		free(searchpath);
-		return 0;
-	}
-	success=FindNextFileA(hSearch, &data);//skip ..
-	ARRAY_POPBACK(searchpath);
-	ARRAY_ALLOC(filenames, 20, free, 0, 1);
-	for(;;)
-	{
-		success=FindNextFileA(hSearch, &data);
-		if(!success)
-			break;
-		len=strlen(data.cFileName);
-		extension=get_extension(data.cFileName, len);
-		if(!(data.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY))
-		{
-			for(int k=0;k<extCount;++k)
-			{
-				if(!acme_stricmp(extension, extensions[k]))
-				{
-					String fn;
-
-					ARRAY_ALLOC(fn, (fullyqualified?searchpath->count:0)+len+5, 0, 0, 1);
-					if(fullyqualified)
-						ARRAY_PUSHBACKN(fn, searchpath->data, searchpath->count);
-					ARRAY_PUSHBACKN(fn, data.cFileName, len);
-
-					ARRAY_APPEND1(filenames, 0);
-					ARRAY_PUSHBACK(filenames, fn);
-					break;
-				}
-			}
-		}
-	}
-	success=FindClose(hSearch);
-	free(searchpath);
-	return filenames;
-#elif defined __linux__
-	String searchpath=0;
-	Filenames filenames=0;
-	struct dirent *dir=0;
-	DIR *d=0;
-	
-	searchpath=filter_path(path, 0, 1, 10);
-	ARRAY_PUSHBACK(searchpath, '*');
-
-	d=opendir(searchpath->data);
-	if(!d)
-		return 0;
-	ARRAY_ALLOC(filenames, 20, free, 0, 1);
-	while((dir=readdir(d)))
-	{
-		if(dir->d_type==DT_REG)//regular file
-		{
-			const char *name=dir->d_name;
-			ptrdiff_t len=strlen(name);
-			const char *extension=get_extension(name, len);
-			for(int k=0;k<extCount;++k)
-			{
-				if(!acme_stricmp(extension, extensions[k]))
-				{
-					String fn;
-					
-					ARRAY_ALLOC(fn, (fullyqualified?len0:0)+len+5, 0, 0, 1);
-					if(fullyqualified)
-						ARRAY_PUSHBACKN(fn, searchpath->data, searchpath->count);
-					ARRAY_PUSHBACKN(fn, name, len);
-
-					ARRAY_APPEND1(filenames, 1);
-					ARRAY_PUSHBACK(filenames, fn);
-					break;
-				}
-			}
-		}
-	}
-	closedir(d);
-	free(searchpath);
-	qsort(filenames->data, filenames->count, sizeof(filenames->data[0]), (int(*)(const void*, const void*))strcmp);
-	return filenames;
-#endif
-}
-#endif
 static int acme_getline(char *buf, int len, FILE *f)
 {
 	int k;
@@ -386,24 +300,6 @@ static int acme_strnimatch(const char *s1, ptrdiff_t len1, const char *s2, ptrdi
 	while(s1<end1&&tolower(*s1)==tolower(*s2))++s1, ++s2;//check then increment  (blind increment misses the last character at s1==end1)
 	return s1==end1;
 }
-#if 0
-ARRAY_DECL(Buffer, uint8_t);
-static Buffer file_load(const char *fn)
-{
-	Buffer buf=0;
-	struct stat info={0};
-	FILE *f=0;
-
-	stat(fn, &info);
-	f=fopen(fn, "rb");
-	if(!f)
-		return 0;
-	ARRAY_ALLOC(buf, info.st_size+16, 0, 0, 1);
-	buf->count=fread(buf, 1, info.st_size, f);
-	fclose(f);
-	return buf;
-}
-#endif
 
 typedef struct _Image
 {
@@ -613,7 +509,7 @@ typedef union _DateTime
 } DateTime;
 typedef struct _UInfo//information about an image
 {
-	int64_t usize;
+	int64_t usize, cscore;
 	String filename;
 } UInfo;
 ARRAY_DECL(Dataset, UInfo);
@@ -668,6 +564,8 @@ static String txt_load(const char *fn)
 		return 0;
 	ARRAY_ALLOC(txt, info.st_size+16, 0, 0, 1);
 	txt->count=fread(txt->data, 1, info.st_size, f);
+	memset(txt->data+txt->count, 0, (intptr_t)info.st_size+16-txt->count);
+	//txt->data[txt->count]=0;
 	fclose(f);
 	return txt;
 }
@@ -899,12 +797,17 @@ static void substitute_cmdplaceholders(char **pptr, const char *end, const Comma
 #pragma GCC diagnostic pop
 #endif
 }
-static Dataset get_uinfo(const char *path, const char *ext)//extension without '.'
+static int get_uinfo(const char *path, const char *ext, Dataset *ret_dataset)//extension without '.'
 {
+	enum
+	{
+		RET_SUCC,
+		RET_ERR,
+	};
 	String searchpath=0;
 	void *hSearch=0;
 	WIN32_FIND_DATAA data={0};
-	Dataset dataset=0;
+	Dataset dataset=*ret_dataset;
 
 	//prepare searchpath
 	searchpath=filter_path(path, 0, 1, 10);
@@ -912,24 +815,27 @@ static Dataset get_uinfo(const char *path, const char *ext)//extension without '
 
 	hSearch=FindFirstFileA((char*)searchpath->data, &data);//skip .
 	if(hSearch==INVALID_HANDLE_VALUE)
-		return 0;
+		return RET_ERR;
 	FindNextFileA(hSearch, &data);//skip ..
 	ARRAY_POPBACK(searchpath);
-	ARRAY_ALLOC(dataset, 20, free_uinfo, 0, 1);
+	if(!dataset)
+	{
+		ARRAY_ALLOC(dataset, 20, free_uinfo, RET_ERR, 1);
+	}
 	while(FindNextFileA(hSearch, &data))
 	{
-		ptrdiff_t len=strlen(data.cFileName);
+		intptr_t len=strlen(data.cFileName);
 		const char *curr_ext=get_extension(data.cFileName, len);
 		if(!(data.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY)&&!acme_stricmp(curr_ext, ext))
 		{
 			UInfo *info=0;
 			String fn=0;
 
-			ARRAY_APPEND1(dataset, 0);
+			ARRAY_APPEND1(dataset, RET_ERR);
 			++dataset->count;
 			info=&ARRAY_BACK(dataset, 1);
 			info->usize=(int64_t)data.nFileSizeHigh<<32|data.nFileSizeLow;
-			ARRAY_COPY(fn, searchpath->data, searchpath->count, len+1, 0);
+			ARRAY_COPY(fn, searchpath->data, searchpath->count, len+1, RET_ERR);
 			memcpy(fn->data+fn->count, data.cFileName, len);
 			fn->count+=len;
 			info->filename=fn;
@@ -939,10 +845,12 @@ static Dataset get_uinfo(const char *path, const char *ext)//extension without '
 	if(!success)
 	{
 		CRASH("FindClose %d", GetLastError());
-		return 0;
+		return RET_ERR;
 	}
 	free(searchpath);
-	return dataset;
+	*ret_dataset=dataset;
+	return RET_SUCC;
+	//return dataset;
 }
 static void write_cell(FILE *fdst, ImCodecResult *cell)//tabs for excel
 {
@@ -1203,6 +1111,633 @@ static int print_currtimestamp(const char *format)
 {
 	acme_strftime(g_buf, sizeof(g_buf)-1, format);
 	return printf("%s", g_buf);
+}
+static String dialog_open_folder(void)
+{
+	String arr=0;
+	IFileOpenDialog *pFileOpenDialog=0;
+	HRESULT hr=OleInitialize(0);
+	IID fileOpenDialogIID={0xD57C7288, 0xD4AD, 0x4768, {0xBE, 0x02, 0x9D, 0x96, 0x95, 0x32, 0xD9, 0x60}};//IFileOpenDialog
+	if(hr!=S_OK)
+	{
+		OleUninitialize();
+		return 0;
+	}
+	hr=CoCreateInstance((const IID*)&CLSID_FileOpenDialog, 0, CLSCTX_INPROC_SERVER, &fileOpenDialogIID, (void**)&pFileOpenDialog);
+	if(SUCCEEDED(hr))
+	{
+		int success=0, len=0;
+#ifdef __cplusplus
+#define	CALL_METHOD(OBJ, METHOD, ...)	(OBJ)->METHOD(__VA_ARGS__)
+#else
+#define	CALL_METHOD(OBJ, METHOD, ...)	(OBJ)->lpVtbl->METHOD(OBJ, ##__VA_ARGS__)
+#endif
+		hr=CALL_METHOD(pFileOpenDialog, SetOptions, FOS_PICKFOLDERS|FOS_FORCEFILESYSTEM);
+		hr=CALL_METHOD(pFileOpenDialog, Show, 0);
+		success=SUCCEEDED(hr);
+		if(success)
+		{
+			IShellItem *pShellItem=0;
+			wchar_t *fullpath=0;
+			hr=CALL_METHOD(pFileOpenDialog, GetResult, &pShellItem);
+			CALL_METHOD(pShellItem, GetDisplayName, SIGDN_FILESYSPATH, &fullpath);
+			WCHARTOUTF8(fullpath, (int)wcslen(fullpath), g_buf, BUF_SIZE, len);
+
+			g_buf[len]=0;
+			arr=filter_path(g_buf, len, 1, 1);
+			//STR_COPY(arr, g_buf, len);
+
+			CoTaskMemFree(fullpath);
+		}
+		CALL_METHOD(pFileOpenDialog, Release);
+#undef	CALL_METHOD
+	}
+	OleUninitialize();
+	return arr;
+}
+
+//cscore = entropy% * 1e6,  CG (2D) / p (1D),  channel-average o0-entropy,  no cross-channel decorrelation
+static intptr_t calc_cscore_ppm(const char *fn)//big-endian
+{
+	enum
+	{
+		TAG='P'|'6'<<8,
+		NCH=3,
+	};
+	FILE *f=0;
+	int64_t c=0;
+	int iw=0, ih=0, vmax=0;
+
+	f=fopen(fn, "rb");
+	if(!f)
+	{
+		printf("Cannot open \"%s\"\n", fn);
+		return 1000000;
+	}
+	fread(&c, 1, 2, f);
+	if(c!=TAG)
+	{
+		printf("Unsupported file \"%s\"\n", fn);
+		fclose(f);
+		return 1000000;
+	}
+	c=fgetc(f);
+	if(c!='\n')
+	{
+		printf("Unsupported file \"%s\"\n", fn);
+		fclose(f);
+		return 1000000;
+	}
+	c=fgetc(f);
+	while(c=='#')//skip PNM comment
+	{
+		c=fgetc(f);
+		while(c!='\n')
+			c=fgetc(f);
+		c=fgetc(f);
+	}
+	while((uint32_t)(c-'0')<10)//get width
+	{
+		iw=10*iw+(int)c-'0';
+		c=fgetc(f);
+	}
+	while(c<=' ')
+		c=fgetc(f);
+	while((uint32_t)(c-'0')<10)//get height
+	{
+		ih=10*ih+(int)c-'0';
+		c=fgetc(f);
+	}
+	while(c<=' ')
+		c=fgetc(f);
+	while(c=='#')//skip PNM comment
+	{
+		c=fgetc(f);
+		while(c!='\n')
+			c=fgetc(f);
+		c=fgetc(f);
+	}
+	while((uint32_t)(c-'0')<10)//get vmax
+	{
+		vmax=10*vmax+(int)c-'0';
+		c=fgetc(f);
+	}
+	while(c=='#')//skip PNM comment
+	{
+		c=fgetc(f);
+		while(c!='\n')
+			c=fgetc(f);
+		c=fgetc(f);
+	}
+	if(c!='\n')
+	{
+		printf("PNM parsing error \"%s\"\n", fn);
+		fclose(f);
+		return 1000000;
+	}
+	if(vmax==255)
+	{
+		enum
+		{
+			DEPTH=8,
+			NLEVELS=1<<DEPTH,
+			HALF=NLEVELS>>1,
+		};
+		int rstride=NCH*iw;
+		intptr_t usize=(intptr_t)NCH*iw*ih;
+		intptr_t cap=usize+rstride;
+		uint8_t *buf=(uint8_t*)malloc(cap), *imptr=0, *imend=0;
+		const int hsize=sizeof(uint32_t[NCH*NLEVELS]);
+		uint32_t *hist=(uint32_t*)malloc(hsize);
+		double csizes[NCH]={0}, norm=0;
+		intptr_t cscore=0;
+
+		if(!buf||!hist)
+		{
+			CRASH("Alloc error");
+			return 0;
+		}
+		imptr=buf+rstride;
+		imend=buf+cap;
+		memset(buf, 0, rstride);
+		fread(imptr, 1, usize, f);
+		fclose(f);
+		memset(hist, 0, hsize);
+		while(imptr<imend)
+		{
+			int NW0		=imptr[0-1*NCH-rstride];
+			int NW1		=imptr[1-1*NCH-rstride];
+			int NW2		=imptr[2-1*NCH-rstride];
+			int N0		=imptr[0+0*NCH-rstride];
+			int N1		=imptr[1+0*NCH-rstride];
+			int N2		=imptr[2+0*NCH-rstride];
+			int W0		=imptr[0-1*NCH];
+			int W1		=imptr[1-1*NCH];
+			int W2		=imptr[2-1*NCH];
+			int curr0	=imptr[0+0*NCH];
+			int curr1	=imptr[1+0*NCH];
+			int curr2	=imptr[2+0*NCH];
+			int pred0=N0+W0-NW0;
+			int pred1=N1+W1-NW1;
+			int pred2=N2+W2-NW2;
+			int vmax0=N0, vmin0=W0;
+			int vmax1=N1, vmin1=W1;
+			int vmax2=N2, vmin2=W2;
+
+			imptr+=NCH;
+			if(N0<W0)vmin0=N0, vmax0=W0;
+			if(N1<W1)vmin1=N1, vmax1=W1;
+			if(N2<W2)vmin2=N2, vmax2=W2;
+			CLAMP2(pred0, vmin0, vmax0);
+			CLAMP2(pred1, vmin1, vmax1);
+			CLAMP2(pred2, vmin2, vmax2);
+			curr0=(uint8_t)(curr0-pred0+HALF);
+			curr1=(uint8_t)(curr1-pred1+HALF);
+			curr2=(uint8_t)(curr2-pred2+HALF);
+			++hist[0*NLEVELS|curr0];
+			++hist[1*NLEVELS|curr1];
+			++hist[2*NLEVELS|curr2];
+		}
+		norm=1./((double)iw*ih);
+		for(int kc=0;kc<NCH;++kc)
+		{
+			for(int ks=0;ks<NLEVELS;++ks)
+			{
+				uint32_t freq=hist[NLEVELS*kc|ks];
+				if(freq)
+					csizes[kc]-=freq*log2((double)freq*norm);
+			}
+			//csizes[kc]*=norm*(1./DEPTH);
+		}
+		free(buf);
+		free(hist);
+		cscore=(intptr_t)round((csizes[0]+csizes[1]+csizes[2])*norm*(1e6/(NCH*DEPTH)));
+		return cscore;
+	}
+	if(vmax==65535)
+	{
+		enum
+		{
+			DEPTH=16,
+			NLEVELS=1<<DEPTH,
+			HALF=NLEVELS>>1,
+		};
+		int rstride=NCH*iw;
+		intptr_t usize=(intptr_t)NCH*iw*ih;
+		intptr_t cap=usize+rstride;
+		uint16_t *buf=(uint16_t*)malloc(cap*sizeof(uint16_t)), *imptr=0, *imend=0;
+		const int hsize=sizeof(uint32_t[NCH*NLEVELS]);
+		uint32_t *hist=(uint32_t*)malloc(hsize);
+		double csizes[NCH]={0}, norm=0;
+		intptr_t cscore=0;
+
+		if(!buf||!hist)
+		{
+			CRASH("Alloc error");
+			return 0;
+		}
+		imptr=buf+rstride;
+		imend=buf+cap;
+		memset(buf, 0, rstride*sizeof(uint16_t));
+		fread(imptr, 1, usize*sizeof(uint16_t), f);
+		fclose(f);
+		memset(hist, 0, hsize);
+		while(imptr<imend)//convert to little-endian
+		{
+			imptr[0]=imptr[0]<<8|imptr[0]>>8;
+			imptr[1]=imptr[1]<<8|imptr[1]>>8;
+			imptr[2]=imptr[2]<<8|imptr[2]>>8;
+			imptr+=NCH;
+		}
+		imptr=buf+rstride;
+		while(imptr<imend)
+		{
+			int NW0		=imptr[0-1*NCH-rstride];
+			int NW1		=imptr[1-1*NCH-rstride];
+			int NW2		=imptr[2-1*NCH-rstride];
+			int N0		=imptr[0+0*NCH-rstride];
+			int N1		=imptr[1+0*NCH-rstride];
+			int N2		=imptr[2+0*NCH-rstride];
+			int W0		=imptr[0-1*NCH];
+			int W1		=imptr[1-1*NCH];
+			int W2		=imptr[2-1*NCH];
+			int curr0	=imptr[0+0*NCH];
+			int curr1	=imptr[1+0*NCH];
+			int curr2	=imptr[2+0*NCH];
+			int pred0=N0+W0-NW0;
+			int pred1=N1+W1-NW1;
+			int pred2=N2+W2-NW2;
+			int vmax0=N0, vmin0=W0;
+			int vmax1=N1, vmin1=W1;
+			int vmax2=N2, vmin2=W2;
+
+			imptr+=NCH;
+			if(N0<W0)vmin0=N0, vmax0=W0;
+			if(N1<W1)vmin1=N1, vmax1=W1;
+			if(N2<W2)vmin2=N2, vmax2=W2;
+			CLAMP2(pred0, vmin0, vmax0);
+			CLAMP2(pred1, vmin1, vmax1);
+			CLAMP2(pred2, vmin2, vmax2);
+			curr0=(uint16_t)(curr0-pred0+HALF);
+			curr1=(uint16_t)(curr1-pred1+HALF);
+			curr2=(uint16_t)(curr2-pred2+HALF);
+			++hist[0*NLEVELS|curr0];
+			++hist[1*NLEVELS|curr1];
+			++hist[2*NLEVELS|curr2];
+		}
+		norm=1./((double)iw*ih);
+		for(int kc=0;kc<NCH;++kc)
+		{
+			for(int ks=0;ks<NLEVELS;++ks)
+			{
+				uint32_t freq=hist[NLEVELS*kc|ks];
+				if(freq)
+					csizes[kc]-=freq*log2((double)freq*norm);
+			}
+			//csizes[kc]*=norm*(1./DEPTH);
+		}
+		free(buf);
+		free(hist);
+		cscore=(intptr_t)round((csizes[0]+csizes[1]+csizes[2])*norm*(1e6/(NCH*DEPTH)));
+		return cscore;
+	}
+	fclose(f);
+	CRASH(
+		"\"%s\"\n"
+		"vmax = %d"
+		, fn
+		, vmax
+	);
+	return (intptr_t)round(log2((double)vmax)*1e6);
+}
+static intptr_t calc_cscore_pgm(const char *fn)//big-endian
+{
+	enum
+	{
+		TAG='P'|'5'<<8,
+		NCH=1,
+	};
+	FILE *f=0;
+	int64_t c=0;
+	int iw=0, ih=0, vmax=0;
+
+	f=fopen(fn, "rb");
+	if(!f)
+	{
+		printf("Cannot open \"%s\"\n", fn);
+		return 8000000;
+	}
+	fread(&c, 1, 2, f);
+	if(c!=TAG)
+	{
+		printf("Unsupported file \"%s\"\n", fn);
+		fclose(f);
+		return 8000000;
+	}
+	c=fgetc(f);
+	if(c!='\n')
+	{
+		printf("Unsupported file \"%s\"\n", fn);
+		fclose(f);
+		return 8000000;
+	}
+	c=fgetc(f);
+	while(c=='#')//skip PNM comment
+	{
+		c=fgetc(f);
+		while(c!='\n')
+			c=fgetc(f);
+		c=fgetc(f);
+	}
+	while((uint32_t)(c-'0')<10)//get width
+	{
+		iw=10*iw+(int)c-'0';
+		c=fgetc(f);
+	}
+	while(c<=' ')
+		c=fgetc(f);
+	while((uint32_t)(c-'0')<10)//get height
+	{
+		ih=10*ih+(int)c-'0';
+		c=fgetc(f);
+	}
+	while(c<=' ')
+		c=fgetc(f);
+	while(c=='#')//skip PNM comment
+	{
+		c=fgetc(f);
+		while(c!='\n')
+			c=fgetc(f);
+		c=fgetc(f);
+	}
+	while((uint32_t)(c-'0')<10)//get vmax
+	{
+		vmax=10*vmax+(int)c-'0';
+		c=fgetc(f);
+	}
+	while(c=='#')//skip PNM comment
+	{
+		c=fgetc(f);
+		while(c!='\n')
+			c=fgetc(f);
+		c=fgetc(f);
+	}
+	if(c!='\n')
+	{
+		printf("PNM parsing error \"%s\"\n", fn);
+		fclose(f);
+		return 8000000;
+	}
+	if(vmax==255)
+	{
+		enum
+		{
+			DEPTH=8,
+			NLEVELS=1<<DEPTH,
+			HALF=NLEVELS>>1,
+		};
+		int rstride=NCH*iw;
+		intptr_t usize=(intptr_t)NCH*iw*ih;
+		intptr_t cap=usize+rstride;
+		uint8_t *buf=(uint8_t*)malloc(cap), *imptr=0, *imend=0;
+		const int hsize=sizeof(uint32_t[NCH*NLEVELS]);
+		uint32_t *hist=(uint32_t*)malloc(hsize);
+		double csizes[NCH]={0}, norm=0;
+		intptr_t cscore=0;
+
+		if(!buf||!hist)
+		{
+			CRASH("Alloc error");
+			return 0;
+		}
+		imptr=buf+rstride;
+		imend=buf+cap;
+		memset(buf, 0, rstride);
+		fread(imptr, 1, usize, f);
+		fclose(f);
+		memset(hist, 0, hsize);
+		while(imptr<imend)
+		{
+			int NW0		=imptr[0-1*NCH-rstride];
+			int N0		=imptr[0+0*NCH-rstride];
+			int W0		=imptr[0-1*NCH];
+			int curr0	=imptr[0+0*NCH];
+			int pred0=N0+W0-NW0;
+			int vmax0=N0, vmin0=W0;
+
+			imptr+=NCH;
+			if(N0<W0)vmin0=N0, vmax0=W0;
+			CLAMP2(pred0, vmin0, vmax0);
+			curr0=(uint8_t)(curr0-pred0+HALF);
+			++hist[0*NLEVELS|curr0];
+		}
+		norm=1./((double)iw*ih);
+		for(int kc=0;kc<NCH;++kc)
+		{
+			for(int ks=0;ks<NLEVELS;++ks)
+			{
+				uint32_t freq=hist[NLEVELS*kc|ks];
+				if(freq)
+					csizes[kc]-=freq*log2((double)freq*norm);
+			}
+			//csizes[kc]*=norm*(1./DEPTH);
+		}
+		free(buf);
+		free(hist);
+		cscore=(intptr_t)round(csizes[0]*norm*(1e6/(NCH*DEPTH)));
+		return cscore;
+	}
+	if(vmax==65535)
+	{
+		enum
+		{
+			DEPTH=16,
+			NLEVELS=1<<DEPTH,
+			HALF=NLEVELS>>1,
+		};
+		int rstride=NCH*iw;
+		intptr_t usize=(intptr_t)NCH*iw*ih;
+		intptr_t cap=usize+rstride;
+		uint16_t *buf=(uint16_t*)malloc(cap*sizeof(uint16_t)), *imptr=0, *imend=0;
+		const int hsize=sizeof(uint32_t[NCH*NLEVELS]);
+		uint32_t *hist=(uint32_t*)malloc(hsize);
+		double csizes[NCH]={0}, norm=0;
+		intptr_t cscore=0;
+
+		if(!buf||!hist)
+		{
+			CRASH("Alloc error");
+			return 0;
+		}
+		imptr=buf+rstride;
+		imend=buf+cap;
+		memset(buf, 0, rstride*sizeof(uint16_t));
+		fread(imptr, 1, usize*sizeof(uint16_t), f);
+		fclose(f);
+		memset(hist, 0, hsize);
+		while(imptr<imend)//convert to little-endian
+		{
+			imptr[0]=imptr[0]<<8|imptr[0]>>8;
+			imptr+=NCH;
+		}
+		imptr=buf+rstride;
+		while(imptr<imend)
+		{
+			int NW0		=imptr[0-1*NCH-rstride];
+			int N0		=imptr[0+0*NCH-rstride];
+			int W0		=imptr[0-1*NCH];
+			int curr0	=imptr[0+0*NCH];
+			int pred0=N0+W0-NW0;
+			int vmax0=N0, vmin0=W0;
+
+			imptr+=NCH;
+			if(N0<W0)vmin0=N0, vmax0=W0;
+			CLAMP2(pred0, vmin0, vmax0);
+			curr0=(uint16_t)(curr0-pred0+HALF);
+			++hist[0*NLEVELS|curr0];
+		}
+		norm=1./((double)iw*ih);
+		for(int kc=0;kc<NCH;++kc)
+		{
+			for(int ks=0;ks<NLEVELS;++ks)
+			{
+				uint32_t freq=hist[NLEVELS*kc|ks];
+				if(freq)
+					csizes[kc]-=freq*log2((double)freq*norm);
+			}
+			//csizes[kc]*=norm*(1./DEPTH);
+		}
+		free(buf);
+		free(hist);
+		cscore=(intptr_t)round(csizes[0]*norm*(1e6/(NCH*DEPTH)));
+		return cscore;
+	}
+	fclose(f);
+	CRASH(
+		"\"%s\"\n"
+		"vmax = %d"
+		, fn
+		, vmax
+	);
+	return (intptr_t)round(log2((double)vmax)*1e6);
+}
+typedef struct _WavHeader
+{
+	uint32_t RiffChunk;	//0	4	FourCC	'RIFF'
+	uint32_t ChunkSize;	//4	4	DWord	size of the riff chunk (should be always filesize - 8)
+	uint32_t FileFormat;	//8	4	FourCC	'WAVE'
+	uint32_t FormatChunk;	//12	4	FourCC	'fmt '
+	uint32_t FormatSize;	//16	4	DWord	size of Format structure (should be always 16 byte)
+	uint16_t PcmFlags;	//20	2	Word	bit 1: Signed data, bit 2: Float data.. 
+	uint16_t Channels;	//22	2	Word	samples per frame (example: one stereo frame consist from 2 samples)
+	uint32_t SampleRate;	//24	4	DWord	frames per second (example: 44100 stereo-frames are played back per seccond)   
+	uint32_t ByteRate;	//28	4	DWord	bytes per second (example: one second float32 stereo-track data: 44100frames * 2channels * 4bytes  )
+	uint16_t BlockAlign;	//32	2	Word	byte per frame (example: each float32 stero frame is 8 byte in size - one float is 4byte - 2 channels are 2 floats, each 4byte)
+	uint16_t BitDepth;	//34	2	Word	bits per sample (example: one float32 is 4 byte where each byte has 8 bit... so: 32 bit per sample )
+	//uint32_t DataChunk;	//36	4	FourCC	'data'
+	//uint32_t DataSize;	//40	4	DWord	size of of payload data (should be the total file size minus this headers size of 44 byte)
+} WavHeader;
+typedef struct _ChunkHeader
+{
+	uint32_t tag, size;
+} ChunkHeader;
+static intptr_t calc_cscore_wav(const char *fn)//little-endian
+{
+	enum
+	{
+		DEPTH=16,
+		NLEVELS=1<<DEPTH,
+		HALF=NLEVELS>>1,
+	};
+	FILE *f=0;
+	WavHeader header={0};
+	ChunkHeader h2={0};
+	intptr_t cap=0, nread=0;
+	int16_t *buf=0, *ptr=0, *end=0;
+	int nch=0;
+	int hsize=0;
+	uint32_t *hist=0;
+	int prev[16]={0};
+	double csize=0, norm=0;
+	intptr_t cscore=0;
+
+	f=fopen(fn, "rb");
+	if(!f)
+	{
+		printf("Cannot open \"%s\"\n", fn);
+		return 1000000;
+	}
+	fread(&header, 1, sizeof(header), f);
+	if(
+		header.RiffChunk!=('R'|'I'<<8|'F'<<16|'F'<<24)
+	||	header.FileFormat!=('W'|'A'<<8|'V'<<16|'E'<<24)
+	||	header.FormatChunk!=('f'|'m'<<8|'t'<<16|' '<<24)
+	||	header.FormatSize!=16
+	||	header.PcmFlags>>1
+	)
+	{
+		printf("Unsupported file \"%s\"\n", fn);
+		fclose(f);
+		return 1000000;
+	}
+	for(;;)
+	{
+		nread=fread(&h2, 1, sizeof(h2), f);
+		if(nread!=sizeof(h2)||h2.tag==('d'|'a'<<8|'t'<<16|'a'<<24))
+			break;
+		fseek(f, h2.size, SEEK_CUR);
+	}
+	if(h2.tag!=('d'|'a'<<8|'t'<<16|'a'<<24)||h2.size<1)
+	{
+		printf("Unsupported file \"%s\"\n", fn);
+		fclose(f);
+		return 1000000;
+	}
+	nch=header.Channels;
+	cap=h2.size;
+	buf=(int16_t*)malloc(h2.size);
+	hsize=nch*sizeof(uint32_t[NLEVELS]);
+	hist=(uint32_t*)malloc(hsize);
+	if(!buf||!hist)
+	{
+		CRASH("Alloc error");
+		return 0;
+	}
+	fread(buf, 1, cap, f);
+	fclose(f);
+	ptr=buf;
+	end=buf+(size_t)cap/sizeof(int16_t);
+	memset(hist, 0, hsize);
+	while(ptr<end)
+	{
+		for(int kc=0;kc<nch;++kc)
+		{
+			int val=*ptr++;
+			++hist[kc*NLEVELS|(uint16_t)(val-prev[kc]+HALF)];
+			prev[kc]=val;
+		}
+	}
+	norm=(double)(nch*sizeof(int16_t))/h2.size;//	1/nframes
+	for(int kc=0;kc<nch;++kc)
+	{
+		for(int ks=0;ks<NLEVELS;++ks)
+		{
+			int freq=hist[kc*NLEVELS|ks];
+			if(freq)
+				csize-=freq*log2((double)freq*norm);
+		}
+	}
+	free(buf);
+	free(hist);
+	cscore=(intptr_t)round(csize/h2.size);
+	return cscore;
+}
+static int cmp_uinfo(const void *pl, const void *pr)
+{
+	const UInfo *a=(const UInfo*)pl;
+	const UInfo *b=(const UInfo*)pr;
+
+	return (a->cscore>b->cscore)-(a->cscore<b->cscore);
 }
 
 #if 0
@@ -1465,11 +2000,11 @@ static IntArray get_paretofront2(IntArray besttestidxs, Tests testinfo, int dec)
 	//[debug] print pareto front
 #if defined _MSC_VER || 0
 	printf("%s Pareto front:\n", dec?"Decode":"Encode");
-	for(int ki=pareto->count-1;ki>=0;--ki)
+	for(intptr_t ki=pareto->count-1;ki>=0;--ki)
 	{
 		int idx=pareto->data[ki];
 		TestInfo *p=info+idx;
-		printf("%2d %10lld %10.4lf %s\n"
+		printf("%2lld %10lld %10.4lf %s\n"
 			, ki
 			, p->total.csize
 			, (&p->total.etime)[dec]
@@ -1690,7 +2225,7 @@ int main(int argc, char **argv)
 	static const int placeholderlen=sizeof(placeholdertag)-1;
 	const char *datasetname=0, *codecname=0;
 	char programpath[MAX_PATH+1]={0};
-	String currdir=0, tmpfn1=0, tmpfn2=0, srcpath=0, ext=0;
+	String currdir=0, tmpfn1=0, tmpfn2=0, ext=0;
 	Dataset uinfo=0;
 	Tests testinfo=0;
 	CommandFormat enccmd={0}, deccmd={0};
@@ -1712,8 +2247,8 @@ int main(int argc, char **argv)
 	datasetname=argv[1];
 	codecname=argv[2];
 #else
-	datasetname="kodak";
-	codecname="qlic2";
+	datasetname="desktop";
+	codecname="qic";
 #endif
 
 	//1. get program path
@@ -1796,13 +2331,13 @@ dec_command_template
 			start=(char*)text->data;
 			ptr=start;
 			end=start+text->count;
-			srcpath=parse_str(start, &ptr, '\t', 0);
-			skipspace(&ptr);
-			ext=parse_str(start, &ptr, '\n', 0);
-			skipspace(&ptr);
+			//srcpath=parse_str(start, &ptr, '\t', 0);
+			//skipspace(&ptr);
+			//ext=parse_str(start, &ptr, '\n', 0);
+			//skipspace(&ptr);
+			//skiplabel(start, &ptr, "files:");
 			
 			ARRAY_ALLOC(uinfo, 0, free_uinfo, 1, 1);
-			skiplabel(start, &ptr, "files:");
 			while(!peeklabel(ptr, "tests:"))
 			{
 				UInfo *info;
@@ -1812,12 +2347,22 @@ dec_command_template
 				//UInfo *info=(UInfo*)ARRAY_APPEND(uinfo, 0, 1, 1, 0);
 				info->usize=parse_uint(&ptr);
 				skipspace(&ptr);
+				info->cscore=parse_uint(&ptr);
+				skipspace(&ptr);
 				info->filename=parse_str(start, &ptr, '\n', 0);
 				skipspace(&ptr);
+				if(!ext)
+				{
+					const char *ext2=get_extension(info->filename->data, info->filename->count);
+					intptr_t len=info->filename->count-(ext2-info->filename->data)+1;
+
+					ARRAY_ALLOC(ext, len, 0, 1, 1);
+					strcpy(ext->data, ext2);
+				}
 			}
-			if(!uinfo->count)
+			if(!uinfo->count||!ext)
 			{
-				CRASH("No %s files in \"%s\"", ext->data, srcpath->data);
+				CRASH("No %s files found in dataset", ext?ext->data:"any");
 				return 0;
 			}
 			//{
@@ -1870,20 +2415,7 @@ dec_command_template
 		else
 		{
 			int len=0;
-
-			for(;;)
-			{
-				printf("Define %s path:  ", datasetname);
-				len=acme_getline(g_buf, sizeof(g_buf), stdin);
-				srcpath=filter_path(g_buf, len, 1, 16);
-				{
-					struct stat info={0};
-					stat(srcpath->data, &info);
-					if(info.st_mode&S_IFDIR)
-						break;
-				}
-				free(srcpath);
-			}
+			
 			for(;;)
 			{
 				printf("Extension:  ");
@@ -1906,12 +2438,86 @@ dec_command_template
 			}
 			ARRAY_COPY(ext, g_buf, len, 1, 1);
 
+			for(;;)
+			{
+				String path=dialog_open_folder();
+				if(!path)
+					break;
+				if(get_uinfo(path->data, ext->data, &uinfo))
+					CRASH("get_uinfo error");
+				printf("\"%s\"\n", path->data);
+				free(path);
+				if(!uinfo)
+				{
+					printf("  No %s files found\n", ext->data);
+					break;
+				}
+			}
+			if(!uinfo||!uinfo->count)
+				CRASH("No %s files found", ext->data);
+			if(!acme_stricmp(ext->data, "PPM"))
+			{
+				for(intptr_t k=0;k<uinfo->count;++k)
+				{
+					UInfo *info=uinfo->data+k;
+					printf("\rEstimating %12lld/%12lld...  ", k+1, uinfo->count);
+					info->cscore=calc_cscore_ppm(info->filename->data);
+					printf("%12lld", info->cscore);
+				}
+				printf("\n");
+			}
+			else if(!acme_stricmp(ext->data, "PGM"))
+			{
+				for(intptr_t k=0;k<uinfo->count;++k)
+				{
+					UInfo *info=uinfo->data+k;
+					printf("Estimating %12lld/%12lld...\r", k+1, uinfo->count);
+					info->cscore=calc_cscore_pgm(info->filename->data);
+					printf("%12lld", info->cscore);
+				}
+				printf("\n");
+			}
+			else if(!acme_stricmp(ext->data, "WAV"))
+			{
+				for(intptr_t k=0;k<uinfo->count;++k)
+				{
+					UInfo *info=uinfo->data+k;
+					printf("Estimating %12lld/%12lld...\r", k+1, uinfo->count);
+					info->cscore=calc_cscore_wav(info->filename->data);
+					printf("%12lld", info->cscore);
+				}
+				printf("\n");
+			}
+			else
+			{
+				for(intptr_t k=0;k<uinfo->count;++k)
+				{
+					UInfo *info=uinfo->data+k;
+					info->cscore=1000000;
+				}
+			}
+			qsort(uinfo->data, uinfo->count, sizeof(*uinfo->data), cmp_uinfo);
+#if 0
+			for(;;)
+			{
+				printf("Define %s path:  ", datasetname);
+				len=acme_getline(g_buf, sizeof(g_buf), stdin);
+				srcpath=filter_path(g_buf, len, 1, 16);
+				{
+					struct stat info={0};
+					stat(srcpath->data, &info);
+					if(info.st_mode&S_IFDIR)
+						break;
+				}
+				free(srcpath);
+			}
 			uinfo=get_uinfo((char*)srcpath->data, (char*)ext->data);
 			if(!uinfo||!uinfo->count)
 			{
 				CRASH("No %s files in \"%s\"", ext->data, srcpath->data);
 				return 0;
 			}
+#endif
 			ARRAY_ALLOC(testinfo, 0, free_testinfo, 1, 1);
 		}
 	}
@@ -2071,15 +2677,17 @@ dec_command_template
 #endif
 		char *ptr=g_buf2, *end=g_buf2+sizeof(g_buf2)-1;
 		t1fn=ptr;
-		ptr+=snprintf(ptr, end-ptr, "%s.%.*s",
-			(char*)tmpfn1->data, srcdstbounds[1]-(srcdstbounds[0]+placeholderlen), (char*)enccmd.format->data+srcdstbounds[0]+placeholderlen
+		ptr+=snprintf(ptr, end-ptr, "%s.%.*s"
+			, (char*)tmpfn1->data, srcdstbounds[1]-(srcdstbounds[0]+placeholderlen)
+			, (char*)enccmd.format->data+srcdstbounds[0]+placeholderlen
 		)+1;//skip null terminator
 		srctitle=ptr;
 		while(srctitle>t1fn&&srctitle[-1]!='/'&&srctitle[-1]!='\\')--srctitle;
 
 		t2fn=ptr;
-		ptr+=snprintf(ptr, end-ptr, "%s.%.*s",
-			(char*)tmpfn2->data, srcdstbounds[3]-(srcdstbounds[2]+placeholderlen), (char*)enccmd.format->data+srcdstbounds[2]+placeholderlen
+		ptr+=snprintf(ptr, end-ptr, "%s.%.*s"
+			, (char*)tmpfn2->data, srcdstbounds[3]-(srcdstbounds[2]+placeholderlen)
+			, (char*)enccmd.format->data+srcdstbounds[2]+placeholderlen
 		)+1;
 		dsttitle=ptr;
 		while(dsttitle>t2fn&&dsttitle[-1]!='/'&&dsttitle[-1]!='\\')--dsttitle;
@@ -2179,7 +2787,7 @@ dec_command_template
 		}
 	}
 
-	//5. test		DON'T MODIFY g_buf2 BELOW THIS POINT
+	//5. test		DO NOT MODIFY g_buf2 BELOW THIS POINT
 	ptrdiff_t usize=0;
 	TestInfo *currtest=0;
 	for(int k=0;k<(int)uinfo->count;++k)
@@ -2361,11 +2969,11 @@ dec_command_template
 			CRASH("Cannot open \"%s\" for writing", g_buf);
 			return 0;
 		}
-		fprintf(fdst, "%s\t%s\nfiles:\n", srcpath->data, ext->data);
+	//	fprintf(fdst, "%s\t%s\nfiles:\n", srcpath->data, ext->data);
 		for(int k=0;k<(int)uinfo->count;++k)
 		{
 			UInfo *info=uinfo->data+k;
-			fprintf(fdst, "%10lld\t%s\n", info->usize, info->filename->data);
+			fprintf(fdst, "%10lld\t%10lld\t%s\n", info->usize, info->cscore, info->filename->data);
 		}
 		fprintf(fdst, "tests:\n");
 		for(int k=0;k<(int)testinfo->count;++k)
@@ -2391,7 +2999,7 @@ dec_command_template
 	//7. free
 	free(enccmd.format);
 	free(deccmd.format);
-	free(srcpath);
+	//free(srcpath);
 	free(ext);
 	ARRAY_FREE(uinfo);
 	ARRAY_FREE(testinfo);
