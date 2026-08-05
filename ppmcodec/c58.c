@@ -97,10 +97,14 @@ enum
 	GRBITS=6,
 	NCTX=24,
 	GRLIMIT=16,
-
-	PROBBITS_STORE=20,
-	PROBBITS_USE=12,
-	PROBSHIFT=PROBBITS_STORE-PROBBITS_USE,
+	
+	USEBITS=14,
+	STOREBITS=20,
+	AGEBITS=8,
+	AGEMAX=(1<<AGEBITS)-1,
+	//PROBBITS_STORE=20,
+	//PROBBITS_USE=12,
+	//PROBSHIFT=PROBBITS_STORE-PROBBITS_USE,
 
 	XPAD=8,
 	NCH=3,
@@ -482,18 +486,16 @@ static uint32_t squash(int32_t d)
 #endif
 static int32_t stats[3][256][NCTX][257];
 #else
-static int32_t stats1[3][1024][NCTX][GRLIMIT];//unary
-static int32_t stats2[3][1024][256];//remainder
-static int32_t stats3[3][8][256];//bypass on GRLIMIT
+typedef int32_t Cell_t;
+static Cell_t stats1[3][1024][NCTX][GRLIMIT];//unary
+static Cell_t stats2[3][1024][256];//remainder
+static Cell_t stats3[3][8][256];//bypass on GRLIMIT
 static const size_t memusage=sizeof(stats1)+sizeof(stats2)+sizeof(stats3);
 #endif
 typedef struct _ACState
 {
-	uint64_t low, range, code;
+	uint64_t lo, hi, code;
 	uint8_t *ptr, *end;
-
-	uint64_t bitidx, totalbits;
-	uint64_t n[2];
 } ACState;
 #ifdef ESTIMATE_BITSIZE
 static uint32_t unary_count=0, binary_count=0;
@@ -564,71 +566,48 @@ INLINE void codebit(ACState *ac, int *bit, int p1, const int fwd)
 #endif
 }
 #else
-INLINE void codebit(ACState *ac, int32_t *pcell, int *bit, const int fwd)
+INLINE void codebit(ACState *ac, Cell_t *pcell, int32_t *bit, const int fwd)
 {
-	uint64_t r2, mid;
-	int32_t cell=*pcell;
-//	uint32_t p1=cell>>PROBSHIFT;
-	uint32_t p1=cell>>(PROBSHIFT+11);
 	int rbit;
-	
-	p1+=p1<1<<PROBBITS_USE>>1;
-	//p1+=1<<PROBBITS_USE>>1;
-	//CLAMP2(p1, 1, (1<<PROBBITS_USE)-1);
-
-#ifdef _MSC_VER
-	++ac->bitidx;
-#endif
-	if(ac->range<=0xFFFF)
+	Cell_t cell=*pcell;
+	uint64_t x=ac->hi-ac->lo;
+	int32_t prob=(uint32_t)(cell>>AGEBITS);
+	int32_t count=(uint32_t)(cell&AGEMAX);
+	int32_t p1=prob>>(STOREBITS-USEBITS+AGEBITS);
+	int32_t sh=31-_lzcnt_u32(count+10);
+	p1+=p1<1<<USEBITS>>1;
+	count+=count<AGEMAX;
+	if(x<=0xFFFF)
 	{
 		if(ac->ptr>=ac->end)
-		{
-#ifdef _MSC_VER
-			CRASH("inflation  %d/%d  %8.4lf%%\n"
-				, (int32_t)ac->bitidx
-				, (int32_t)ac->totalbits
-				, 100.*ac->totalbits/ac->bitidx
-			);
-#endif
-			exit(1);
-		}
+			CRASH("inflation");
 		if(fwd)
-			*(uint32_t*)ac->ptr=(uint32_t)(ac->low>>32);
+			*(uint32_t*)ac->ptr=(uint32_t)(ac->lo>>32);
 		else
 			ac->code=ac->code<<32|*(uint32_t*)ac->ptr;
 		ac->ptr+=4;
-		ac->low<<=32;
-		ac->range=ac->range<<32|0xFFFFFFFF;
-		if(ac->range>~ac->low)
-			ac->range=~ac->low;
+		ac->lo<<=32;
+		ac->hi=ac->hi<<32|~0U;
+		if(ac->hi<ac->lo)ac->hi=~0ULL;
+		x=ac->hi-ac->lo;
 	}
-	r2=ac->range*p1>>PROBBITS_USE;
-//	r2=(ac->range>>PROBBITS_USE)*p1;
-	mid=ac->low+r2;
-	ac->range-=r2;
-	--r2;
+#ifdef _MSC_VER
+	if((uint32_t)(p1-1)>(uint32_t)((1<<USEBITS)-2))
+		CRASH("Invalid p1 0x%08X / %d bit", p1, USEBITS);
+#endif
+	x=ac->lo+(x*(uint32_t)p1>>USEBITS);
 	rbit=*bit;
-	rbit=fwd?rbit:ac->code<mid;
+	rbit=fwd?rbit:ac->code<x;
 	*bit=rbit;
 #ifdef FIFOVAL
-	//if(p1<1||p1>(1<<PROBBITS_USE)-1)
-	//	CRASH("");
 	if(fwd)
-		fifoval_enqueue(rbit<<PROBBITS_STORE^p1);
+		fifoval_enqueue(rbit<<24^p1);
 	else
-		fifoval_check(rbit<<PROBBITS_STORE^p1);
+		fifoval_check(rbit<<24^p1);
 #endif
-	//*pcell=(((rbit<<PROBBITS_STORE)-cell)>>7)+cell;
-	//*pcell=((rbit<<PROBBITS_STORE)-(1<<PROBBITS_STORE>>1)-(cell>>11))+cell;
-	int count=cell&0x7FF;
-	*pcell=(((rbit<<PROBBITS_STORE)-(1<<PROBBITS_STORE>>1)-(cell>>11))*(40000/(256+3*count))&0xFFFFF800)+cell+(count<0x7FF);
-	ac->range=rbit?r2:ac->range;
-	ac->low=rbit?ac->low:mid;
-#ifdef ESTIMATE_BITSIZE
-	bitsizes[ekc][eidx]+=shannontable[rbit?p1:(1<<PROBBITS_USE)-p1];
-	++bitctr[ekc][eidx][rbit];
-	winctr[ekc][eidx]+=rbit==(p1>=1<<PROBBITS_USE);
-#endif
+	*(rbit?&ac->hi:&ac->lo)=x-rbit;
+	prob+=((((Cell_t)rbit<<STOREBITS)-prob)>>sh);
+	*pcell=prob<<AGEBITS|count;
 }
 #endif
 INLINE void mainloop(int iw, int ih, int bestrct, uint8_t *image, uint8_t *stream, ACState *ac, const int fwd)
@@ -668,9 +647,9 @@ INLINE void mainloop(int iw, int ih, int bestrct, uint8_t *image, uint8_t *strea
 #ifdef USE_HIST
 	memset(stats, 0, sizeof(stats));
 #else
-	FILLMEM_S((uint32_t*)stats1, 1<<PROBBITS_STORE>>1, sizeof(stats1), sizeof(int32_t));
-	FILLMEM_S((uint32_t*)stats2, 1<<PROBBITS_STORE>>1, sizeof(stats2), sizeof(int32_t));
-	FILLMEM_S((uint32_t*)stats3, 1<<PROBBITS_STORE>>1, sizeof(stats3), sizeof(int32_t));
+	FILLMEM_S((uint32_t*)stats1, 1<<STOREBITS>>1, sizeof(stats1), sizeof(int32_t));
+	FILLMEM_S((uint32_t*)stats2, 1<<STOREBITS>>1, sizeof(stats2), sizeof(int32_t));
+	FILLMEM_S((uint32_t*)stats3, 1<<STOREBITS>>1, sizeof(stats3), sizeof(int32_t));
 	//memset(stats1, 0, sizeof(stats1));
 	//memset(stats2, 0, sizeof(stats2));
 	//memset(stats3, 0, sizeof(stats3));
@@ -1329,9 +1308,6 @@ int c58_codec(int argc, char **argv)
 
 		csize=srcsize;
 	}
-#ifdef _MSC_VER
-	ac.totalbits=(int64_t)24*iw*ih;
-#endif
 	if(fwd)
 		mainloop(iw, ih, bestrct, image, stream, &ac, 1);
 	else
@@ -1347,7 +1323,7 @@ int c58_codec(int argc, char **argv)
 		}
 		if(fwd)
 		{
-			*(uint64_t*)ac.ptr=ac.low<<32|ac.low>>32;//flush
+			*(uint64_t*)ac.ptr=ac.lo<<32|ac.lo>>32;//flush
 			ac.ptr+=sizeof(uint64_t);
 
 			csize=ac.ptr-stream;

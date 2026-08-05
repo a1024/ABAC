@@ -91,7 +91,7 @@ int c60_codec(int argc, char **argv);//lossy wavelet FSE/AC
 //	#define CODEC_EXT c09
 //	#define CODEC_EXT c10
 //	#define CODEC_EXT c11
-//	#define CODEC_EXT c12
+	#define CODEC_EXT c12
 //	#define CODEC_EXT c13
 //	#define CODEC_EXT c14
 //	#define CODEC_EXT c15
@@ -139,7 +139,7 @@ int c60_codec(int argc, char **argv);//lossy wavelet FSE/AC
 //	#define CODEC_EXT c57
 //	#define CODEC_EXT c58
 //	#define CODEC_EXT c59
-	#define CODEC_EXT c60
+//	#define CODEC_EXT c60
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -179,14 +179,14 @@ int main(int argc, char **argv)
 //	return c34_codec(_countof(args), (char**)args);
 #else
 	const char dstfn[]=//OVERWRITTEN
-	//	"C:/dataset-a-temp/zzz.ppm"
-		"C:/Projects/datasets/zzz.ppm"
-	//	"D:/ML/zzz.ppm"
+		"C:/dataset-a-temp/zzz.ppm"
+	//	"C:/Projects/datasets/zzz.ppm"
+	//	"D:/ML/zzz.ppm"		//X  HDD slow
 	;
 	const char tmpfn[]=//OVERWRITTEN
-	//	"C:/dataset-a-temp/zzz.lsim"
-		"C:/Projects/datasets/zzz.lsim"
-	//	"D:/ML/zzz.lsim"
+		"C:/dataset-a-temp/zzz.lsim"
+	//	"C:/Projects/datasets/zzz.lsim"
+	//	"D:/ML/zzz.lsim"	//X  HDD slow
 	;
 	const char srcfn[]=
 	//	"C:/dataset-a70-ppm/20240816_113656_966.ppm"
@@ -239,7 +239,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-HUGE-ppm/space_huge.ppm"		//X
 	//	"C:/dataset-ic16-ppm/big_building.ppm"		//16-bit
 	//	"C:/dataset-ic8-ppm/big_building.ppm"
-	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+		"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_05.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_13.ppm"
@@ -302,7 +302,7 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-CLIC303-ppm/2048x1320_kim-daniel-594.ppm"
 	//	"C:/Projects/datasets/dataset-CLIC30-ppm/03.ppm"
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0801.ppm"		//blurry
-		"C:/Projects/datasets/dataset-DIV2K-ppm/0802.ppm"		//lemons
+	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0802.ppm"		//lemons
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0807.ppm"		//hard
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0808.ppm"		//crisp+grad
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0843.ppm"
