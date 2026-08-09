@@ -468,7 +468,7 @@ int main(int argc, char **argv)
 #elif defined C60TEST2
 	static const int qarr[]=
 	{
-		5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 24, 28, 32,
+		2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 16, 20, 30,
 	};
 	for(int k=0;k<_countof(qarr);++k)
 	{

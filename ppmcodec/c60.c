@@ -37,29 +37,31 @@
 //	#define FIFOVAL
 #endif
 
-	#define USE_SIMPLE_PRED
-//	#define USE_LEGALL53
-	#define ENABLE_ICT
+	#define ENABLE_ICT		//better
+	#define USE_SIMPLE_PRED		//better
+//	#define USE_LEGALL53		//worse
 
 
 enum
 {
-	DIST_DEFAULT=12,
-	DIST_LL=5,
+	DIST_DEFAULT=7,
+	DIST_LL=3,
 
-	DWT_MINDIM=128,
-
+	DWT_SH_HQ=6,	//min dimension = 2<<sh
+	DWT_SH=4,
 	DWT_SCALE=12,
+
+#ifndef USE_SIMPLE_PRED
 	SHIFT=12,
 	NPREDS=4,
-
+#endif
 	XPAD=8,
 	NCH=3,
 	NROWS=4,
 	NVAL=2,
 	
-	PROBBITS=12,
-	NCTX=4,
+	FSE_PROBBITS=12,
+	NCTX=6,
 };
 
 
@@ -451,6 +453,9 @@ static void ict_inv(uint8_t *image, int iw, int ih, int ict)
 	uint8_t *imptr=image;
 	int16_t *imptr2=(int16_t*)image, *imend=imptr2+usize;
 	
+#ifdef ENABLE_GUIDE
+	memset(g_sqe, 0, sizeof(g_sqe));
+#endif
 	while(imptr2<imend)
 	{
 #ifdef ENABLE_ICT
@@ -580,29 +585,36 @@ static void ppm_save_16as8(const char *fn, const int16_t *image, int iw, int ih)
 	free(buf);
 }
 #define SCALEUP(X) (int)((X)*(1<<DWT_SCALE)+0.5)
-	#define KAPPA 1.08
-//	#define KAPPA 1.1496043988602
+	#define KAPPA 1.1496043988602
 static const int32_t cdf97_coeffs[]=
 {
-	+SCALEUP(1.58613434342059),	//alpha		predict
-	-SCALEUP(0.0529801185729),	//beta		update
-	-SCALEUP(0.8829110755309),	//gamma		predict
-	+SCALEUP(0.4435068520439),	//delta		update
-	+SCALEUP(KAPPA),		//kappa		output gain is 1.89
-	+SCALEUP(1/KAPPA),
-};
-static int dwt_gensizes(int *sizes, int iw, int ih)
-{
-	int niter=0;
+	+SCALEUP(1.58613434342059),		//alpha		predict
+	-SCALEUP(0.0529801185729),		//beta		update
+	-SCALEUP(0.8829110755309),		//gamma		predict
+	+SCALEUP(0.4435068520439),		//delta		update
+	+SCALEUP(KAPPA), +SCALEUP(1/KAPPA),	//kappa		output gain is 1.89
 
-	while(iw>DWT_MINDIM&&ih>DWT_MINDIM)
-	{
-		sizes[2*niter+0]=iw;
-		sizes[2*niter+1]=ih;
-		++niter;
-		iw>>=1;
-		ih>>=1;
-	}
+//	+SCALEUP(1.01), +SCALEUP(1/1.01),
+//	+SCALEUP(1.02), +SCALEUP(1/1.02),
+//	+SCALEUP(1.03),	+SCALEUP(1/1.03),
+//	+SCALEUP(1.04),	+SCALEUP(1/1.04),
+//	+SCALEUP(1.05),	+SCALEUP(1/1.05),
+//	+SCALEUP(1.06),	+SCALEUP(1/1.06),
+//	+SCALEUP(1.07),	+SCALEUP(1/1.07),
+//	+SCALEUP(1.08),	+SCALEUP(1/1.08),
+};
+static int dwt_getNiter(int iw, int ih, int dist)
+{
+	int sh=dist<=5?DWT_SH_HQ:DWT_SH;
+	int niter=31^LZCNT32((iw|ih)>>sh);
+
+	//niter=0;
+	//while(iw>mindim&&ih>mindim)
+	//{
+	//	++niter;
+	//	iw>>=1;
+	//	ih>>=1;
+	//}
 	return niter;
 }
 INLINE void dwt1d_cdf97_predict(int64_t *odd, int64_t *even, int nodd3, int extraeven, int64_t coeff)
@@ -796,7 +808,7 @@ INLINE void dwt1d_cdf97_shl(int64_t *buf, int count3, int sh)
 #else
 #define DEBUGCHECK(...)
 #endif
-static void dwt1d_cdf97_fwd(int16_t *buffer, int count, int stride, int64_t *b2, int level)
+static void dwt1d_cdf97_fwd(int16_t *buffer, int count, int stride, int64_t *b2, int level, int dist)
 {
 	int nodd=count>>1, extraeven=count&1, nodd3=nodd*3;
 	int64_t *odd=b2, *even=b2+nodd3;
@@ -832,7 +844,8 @@ static void dwt1d_cdf97_fwd(int16_t *buffer, int count, int stride, int64_t *b2,
 		dwt1d_cdf97_update (odd, even, nodd3, extraeven, cdf97_coeffs[1]);
 		dwt1d_cdf97_predict(odd, even, nodd3, extraeven, cdf97_coeffs[2]);
 		dwt1d_cdf97_update (odd, even, nodd3, extraeven, cdf97_coeffs[3]);
-		dwt1d_cdf97_scale  (odd, even, nodd3, extraeven, cdf97_coeffs[5], cdf97_coeffs[4]);//scale: co=1.14, ce=1/1.14 in J2K
+		if(dist>10)
+			dwt1d_cdf97_scale  (odd, even, nodd3, extraeven, cdf97_coeffs[5], cdf97_coeffs[4]);//scale: co=1.14, ce=1/1.14 in J2K
 	}
 #endif
 	(void)&dwt1d_cdf97_scale;
@@ -852,7 +865,7 @@ static void dwt1d_cdf97_fwd(int16_t *buffer, int count, int stride, int64_t *b2,
 		buffer[ks+2]=(int16_t)v2;
 	}
 }
-static void dwt1d_cdf97_inv(int16_t *buffer, int count, int stride, int64_t *b2, int level)
+static void dwt1d_cdf97_inv(int16_t *buffer, int count, int stride, int64_t *b2, int level, int dist)
 {
 	int nodd=count>>1, extraeven=count&1, nodd3=nodd*3;
 	int64_t *odd=b2, *even=b2+nodd3;
@@ -875,7 +888,8 @@ static void dwt1d_cdf97_inv(int16_t *buffer, int count, int stride, int64_t *b2,
 	//}
 	//else
 	{
-		dwt1d_cdf97_scale  (odd, even, nodd3, extraeven, cdf97_coeffs[4], cdf97_coeffs[5]);//unscale: co=1/1.14, ce=1.14 in J2K
+		if(dist>10)
+			dwt1d_cdf97_scale  (odd, even, nodd3, extraeven, cdf97_coeffs[4], cdf97_coeffs[5]);//unscale: co=1/1.14, ce=1.14 in J2K
 		dwt1d_cdf97_update (odd, even, nodd3, extraeven, -cdf97_coeffs[3]);
 		dwt1d_cdf97_predict(odd, even, nodd3, extraeven, -cdf97_coeffs[2]);
 		dwt1d_cdf97_update (odd, even, nodd3, extraeven, -cdf97_coeffs[1]);
@@ -913,11 +927,11 @@ static void dwt1d_cdf97_inv(int16_t *buffer, int count, int stride, int64_t *b2,
 		buffer[stride*(count-1)+2]=(int16_t)even[nodd3+2];
 	}
 }
-static void dwt_cdf97(int16_t *image, int *sizes, int niter, int fwd)
+static void dwt_cdf97(int16_t *image, int iw, int ih, int niter, int dist, int fwd)
 {
-	int iw=sizes[0], ih=sizes[1], rowstride=3*iw;
 	int64_t *temp=(int64_t*)malloc((iw>ih?iw:ih)*sizeof(int64_t[3]));
 	intptr_t size=(intptr_t)3*iw*ih;
+	int rowstride=3*iw;
 
 	if(!temp)
 	{
@@ -929,13 +943,13 @@ static void dwt_cdf97(int16_t *image, int *sizes, int niter, int fwd)
 		dwt1d_cdf97_shl(image, size, 2);
 		for(int it=0;it<niter-1;++it)
 		{
-			int w2=sizes[2*it+0], h2=sizes[2*it+1];
+			int w2=iw>>it, h2=ih>>it;
 
 			for(int ky=0;ky<h2;++ky)//horizontal DWT
-				dwt1d_cdf97_fwd(image+rowstride*ky, w2, 3, temp, it);
+				dwt1d_cdf97_fwd(image+rowstride*ky, w2, 3, temp, it, dist);
 
 			for(int kx=0;kx<w2;++kx)//vertical DWT
-				dwt1d_cdf97_fwd(image+3*kx, h2, rowstride, temp, it);
+				dwt1d_cdf97_fwd(image+3*kx, h2, rowstride, temp, it, dist);
 		}
 		dwt1d_cdf97_shr(image, size, 2);
 	}
@@ -944,13 +958,13 @@ static void dwt_cdf97(int16_t *image, int *sizes, int niter, int fwd)
 		dwt1d_cdf97_shl(image, size, 2);
 		for(int it=niter-2;it>=0;--it)
 		{
-			int w2=sizes[2*it+0], h2=sizes[2*it+1];
+			int w2=iw>>it, h2=ih>>it;
 
 			for(int kx=0;kx<w2;++kx)//vertical IDWT
-				dwt1d_cdf97_inv(image+3*kx, h2, rowstride, temp, it);
+				dwt1d_cdf97_inv(image+3*kx, h2, rowstride, temp, it, dist);
 
 			for(int ky=0;ky<h2;++ky)//horizontal IDWT
-				dwt1d_cdf97_inv(image+rowstride*ky, w2, 3, temp, it);
+				dwt1d_cdf97_inv(image+rowstride*ky, w2, 3, temp, it, dist);
 		}
 		dwt1d_cdf97_shr(image, size, 2);
 	}
@@ -983,15 +997,17 @@ static void getqsteps(int16_t *image, int iw, int ih, int x1, int x2, int y1, in
 			sum[2]+=c2;
 		}
 	}
-	qsteps[0]=(int)((sum[0]<<16)/((uint64_t)count));
-	qsteps[1]=(int)((sum[1]<<16)/((uint64_t)count));
-	qsteps[2]=(int)((sum[2]<<16)/((uint64_t)count));
+	qsteps[0]=(int)((sum[0]*dist<<16)/((uint64_t)count));
+	qsteps[1]=(int)((sum[1]*dist<<16)/((uint64_t)count));
+	qsteps[2]=(int)((sum[2]*dist<<16)/((uint64_t)count));
 	if(qsteps[0]<vmax[0]<<10)qsteps[0]=vmax[0]<<10;//qstep >= 2*vmax for signbit
 	if(qsteps[1]<vmax[1]<<10)qsteps[1]=vmax[1]<<10;
 	if(qsteps[2]<vmax[2]<<10)qsteps[2]=vmax[2]<<10;
 	if(qsteps[0]<minstep)qsteps[0]=minstep;
 	if(qsteps[1]<minstep)qsteps[1]=minstep;
 	if(qsteps[2]<minstep)qsteps[2]=minstep;
+	qsteps[2]=qsteps[1]=qsteps[0]=(int)round(cbrt((double)qsteps[0]*qsteps[1]*qsteps[2]));
+//	qsteps[2]=qsteps[1]=qsteps[0]=(qsteps[0]+qsteps[1]+qsteps[2])/3;
 	(void)dist;
 }
 static void quantization(int16_t *image, int iw, int ih, int x1, int x2, int y1, int y2, const int *qsteps, int fwd)
@@ -1034,7 +1050,7 @@ static void quantization(int16_t *image, int iw, int ih, int x1, int x2, int y1,
 				c0=c0*invsteps[0]>>16;
 				c1=c1*invsteps[1]>>16;
 				c2=c2*invsteps[2]>>16;
-				c0-=c0>0;
+				c0-=c0>0;//deadzone
 				c1-=c1>0;
 				c2-=c2>0;
 				c0^=mask0;
@@ -1046,9 +1062,6 @@ static void quantization(int16_t *image, int iw, int ih, int x1, int x2, int y1,
 				c0=c0<<1^c0>>31;
 				c1=c1<<1^c1>>31;
 				c2=c2<<1^c2>>31;
-				//if((int16_t)c0<0)CRASH("");//
-				//if((int16_t)c1<0)CRASH("");//
-				//if((int16_t)c2<0)CRASH("");//
 				imptr[0]=c0;
 				imptr[1]=c1;
 				imptr[2]=c2;
@@ -1278,8 +1291,8 @@ typedef struct _FSE_decode_t
 typedef struct _FSEo1Tables
 {
 	FSE_symbolCompressionTransform symbolTT[NCH*NCTX][256];
-	uint16_t stateTable[NCH*NCTX][1<<PROBBITS];
-	FSE_decode_t decodeTable[NCH*NCTX][1<<PROBBITS];
+	uint16_t stateTable[NCH*NCTX][1<<FSE_PROBBITS];
+	FSE_decode_t decodeTable[NCH*NCTX][1<<FSE_PROBBITS];
 	
 	uint8_t wksp[1<<14>>2];
 } FSEo1Tables;
@@ -1629,7 +1642,7 @@ static void subband_code_fse(int16_t *image
 		{
 			enum
 			{
-				TABLESIZE=1<<PROBBITS,
+				TABLESIZE=1<<FSE_PROBBITS,
 				TABLEMASK=TABLESIZE-1,
 				STEP=FSE_TABLESTEP(TABLESIZE),
 				VMAX=255,
@@ -1643,8 +1656,8 @@ static void subband_code_fse(int16_t *image
 			uint32_t CDF[FSE_MAX_SYMBOL_VALUE+2];
 			int highthreshold=TABLESIZE-1;
 			
-			//PROBBITS<=15 required for threshold strategy to work
-			if(PROBBITS>15||((size_t)1<<PROBBITS)*sizeof(FSE_FUNCTION_TYPE)>sizeof(fse->wksp))
+			//FSE_PROBBITS<=15 required for threshold strategy to work
+			if(FSE_PROBBITS>15||((size_t)1<<FSE_PROBBITS)*sizeof(FSE_FUNCTION_TYPE)>sizeof(fse->wksp))
 			{
 				CRASH("tableLog too large");
 				return;
@@ -1663,18 +1676,18 @@ static void subband_code_fse(int16_t *image
 			if(nlevels==1)//degenerate distribution
 			{
 				memset(currnhist, 0, sizeof(int16_t[256]));
-				currnhist[vmax]=(1<<PROBBITS)-1;
+				currnhist[vmax]=(1<<FSE_PROBBITS)-1;
 				currnhist[(uint8_t)(vmax+1)]=1;
 				degenmask|=1LL<<kc;
 			}
 			else if(sum<=256)//bypass distribution
 			{
 				for(int ks=0;ks<256;++ks)
-					currnhist[ks]=1<<PROBBITS>>8;
+					currnhist[ks]=1<<FSE_PROBBITS>>8;
 				bypassmask|=1LL<<kc;
 			}
 			else//ordinary distribution
-				normalizehist((uint32_t*)hcurr, (uint16_t*)currnhist, PROBBITS);
+				normalizehist((uint32_t*)hcurr, (uint16_t*)currnhist, FSE_PROBBITS);
 			
 #if defined LOUD && 0
 			if(sum)
@@ -1758,17 +1771,17 @@ static void subband_code_fse(int16_t *image
 					switch(currnhist[s])
 					{
 					case  0://filling nonetheless, for compatibility with FSE_getMaxNbBits()
-						symbolTT[s].deltaNbBits=((PROBBITS+1)<<16)-(1<<PROBBITS);
+						symbolTT[s].deltaNbBits=((FSE_PROBBITS+1)<<16)-(1<<FSE_PROBBITS);
 						break;
 					case -1:
 					case  1:
-						symbolTT[s].deltaNbBits=(PROBBITS<<16)-(1<<PROBBITS);
+						symbolTT[s].deltaNbBits=(FSE_PROBBITS<<16)-(1<<FSE_PROBBITS);
 						symbolTT[s].deltaFindState=total-1;
 						++total;
 						break;
 					default:
 						{
-							uint32_t const maxBitsOut=PROBBITS-(31-LZCNT32(currnhist[s]-1));
+							uint32_t const maxBitsOut=FSE_PROBBITS-(31-LZCNT32(currnhist[s]-1));
 							uint32_t const minStatePlus=currnhist[s]<<maxBitsOut;
 							symbolTT[s].deltaNbBits=(maxBitsOut<<16)-minStatePlus;
 							symbolTT[s].deltaFindState=total-currnhist[s];
@@ -1798,7 +1811,7 @@ static void subband_code_fse(int16_t *image
 		}
 		bitpacker_enc_init(&ec, *pstreamptr, streamend);
 		for(kc=0;kc<3;++kc)
-			states[kc]=1<<PROBBITS;
+			states[kc]=1<<FSE_PROBBITS;
 		ctxptr=ctxbuf+3*(pixelcount-1);
 		for(ky=y2-1;ky>=y1;--ky)
 		{
@@ -1828,14 +1841,14 @@ static void subband_code_fse(int16_t *image
 			}
 		}
 		for(kc=3-1;kc>=0;--kc)
-			bitpacker_enc(&ec, PROBBITS, states[kc]&((1<<PROBBITS)-1));
+			bitpacker_enc(&ec, FSE_PROBBITS, states[kc]&((1<<FSE_PROBBITS)-1));
 		for(kc=3*NCTX-1;kc>=0;--kc)
 		{
 			int16_t *currnhist=nhists+256*kc;
 			if(degenmask>>kc&1)//degenerate distribution
 				bitpacker_enc(&ec, 8, (uint8_t)currnhist[0]);
 			else if(!(bypassmask>>kc&1))//ordinary distribution
-				enc_packhist(&ec, (int*)currnhist, bypassmask, kc, 0, PROBBITS);
+				enc_packhist(&ec, (int*)currnhist, bypassmask, kc, 0, FSE_PROBBITS);
 		}
 		bitpacker_enc(&ec, (int64_t)3*NCTX, bypassmask);
 		bitpacker_enc(&ec, (int64_t)3*NCTX, degenmask);
@@ -1864,21 +1877,21 @@ static void subband_code_fse(int16_t *image
 			{
 				int sym=(int)bitpacker_dec(&ec, 8);
 				memset(nhist, 0, sizeof(nhist));
-				nhist[sym]=(1<<PROBBITS)-1;
+				nhist[sym]=(1<<FSE_PROBBITS)-1;
 				nhist[(uint8_t)(sym+1)]=1;
 			}
 			else if(bypassmask>>kc&1)//bypass distribution
 			{
 				for(int ks=0;ks<256;++ks)
-					nhist[ks]=1<<PROBBITS>>8;
+					nhist[ks]=1<<FSE_PROBBITS>>8;
 			}
 			else//ordinary distribution
-				dec_unpackhist(&ec, bypassmask, kc, (uint16_t*)nhist, PROBBITS);
+				dec_unpackhist(&ec, bypassmask, kc, (uint16_t*)nhist, FSE_PROBBITS);
 
 			{
 				enum
 				{
-					TABLESIZE=1<<PROBBITS,
+					TABLESIZE=1<<FSE_PROBBITS,
 					TABLEMASK=TABLESIZE-1,
 					STEP=FSE_TABLESTEP(TABLESIZE),
 					VMAX=255,
@@ -1893,7 +1906,7 @@ static void subband_code_fse(int16_t *image
 					CRASH("maxSymbolValue too large");
 					return;
 				}
-				if(PROBBITS>FSE_MAX_TABLELOG)
+				if(FSE_PROBBITS>FSE_MAX_TABLELOG)
 				{
 					CRASH("tableLog too large");
 					return;
@@ -1936,14 +1949,14 @@ static void subband_code_fse(int16_t *image
 					{
 						FSE_FUNCTION_TYPE const symbol=(FSE_FUNCTION_TYPE)tableDecode[u].symbol;
 						uint32_t const nextState=symbolNext[symbol]++;
-						tableDecode[u].nbBits=(uint8_t)(PROBBITS-31+LZCNT32(nextState));
+						tableDecode[u].nbBits=(uint8_t)(FSE_PROBBITS-31+LZCNT32(nextState));
 						tableDecode[u].newState=(uint16_t)((nextState<<tableDecode[u].nbBits)-TABLESIZE);
 					}
 				}
 			}
 		}
 		for(kc=0;kc<3;++kc)
-			states[kc]=(uint32_t)bitpacker_dec(&ec, PROBBITS);
+			states[kc]=(uint32_t)bitpacker_dec(&ec, FSE_PROBBITS);
 		for(ky=y1;ky<y2;++ky)
 		{
 			int16_t *rows[]=
@@ -2042,7 +2055,6 @@ static void subband_code_ac(int16_t *image
 	, int x1, int x2, int y1, int y2
 	, int16_t *pixels, int psize
 	, int fwd
-	, uint8_t *ctxbuf
 	, uint8_t **pstreamptr, uint8_t *streamend
 )
 {
@@ -2259,7 +2271,7 @@ static void subband_code_riceac(int16_t *image
 	, int iw, int ih
 	, int x1, int x2, int y1, int y2
 	, int16_t *pixels, int psize
-	, int fwd
+	, int fwd, int LL
 	, uint8_t **pstreamptr, uint8_t *streamend
 )
 {
@@ -2309,10 +2321,10 @@ static void subband_code_riceac(int16_t *image
 				int ctx, nbypass;
 
 				nbypass=31^LZCNT32(eW+1);
-				ctx=2*((eW|eN)!=0)+((eNW|eNE)!=0);
+				ctx=LL?nbypass:2*((eW|eN)!=0)+((eNW|eNE)!=0);
 				//ctx=31^LZCNT32(eW*eW+1);
-				//if(ctx>NCTX-1)
-				//	ctx=NCTX-1;
+				if(ctx>NCTX-1)
+					ctx=NCTX-1;
 				ctx+=NCTX*kc;
 				currhist=hists+NLEVELS*ctx;
 
@@ -2366,16 +2378,26 @@ static void subband_proc(int16_t *image
 	, int iw, int ih
 	, int x1, int x2, int y1, int y2
 	, int16_t *pixels, int psize
-	, int LL, int fwd, int dist
+	, int niter, int level, int LL, int fwd, int dist
 	, uint8_t *ctxbuf
 	, uint8_t **pstreamptr, uint8_t *streamend
-	, int level
 )
 {
 #define UPSCALE16(X) (int)((double)(X)*(1<<16)+0.5)
 	static const int coeffs[]=
 	{
 #if 1
+		UPSCALE16(1.0),
+		UPSCALE16(1.0),
+		UPSCALE16(1.1),
+		UPSCALE16(1.2),
+		UPSCALE16(1.4),
+		UPSCALE16(1.8),
+	//	UPSCALE16(2.0),
+	//	UPSCALE16(4.0),
+	//	UPSCALE16(8.0),
+#endif
+#if 0
 		UPSCALE16(1.0),
 		UPSCALE16(1.1),
 		UPSCALE16(1.2),
@@ -2410,15 +2432,18 @@ static void subband_proc(int16_t *image
 		//0x40000,
 		//0x80000,
 	};
-	int d2=level;
+	int d2=level, d3=level-1;
 	if(d2>_countof(coeffs)-1)
 		d2=_countof(coeffs)-1;
-	d2=dist*coeffs[d2];
+	if(d3<0)
+		d3=0;
+	if(d3>_countof(coeffs)-1)
+		d3=_countof(coeffs)-1;
 	int qsteps[]=
 	{
-		d2,
-		d2,
-		d2,
+		dist*coeffs[d2],//y
+		dist*coeffs[d3],//u
+		dist*coeffs[d3],//v
 		//dist<<16,
 		//dist<<16,
 		//dist<<16,
@@ -2428,17 +2453,15 @@ static void subband_proc(int16_t *image
 		//dist<<(16-level),
 		//dist<<(16-level),
 		//dist<<(16-level),
-		//(int)round((double)dist*pow(1.25, -level*0.5))<<16,
-		//(int)round((double)dist*pow(1.25, -level*0.5))<<16,
-		//(int)round((double)dist*pow(1.25, -level*0.5))<<16,
+		//(int)round((double)dist*pow(1.25, -level*0.5)*(1<<16)),
+		//(int)round((double)dist*pow(1.25, -level*0.5)*(1<<16)),
+		//(int)round((double)dist*pow(1.25, -level*0.5)*(1<<16)),
 	};
 	uint8_t *streamptr=*pstreamptr;
 
 	if(qsteps[0]<1<<16)qsteps[0]=1<<16;
 	if(qsteps[1]<1<<16)qsteps[1]=1<<16;
 	if(qsteps[2]<1<<16)qsteps[2]=1<<16;
-	//int dx=x2-x1, dy=y2-y1;
-	
 	if(fwd)
 	{
 #if defined _MSC_VER && 0
@@ -2453,23 +2476,23 @@ static void subband_proc(int16_t *image
 			predictLL(image, iw, ih, x2-x1, y2-y1, pixels, psize, DIST_LL, fwd);
 		else
 		{
-		//	getqsteps(image, iw, ih, x1, x2, y1, y2, dist, qsteps);
+			//getqsteps(image, iw, ih, x1, x2, y1, y2, dist, qsteps);
 			quantization(image, iw, ih, x1, x2, y1, y2, qsteps, fwd);
-		//	memcpy(streamptr, qsteps, sizeof(qsteps));
-		//	streamptr+=sizeof(qsteps);
+			//memcpy(streamptr, qsteps, sizeof(qsteps));
+			//streamptr+=sizeof(qsteps);
 		}
 	}
 	else
 	{
 		if(!LL)
 		{
-		//	memcpy(qsteps, streamptr, sizeof(qsteps));
-		//	streamptr+=sizeof(qsteps);
+			//memcpy(qsteps, streamptr, sizeof(qsteps));
+			//streamptr+=sizeof(qsteps);
 		}
 	}
-	subband_code_riceac(image, iw, ih, x1, x2, y1, y2, pixels, psize, fwd, &streamptr, streamend);
-//	subband_code_ac(image, iw, ih, x1, x2, y1, y2, pixels, psize, fwd, ctxbuf, &streamptr, streamend);
-//	subband_code_fse(image, iw, ih, x1, x2, y1, y2, pixels, psize, fwd, ctxbuf, &streamptr, streamend);
+	subband_code_riceac	(image, iw, ih, x1, x2, y1, y2, pixels, psize, fwd, LL, &streamptr, streamend);
+//	subband_code_ac		(image, iw, ih, x1, x2, y1, y2, pixels, psize, fwd, &streamptr, streamend);
+//	subband_code_fse	(image, iw, ih, x1, x2, y1, y2, pixels, psize, fwd, ctxbuf, &streamptr, streamend);
 	(void)&subband_code_riceac;
 	(void)&subband_code_ac;
 	(void)&subband_code_fse;
@@ -2495,7 +2518,7 @@ int c60_codec(int argc, char **argv)
 	int16_t *pixels=0;
 	uint8_t *image=0, *stream=0, *streamptr=0, *streamend=0;
 	int ict=0;
-	int sizes[64]={0}, niter=0;
+	int niter=0;
 	uint8_t *ctxbuf=0;
 #ifdef LOUD
 	double t=time_sec();
@@ -2505,10 +2528,11 @@ int c60_codec(int argc, char **argv)
 	{
 		printf(
 			"Usage:  \"%s\"  src  dst  [d]\n"
-			"  d: Distortion. Always lossy. Default 7.\n"
+			"  d: Distortion. Always lossy. Default %d.\n"
 			"Only for 24-bit PPM images\n"
 			"Built on %s %s\n"
 			, argv[0]
+			, DIST_DEFAULT
 			, __DATE__
 			, __TIME__
 		);
@@ -2592,7 +2616,7 @@ int c60_codec(int argc, char **argv)
 		dist=0;
 		fread(&iw, 1, 3, fsrc);
 		fread(&ih, 1, 3, fsrc);
-		fread(&ict, 1, 1, fsrc);
+	//	fread(&ict, 1, 1, fsrc);
 		fread(&dist, 1, 2, fsrc);
 		{
 			struct stat info={0};
@@ -2623,7 +2647,10 @@ int c60_codec(int argc, char **argv)
 	{
 		c=fread(image, 1, usize, fsrc);
 #ifdef ENABLE_GUIDE
-		guide_save(image, iw, ih);
+#ifdef C60TEST2
+		if(!g_image)
+#endif
+			guide_save(image, iw, ih);
 #endif
 		ict=0;
 		//ict=ict_select(image, iw, ih);
@@ -2641,7 +2668,7 @@ int c60_codec(int argc, char **argv)
 		c=fread(stream, 1, ccap, fsrc);
 	fclose(fsrc);
 
-	niter=dwt_gensizes(sizes, iw, ih);
+	niter=dwt_getNiter(iw, ih, dist);
 	if(fwd)
 	{
 		//int64_t ctxbufsize=(int64_t)iw*ih;
@@ -2649,7 +2676,7 @@ int c60_codec(int argc, char **argv)
 		//if(niter<=1)
 		//	ctxbufsize=3*ctxbufsize;
 		ict_fwd(image, iw, ih, ict);
-		dwt_cdf97((int16_t*)image, sizes, niter, fwd);
+		dwt_cdf97((int16_t*)image, iw, ih, niter, dist, fwd);
 #ifdef _MSC_VER
 	//	ppm_save_16as8("20260808Sa_0616pm.ppm", (int16_t*)image, iw, ih);//
 	//	ppm_save_16bit("20260808Sa_0616pm.ppm", (int16_t*)image, iw, ih, 0xFFFF);//
@@ -2661,7 +2688,7 @@ int c60_codec(int argc, char **argv)
 		//	return 1;
 		//}
 	//	memset(hists, 0, sizeof(hists));
-		subband_proc((int16_t*)image, iw, ih, 0, iw>>(niter-1), 0, ih>>(niter-1), pixels, psize, 1, fwd, dist, ctxbuf, &streamptr, streamend, 2*(niter-1));//LL
+		subband_proc((int16_t*)image, iw, ih, 0, iw>>(niter-1), 0, ih>>(niter-1), pixels, psize, 2*niter, 2*(niter-1), 1, fwd, dist, ctxbuf, &streamptr, streamend);//LL
 		for(int it=0;it<niter-1;)
 		{
 			int w2, h2;//2x
@@ -2673,16 +2700,16 @@ int c60_codec(int argc, char **argv)
 			w1=iw>>it;
 			h1=ih>>it;
 		//	memset(hists, 0, sizeof(hists));
-			subband_proc((int16_t*)image, iw, ih,  0, w1, h1, h2, pixels, psize, 0, fwd, dist, ctxbuf, &streamptr, streamend, 2*(niter-1-it)+1);//SW
-			subband_proc((int16_t*)image, iw, ih, w1, w2,  0, h1, pixels, psize, 0, fwd, dist, ctxbuf, &streamptr, streamend, 2*(niter-1-it)+1);//NE
-			subband_proc((int16_t*)image, iw, ih, w1, w2, h1, h2, pixels, psize, 0, fwd, dist, ctxbuf, &streamptr, streamend, 2*(niter-1-it)+0);//SE HH
+			subband_proc((int16_t*)image, iw, ih,  0, w1, h1, h2, pixels, psize, 2*niter, 2*(niter-1-it)+1, 0, fwd, dist, ctxbuf, &streamptr, streamend);//SW
+			subband_proc((int16_t*)image, iw, ih, w1, w2,  0, h1, pixels, psize, 2*niter, 2*(niter-1-it)+1, 0, fwd, dist, ctxbuf, &streamptr, streamend);//NE
+			subband_proc((int16_t*)image, iw, ih, w1, w2, h1, h2, pixels, psize, 2*niter, 2*(niter-1-it)+0, 0, fwd, dist, ctxbuf, &streamptr, streamend);//SE HH
 		}
 		//free(ctxbuf);
 	}
 	else
 	{
 	//	memset(hists, 0, sizeof(hists));
-		subband_proc((int16_t*)image, iw, ih, 0, iw>>(niter-1), 0, ih>>(niter-1), pixels, psize, 1, fwd, dist, ctxbuf, &streamptr, streamend, 2*(niter-1));//LL
+		subband_proc((int16_t*)image, iw, ih, 0, iw>>(niter-1), 0, ih>>(niter-1), pixels, psize, 2*niter, 2*(niter-1), 1, fwd, dist, ctxbuf, &streamptr, streamend);//LL
 		for(int it=0;it<niter-1;)
 		{
 			int w2, h2;//2x
@@ -2694,11 +2721,11 @@ int c60_codec(int argc, char **argv)
 			w1=iw>>it;
 			h1=ih>>it;
 		//	memset(hists, 0, sizeof(hists));
-			subband_proc((int16_t*)image, iw, ih,  0, w1, h1, h2, pixels, psize, 0, fwd, dist, ctxbuf, &streamptr, streamend, 2*(niter-1-it)+1);//SW
-			subband_proc((int16_t*)image, iw, ih, w1, w2,  0, h1, pixels, psize, 0, fwd, dist, ctxbuf, &streamptr, streamend, 2*(niter-1-it)+1);//NE
-			subband_proc((int16_t*)image, iw, ih, w1, w2, h1, h2, pixels, psize, 0, fwd, dist, ctxbuf, &streamptr, streamend, 2*(niter-1-it)+0);//SE HH
+			subband_proc((int16_t*)image, iw, ih,  0, w1, h1, h2, pixels, psize, 2*niter, 2*(niter-1-it)+1, 0, fwd, dist, ctxbuf, &streamptr, streamend);//SW
+			subband_proc((int16_t*)image, iw, ih, w1, w2,  0, h1, pixels, psize, 2*niter, 2*(niter-1-it)+1, 0, fwd, dist, ctxbuf, &streamptr, streamend);//NE
+			subband_proc((int16_t*)image, iw, ih, w1, w2, h1, h2, pixels, psize, 2*niter, 2*(niter-1-it)+0, 0, fwd, dist, ctxbuf, &streamptr, streamend);//SE HH
 		}
-		dwt_cdf97((int16_t*)image, sizes, niter, fwd);
+		dwt_cdf97((int16_t*)image, iw, ih, niter, dist, fwd);
 		ict_inv(image, iw, ih, ict);
 	}
 	fdst=fopen(dstfn, "wb");
@@ -2712,7 +2739,7 @@ int c60_codec(int argc, char **argv)
 		csize+=fwrite(&tag, 1, 2, fdst);
 		csize+=fwrite(&iw, 1, 3, fdst);
 		csize+=fwrite(&ih, 1, 3, fdst);
-		csize+=fwrite(&ict, 1, 1, fdst);
+	//	csize+=fwrite(&ict, 1, 1, fdst);
 		csize+=fwrite(&dist, 1, 2, fdst);
 		csize+=fwrite(stream, 1, streamptr-stream, fdst);
 	}
@@ -2789,7 +2816,7 @@ int c60_codec(int argc, char **argv)
 		double bps=8.*csize/usize;
 		double psnr=guide_psnr(1/((double)iw*ih));
 		double exbps=0;
-		double dmax=0;
+		double score=0;
 		int bestidx=0;
 
 		for(int k=0;k<_countof(jxlcurve)/2-2;++k)
@@ -2797,8 +2824,8 @@ int c60_codec(int argc, char **argv)
 			double dx=jxlcurve[2*(k+1)+0]-jxlcurve[2*(k+0)+0];
 			double dy=jxlcurve[2*(k+1)+1]-jxlcurve[2*(k+0)+1];
 			double sd=(dx*(psnr-jxlcurve[2*(k+0)+1])-dy*(bps-jxlcurve[2*(k+0)+0]))/sqrt(dx*dx+dy*dy);
-			if(!dmax||dmax<sd)
-				dmax=sd, bestidx=k;
+			if(!score||score<sd)
+				score=sd, bestidx=k;
 			//if(psnr<jxlcurve[2*(k+1)+1])
 			//{
 			//	exbps=(psnr-jxlcurve[2*(k+0)+1])
@@ -2811,8 +2838,30 @@ int c60_codec(int argc, char **argv)
 	//	double exbps=5*pow(rmse, -1.75);//expected BPS from JXL curve
 
 #ifdef C60TEST2
-		g_score+=dmax;
-		printf("%3d  %12.6lf\n", dist, dmax);
+		printf("dist %3d  BPS %12.6lf  PSNR %12.6lf  score %12.6lf", dist, bps, psnr, score);
+		{
+			enum
+			{
+				WIDTH=256,
+			};
+			int nstars=(int)round(score*WIDTH);
+			if(nstars<0)
+			{
+				for(int k=-WIDTH/4;k<nstars;++k)
+					printf(" ");
+				for(int k=nstars;k<0;++k)
+					printf("-");
+			}
+			else
+			{
+				for(int k=-WIDTH/4;k<0;++k)
+					printf(" ");
+				for(int k=0;k<nstars;++k)
+					printf("+");
+			}
+		}
+		printf("\n");
+		g_score+=score;
 #endif
 		//printf(
 		//	"JXL1      %12.6lf  %12.6lf\n"
@@ -2828,7 +2877,9 @@ int c60_codec(int argc, char **argv)
 #ifdef C60TEST
 		results[dist].psnr=psnr;
 #endif
+#ifndef C60TEST2
 		free(g_image);
+#endif
 	}
 #endif
 	(void)csize;
