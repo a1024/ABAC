@@ -5,6 +5,7 @@
 #include<stdint.h>
 #include<stdio.h>
 
+	#define C60TEST2
 //	#define VIDEO_TEST
 //	#define LPCB_TEST
 //	#define RELEASE
@@ -91,7 +92,7 @@ int c60_codec(int argc, char **argv);//lossy wavelet FSE/AC
 //	#define CODEC_EXT c09
 //	#define CODEC_EXT c10
 //	#define CODEC_EXT c11
-	#define CODEC_EXT c12
+//	#define CODEC_EXT c12
 //	#define CODEC_EXT c13
 //	#define CODEC_EXT c14
 //	#define CODEC_EXT c15
@@ -139,7 +140,7 @@ int c60_codec(int argc, char **argv);//lossy wavelet FSE/AC
 //	#define CODEC_EXT c57
 //	#define CODEC_EXT c58
 //	#define CODEC_EXT c59
-//	#define CODEC_EXT c60
+	#define CODEC_EXT c60
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -148,6 +149,9 @@ int c60_codec(int argc, char **argv);//lossy wavelet FSE/AC
 #define CODEC_FUNC GLUE(CODEC_EXT, _codec)
 
 int64_t g_csize=0;
+#ifdef C60TEST2
+double g_score=0;
+#endif
 int main(int argc, char **argv)
 {
 	int retcode=0;
@@ -201,6 +205,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-DIV2K-ppm/0801.ppm"
 	//	"C:/dataset-DIV2K-ppm/0805.ppm"
 	//	"C:/dataset-DIV2K-ppm/0807.ppm"
+		"C:/dataset-DIV2K-ppm/0820.ppm"
 	//	"C:/dataset-DIV2K-ppm/0823.ppm"
 	//	"C:/dataset-DIV2K-ppm/0843.ppm"
 	//	"C:/dataset-DIV2K-ppm/0859.ppm"
@@ -239,7 +244,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-HUGE-ppm/space_huge.ppm"		//X
 	//	"C:/dataset-ic16-ppm/big_building.ppm"		//16-bit
 	//	"C:/dataset-ic8-ppm/big_building.ppm"
-		"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_05.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_13.ppm"
@@ -366,6 +371,9 @@ int main(int argc, char **argv)
 	//	"D:/ML/zzz_halfbright.PPM"
 	//	"D:/Programs/c29/song.ppm"
 	;
+#ifdef C60TEST2
+	char quality[128]={0};
+#endif
 	const char *encargs[]=
 	{
 		argv[0],
@@ -387,6 +395,9 @@ int main(int argc, char **argv)
 
 	//	"0",	//param1
 	//	"7",	//near
+#endif
+#ifdef C60TEST2
+		quality,
 #endif
 	};
 	const char *decargs[]=
@@ -454,6 +465,20 @@ int main(int argc, char **argv)
 #elif defined C60TEST
 	void c60_test(const char *argv0, const char *fn, const char *tmpfn, const char *tmpfn2);
 	c60_test(argv[0], srcfn, tmpfn, dstfn);
+#elif defined C60TEST2
+	static const int qarr[]=
+	{
+		5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 24, 28, 32,
+	};
+	for(int k=0;k<_countof(qarr);++k)
+	{
+		snprintf(quality, sizeof(quality)-1, "%d", qarr[k]);
+		if(CODEC_FUNC(_countof(encargs), (char**)encargs))
+			return 1;
+		if(CODEC_FUNC(_countof(decargs), (char**)decargs))
+			return 1;
+	}
+	printf("%12.8lf\n", g_score);
 #else
 	if(CODEC_FUNC(_countof(encargs), (char**)encargs))
 		return 1;

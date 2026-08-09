@@ -610,7 +610,7 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, uint8_t *image, uint8_t *stre
 	res=(int64_t)iw*ih;
 //	if(res<        10000)	sh=17;
 //	else if(res<  300000)	sh=18;
-//	else if(res< 3000000)	sh=19;
+//	if(res<      3000000)	sh=19;
 	if(res<     20000000)	sh=20;
 	else if(res<40000000)	sh=21;
 	else			sh=22;

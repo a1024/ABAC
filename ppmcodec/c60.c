@@ -30,11 +30,37 @@
 	#define LOUD
 	#define ENABLE_GUIDE
 
+	#define C60TEST2
 //	#define C60TEST
 
 //	#define ANSVAL
 //	#define FIFOVAL
 #endif
+
+	#define USE_SIMPLE_PRED
+//	#define USE_LEGALL53
+	#define ENABLE_ICT
+
+
+enum
+{
+	DIST_DEFAULT=12,
+	DIST_LL=5,
+
+	DWT_MINDIM=128,
+
+	DWT_SCALE=12,
+	SHIFT=12,
+	NPREDS=4,
+
+	XPAD=8,
+	NCH=3,
+	NROWS=4,
+	NVAL=2,
+	
+	PROBBITS=12,
+	NCTX=4,
+};
 
 
 #ifdef C60TEST
@@ -142,6 +168,7 @@ static double guide_psnr(double invres)
 		-20*log10(rmse[2]*(1./255)),
 		-20*log10(rmse[3]*(1./255)),
 	};
+#if !defined C60TEST2
 	printf(
 		"RMSE  PSNR\n"
 		"T %12.6lf  %12.6lf\n"
@@ -153,6 +180,7 @@ static double guide_psnr(double invres)
 		, rmse[1], psnr[1]
 		, rmse[2], psnr[2]
 	);
+#endif
 	return psnr[3];
 }
 #endif
@@ -390,19 +418,27 @@ static void ict_fwd(uint8_t *image, int iw, int ih, int ict)
 	{
 		imptr-=3;
 		imptr2-=3;
-		//if(imptr>imptr2)//
-		//	CRASH("");
+#ifdef ENABLE_ICT
 		c0=imptr[idx0];
 		c1=imptr[idx1];
 		c2=imptr[idx2];
-		//if(imptr==image)//
-		//	printf("");
 		y=(+FIX12(0.299   )*c0+FIX12(0.587   )*c1+FIX12(0.114   )*c2+(1<<12>>1))>>12;
 		u=(-FIX12(0.168736)*c0-FIX12(0.331264)*c1+FIX12(0.5     )*c2+(1<<12>>1))>>12;
 		v=(+FIX12(0.5     )*c0-FIX12(0.418688)*c1-FIX12(0.081312)*c2+(1<<12>>1))>>12;
-		imptr2[0]=y;
+		imptr2[0]=y-128;
 		imptr2[1]=u;
 		imptr2[2]=v;
+#else
+		c0=imptr[0];
+		c1=imptr[1];
+		c2=imptr[2];
+		imptr2[0]=c0;
+		imptr2[1]=c1;
+		imptr2[2]=c2;
+		(void)y;
+		(void)u;
+		(void)v;
+#endif
 	}
 }
 static void ict_inv(uint8_t *image, int iw, int ih, int ict)
@@ -414,12 +450,11 @@ static void ict_inv(uint8_t *image, int iw, int ih, int ict)
 	int c0, c1, c2, y, u, v;
 	uint8_t *imptr=image;
 	int16_t *imptr2=(int16_t*)image, *imend=imptr2+usize;
-
+	
 	while(imptr2<imend)
 	{
-		//if(imptr>imptr2)//
-		//	CRASH("");
-		y=imptr2[0]<<12;
+#ifdef ENABLE_ICT
+		y=(imptr2[0]+128)<<12;
 		u=imptr2[1];
 		v=imptr2[2];
 		c0=(y+FIX12(1.402)*v+(1<<12>>1))>>12;
@@ -431,6 +466,20 @@ static void ict_inv(uint8_t *image, int iw, int ih, int ict)
 		imptr[idx0]=c0;
 		imptr[idx1]=c1;
 		imptr[idx2]=c2;
+#else
+		c0=imptr2[0];
+		c1=imptr2[1];
+		c2=imptr2[2];
+		CLAMP2(c0, 0, 255);
+		CLAMP2(c1, 0, 255);
+		CLAMP2(c2, 0, 255);
+		imptr[0]=c0;
+		imptr[1]=c1;
+		imptr[2]=c2;
+		(void)y;
+		(void)u;
+		(void)v;
+#endif
 #ifdef ENABLE_GUIDE
 		{
 			int diff;
@@ -445,7 +494,7 @@ static void ict_inv(uint8_t *image, int iw, int ih, int ict)
 	}
 }
 
-static void save_ppm(const char *fn, const uint8_t *image, int iw, int ih)
+static void ppm_save(const char *fn, const uint8_t *image, int iw, int ih)
 {
 	FILE *fdst=fopen(fn, "wb");
 	if(!fdst)
@@ -457,8 +506,24 @@ static void save_ppm(const char *fn, const uint8_t *image, int iw, int ih)
 	fwrite(image, 1, (ptrdiff_t)3*iw*ih, fdst);
 	fclose(fdst);
 }
-static void save_ppm_16bit(const char *fn, const uint16_t *image, int iw, int ih, int vmax)
+static void ppm_save_16bit(const char *fn, const int16_t *image, int iw, int ih, int vmax)
 {
+	size_t size=sizeof(uint16_t[3])*iw*ih;
+	uint16_t *bigbuf=(uint16_t*)malloc(size);
+	int vmax2=0;
+
+	if(!bigbuf)
+	{
+		CRASH("Alloc error");
+		return;
+	}
+	for(int k=0;k<size/sizeof(uint16_t);++k)
+	{
+		uint16_t val=image[k]^0x8000;
+		bigbuf[k]=val<<8|val>>8;
+		if(vmax2<val)vmax2=val;
+	}
+	if(!vmax)vmax=vmax2;
 	FILE *fdst=fopen(fn, "wb");
 	if(!fdst)
 	{
@@ -467,38 +532,64 @@ static void save_ppm_16bit(const char *fn, const uint16_t *image, int iw, int ih
 	}
 	fprintf(fdst, "P6\n%d %d\n%d\n", iw, ih, vmax);
 	//fprintf(fdst, "P6\n%d %d\n65535\n", iw, ih);
-	fwrite(image, 1, sizeof(int16_t[3])*iw*ih, fdst);
+	fwrite(bigbuf, 1, size, fdst);
 	fclose(fdst);
+	free(bigbuf);
 }
-enum
+static void ppm_save_16as8(const char *fn, const int16_t *image, int iw, int ih)
 {
-	DWT_SCALE=12,
-	DWT_SHIFTSTAGES=1,
-	DWT_MINDIM=128,
+	size_t size=sizeof(uint8_t[3])*iw*ih;
+	uint8_t *buf=(uint8_t*)malloc(size);
+	int vmin=0x7FFF, vmax=-0x8000;
+	FILE *fdst=0;
 
-	NPREDS=4,
-	SHIFT=15,
-
-	XPAD=8,
-	NCH=3,
-	NROWS=4,
-	NVAL=1,
-	
-	PROBBITS=12,
-	NCTX=3,
-
-	DIST_LO=5,
-	DIST_HI=20,
-};
+	if(!buf)
+	{
+		CRASH("Alloc error");
+		return;
+	}
+	for(int k=0;k<size;++k)
+	{
+		int val=(int16_t)image[k];
+		if(vmin>val)vmin=val;
+		if(vmax<val)vmax=val;
+	}
+	if(vmin<0)
+	{
+		vmin=-vmin;
+		if(vmax<vmin)vmax=vmin;
+	}
+	if(vmax>0)
+	{
+		for(int k=0;k<size;++k)
+			buf[k]=((int16_t)image[k]+vmax)*255/(2*vmax+1);
+		//	buf[k]=((int16_t)image[k]-vmin)*255/(vmax-vmin);
+		//	buf[k]=image[k]>>8^128;
+	}
+	else
+		memset(buf, 128, size);
+	fdst=fopen(fn, "wb");
+	if(!fdst)
+	{
+		CRASH("Cannot open \"%s\" for writing", fn);
+		return;
+	}
+	fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
+	fwrite(buf, 1, size, fdst);
+	fclose(fdst);
+	free(buf);
+}
 #define SCALEUP(X) (int)((X)*(1<<DWT_SCALE)+0.5)
+	#define KAPPA 1.08
+//	#define KAPPA 1.1496043988602
 static const int32_t cdf97_coeffs[]=
 {
-	+SCALEUP(1.58613434342059f),	//alpha		predict
-	+SCALEUP(0.0529801185729f),	//beta		update
-	-SCALEUP(0.8829110755309f),	//gamma		predict
-	-SCALEUP(0.4435068520439f),	//delta		update
-	+SCALEUP(1.1496043988602f),	//kappa		output gain is 1.89
-	+SCALEUP(1/1.1496043988602f),
+	+SCALEUP(1.58613434342059),	//alpha		predict
+	-SCALEUP(0.0529801185729),	//beta		update
+	-SCALEUP(0.8829110755309),	//gamma		predict
+	+SCALEUP(0.4435068520439),	//delta		update
+	+SCALEUP(KAPPA),		//kappa		output gain is 1.89
+	+SCALEUP(1/KAPPA),
 };
 static int dwt_gensizes(int *sizes, int iw, int ih)
 {
@@ -521,6 +612,12 @@ INLINE void dwt1d_cdf97_predict(int64_t *odd, int64_t *even, int nodd3, int extr
 	even[2]-=(odd[2]*coeff*2+(1<<DWT_SCALE>>1))>>DWT_SCALE;
 	for(int k=3;k<nodd3;k+=3)//predict
 	{
+#if defined _MSC_VER && 0
+		int p=(coeff*(odd[k-3+0]+odd[k+0])+(1<<DWT_SCALE>>1))>>DWT_SCALE;
+		int dst=even[k+0]-p;
+		if(dst!=(int16_t)dst)
+			CRASH("");
+#endif
 		even[k+0]-=(coeff*(odd[k-3+0]+odd[k+0])+(1<<DWT_SCALE>>1))>>DWT_SCALE;
 		even[k+1]-=(coeff*(odd[k-3+1]+odd[k+1])+(1<<DWT_SCALE>>1))>>DWT_SCALE;
 		even[k+2]-=(coeff*(odd[k-3+2]+odd[k+2])+(1<<DWT_SCALE>>1))>>DWT_SCALE;
@@ -538,15 +635,15 @@ INLINE void dwt1d_cdf97_update(int64_t *odd, int64_t *even, int nodd3, int extra
 
 	for(int k=0;k<count;k+=3)//update
 	{
-		odd[k+0]-=((even[k+0]+even[k+3+0])*coeff+(1<<DWT_SCALE>>1))>>DWT_SCALE;
-		odd[k+1]-=((even[k+1]+even[k+3+1])*coeff+(1<<DWT_SCALE>>1))>>DWT_SCALE;
-		odd[k+2]-=((even[k+2]+even[k+3+2])*coeff+(1<<DWT_SCALE>>1))>>DWT_SCALE;
+		odd[k+0]+=((even[k+0]+even[k+3+0])*coeff+(1<<DWT_SCALE>>1))>>DWT_SCALE;
+		odd[k+1]+=((even[k+1]+even[k+3+1])*coeff+(1<<DWT_SCALE>>1))>>DWT_SCALE;
+		odd[k+2]+=((even[k+2]+even[k+3+2])*coeff+(1<<DWT_SCALE>>1))>>DWT_SCALE;
 	}
 	if(!extraeven)
 	{
-		odd[nodd3-3+0]-=(even[nodd3-3+0]*coeff*2+(1<<DWT_SCALE>>1))>>DWT_SCALE;
-		odd[nodd3-3+1]-=(even[nodd3-3+1]*coeff*2+(1<<DWT_SCALE>>1))>>DWT_SCALE;
-		odd[nodd3-3+2]-=(even[nodd3-3+2]*coeff*2+(1<<DWT_SCALE>>1))>>DWT_SCALE;
+		odd[nodd3-3+0]+=(even[nodd3-3+0]*coeff*2+(1<<DWT_SCALE>>1))>>DWT_SCALE;
+		odd[nodd3-3+1]+=(even[nodd3-3+1]*coeff*2+(1<<DWT_SCALE>>1))>>DWT_SCALE;
+		odd[nodd3-3+2]+=(even[nodd3-3+2]*coeff*2+(1<<DWT_SCALE>>1))>>DWT_SCALE;
 	}
 }
 INLINE void dwt1d_cdf97_scale(int64_t *odd, int64_t *even, int nodd3, int extraeven, int64_t co, int64_t ce)
@@ -694,7 +791,12 @@ INLINE void dwt1d_cdf97_shl(int64_t *buf, int count3, int sh)
 	}
 }
 #endif
-static void dwt1d_cdf97_fwd(int16_t *buffer, int count, int stride, int64_t *b2)
+#ifdef _MSC_VER
+#define DEBUGCHECK(A, B, C) if(A<-0x8000||A>0x7FFF||B<-0x8000||B>0x7FFF||C<-0x8000||C>0x7FFF)CRASH("%d %d %d", A, B, C)
+#else
+#define DEBUGCHECK(...)
+#endif
+static void dwt1d_cdf97_fwd(int16_t *buffer, int count, int stride, int64_t *b2, int level)
 {
 	int nodd=count>>1, extraeven=count&1, nodd3=nodd*3;
 	int64_t *odd=b2, *even=b2+nodd3;
@@ -715,21 +817,42 @@ static void dwt1d_cdf97_fwd(int16_t *buffer, int count, int stride, int64_t *b2)
 		even[nodd3+2]=buffer[stride*(count-1)+2];
 	}
 	
-	dwt1d_cdf97_predict(odd, even, nodd3, extraeven, cdf97_coeffs[0]);
-	dwt1d_cdf97_update (odd, even, nodd3, extraeven, cdf97_coeffs[1]);
-	dwt1d_cdf97_predict(odd, even, nodd3, extraeven, cdf97_coeffs[2]);
-	dwt1d_cdf97_update (odd, even, nodd3, extraeven, cdf97_coeffs[3]);
-	dwt1d_cdf97_scale  (odd, even, nodd3, extraeven, cdf97_coeffs[5], cdf97_coeffs[4]);//swapped in J2K
+#ifdef USE_LEGALL53
+	dwt1d_cdf97_predict(odd, even, nodd3, extraeven, 0x0800);
+	dwt1d_cdf97_update (odd, even, nodd3, extraeven, 0x0400);
+#else
+	//if(level>2)
+	//{
+	//	dwt1d_cdf97_predict(odd, even, nodd3, extraeven, 0x0800);
+	//	dwt1d_cdf97_update (odd, even, nodd3, extraeven, 0x0400);
+	//}
+	//else
+	{
+		dwt1d_cdf97_predict(odd, even, nodd3, extraeven, cdf97_coeffs[0]);
+		dwt1d_cdf97_update (odd, even, nodd3, extraeven, cdf97_coeffs[1]);
+		dwt1d_cdf97_predict(odd, even, nodd3, extraeven, cdf97_coeffs[2]);
+		dwt1d_cdf97_update (odd, even, nodd3, extraeven, cdf97_coeffs[3]);
+		dwt1d_cdf97_scale  (odd, even, nodd3, extraeven, cdf97_coeffs[5], cdf97_coeffs[4]);//scale: co=1.14, ce=1/1.14 in J2K
+	}
+#endif
+	(void)&dwt1d_cdf97_scale;
 
 	count*=3;
 	for(int k=0, ks=0;k<count;k+=3, ks+=stride)
 	{
-		buffer[ks+0]=(int16_t)b2[k+0];
-		buffer[ks+1]=(int16_t)b2[k+1];
-		buffer[ks+2]=(int16_t)b2[k+2];
+		int64_t v0=b2[k+0];
+		int64_t v1=b2[k+1];
+		int64_t v2=b2[k+2];
+	//	DEBUGCHECK(v0, v1, v2);
+		CLAMP2(v0, -0x8000, 0x7FFF);
+		CLAMP2(v1, -0x8000, 0x7FFF);
+		CLAMP2(v2, -0x8000, 0x7FFF);
+		buffer[ks+0]=(int16_t)v0;
+		buffer[ks+1]=(int16_t)v1;
+		buffer[ks+2]=(int16_t)v2;
 	}
 }
-static void dwt1d_cdf97_inv(int16_t *buffer, int count, int stride, int64_t *b2)
+static void dwt1d_cdf97_inv(int16_t *buffer, int count, int stride, int64_t *b2, int level)
 {
 	int nodd=count>>1, extraeven=count&1, nodd3=nodd*3;
 	int64_t *odd=b2, *even=b2+nodd3;
@@ -741,20 +864,47 @@ static void dwt1d_cdf97_inv(int16_t *buffer, int count, int stride, int64_t *b2)
 		b2[k+2]=buffer[ks+2];
 	}
 	
-	dwt1d_cdf97_scale  (odd, even, nodd3, extraeven, cdf97_coeffs[4], cdf97_coeffs[5]);//swapped in J2K
-	dwt1d_cdf97_update (odd, even, nodd3, extraeven, -cdf97_coeffs[3]);
-	dwt1d_cdf97_predict(odd, even, nodd3, extraeven, -cdf97_coeffs[2]);
-	dwt1d_cdf97_update (odd, even, nodd3, extraeven, -cdf97_coeffs[1]);
-	dwt1d_cdf97_predict(odd, even, nodd3, extraeven, -cdf97_coeffs[0]);
+#ifdef USE_LEGALL53
+	dwt1d_cdf97_update (odd, even, nodd3, extraeven, -0x0400);
+	dwt1d_cdf97_predict(odd, even, nodd3, extraeven, -0x0800);
+#else
+	//if(level>2)
+	//{
+	//	dwt1d_cdf97_update (odd, even, nodd3, extraeven, -0x0400);
+	//	dwt1d_cdf97_predict(odd, even, nodd3, extraeven, -0x0800);
+	//}
+	//else
+	{
+		dwt1d_cdf97_scale  (odd, even, nodd3, extraeven, cdf97_coeffs[4], cdf97_coeffs[5]);//unscale: co=1/1.14, ce=1.14 in J2K
+		dwt1d_cdf97_update (odd, even, nodd3, extraeven, -cdf97_coeffs[3]);
+		dwt1d_cdf97_predict(odd, even, nodd3, extraeven, -cdf97_coeffs[2]);
+		dwt1d_cdf97_update (odd, even, nodd3, extraeven, -cdf97_coeffs[1]);
+		dwt1d_cdf97_predict(odd, even, nodd3, extraeven, -cdf97_coeffs[0]);
+	}
+#endif
 
 	for(int k=0, ks=0;k<nodd3;k+=3, ks+=stride<<1)//inv lazy wavelet: join even & odd
 	{
-		buffer[ks+0]=(int16_t)even[k+0];
-		buffer[ks+1]=(int16_t)even[k+1];
-		buffer[ks+2]=(int16_t)even[k+2];
-		buffer[ks+stride+0]=(int16_t)odd[k+0];
-		buffer[ks+stride+1]=(int16_t)odd[k+1];
-		buffer[ks+stride+2]=(int16_t)odd[k+2];
+		int64_t e0=even[k+0];
+		int64_t e1=even[k+1];
+		int64_t e2=even[k+2];
+		int64_t o0=odd[k+0];
+		int64_t o1=odd[k+1];
+		int64_t o2=odd[k+2];
+	//	DEBUGCHECK(e0, e1, e2);
+	//	DEBUGCHECK(o0, o1, o2);
+		CLAMP2(e0, -0x8000, 0x7FFF);
+		CLAMP2(e1, -0x8000, 0x7FFF);
+		CLAMP2(e2, -0x8000, 0x7FFF);
+		CLAMP2(o0, -0x8000, 0x7FFF);
+		CLAMP2(o1, -0x8000, 0x7FFF);
+		CLAMP2(o2, -0x8000, 0x7FFF);
+		buffer[ks+0]=(int16_t)e0;
+		buffer[ks+1]=(int16_t)e1;
+		buffer[ks+2]=(int16_t)e2;
+		buffer[ks+stride+0]=(int16_t)o0;
+		buffer[ks+stride+1]=(int16_t)o1;
+		buffer[ks+stride+2]=(int16_t)o2;
 	}
 	if(extraeven)
 	{
@@ -774,34 +924,36 @@ static void dwt_cdf97(int16_t *image, int *sizes, int niter, int fwd)
 		CRASH("Alloc error");
 		return;
 	}
-	dwt1d_cdf97_shl(image, size, 4);
 	if(fwd)
 	{
+		dwt1d_cdf97_shl(image, size, 2);
 		for(int it=0;it<niter-1;++it)
 		{
 			int w2=sizes[2*it+0], h2=sizes[2*it+1];
 
 			for(int ky=0;ky<h2;++ky)//horizontal DWT
-				dwt1d_cdf97_fwd(image+rowstride*ky, w2, 3, temp);
+				dwt1d_cdf97_fwd(image+rowstride*ky, w2, 3, temp, it);
 
 			for(int kx=0;kx<w2;++kx)//vertical DWT
-				dwt1d_cdf97_fwd(image+3*kx, h2, rowstride, temp);
+				dwt1d_cdf97_fwd(image+3*kx, h2, rowstride, temp, it);
 		}
+		dwt1d_cdf97_shr(image, size, 2);
 	}
 	else
 	{
+		dwt1d_cdf97_shl(image, size, 2);
 		for(int it=niter-2;it>=0;--it)
 		{
 			int w2=sizes[2*it+0], h2=sizes[2*it+1];
 
 			for(int kx=0;kx<w2;++kx)//vertical IDWT
-				dwt1d_cdf97_inv(image+3*kx, h2, rowstride, temp);
+				dwt1d_cdf97_inv(image+3*kx, h2, rowstride, temp, it);
 
 			for(int ky=0;ky<h2;++ky)//horizontal IDWT
-				dwt1d_cdf97_inv(image+rowstride*ky, w2, 3, temp);
+				dwt1d_cdf97_inv(image+rowstride*ky, w2, 3, temp, it);
 		}
+		dwt1d_cdf97_shr(image, size, 2);
 	}
-	dwt1d_cdf97_shr(image, size, 4);
 	free(temp);
 }
 
@@ -853,7 +1005,7 @@ static void quantization(int16_t *image, int iw, int ih, int x1, int x2, int y1,
 			(int)((0x100000000+qsteps[1]-1)/qsteps[1]),
 			(int)((0x100000000+qsteps[2]-1)/qsteps[2]),
 		};
-#if defined LOUD && 1
+#if defined LOUD && 0
 		printf(
 			"Qstep/inv  %12.6lf / %12.6lf    %12.6lf / %12.6lf    %12.6lf / %12.6lf\n"
 			, qsteps[0]/65536., invsteps[0]/65536.
@@ -930,10 +1082,10 @@ static void quantization(int16_t *image, int iw, int ih, int x1, int x2, int y1,
 }
 static void predictLL(int16_t *image, int iw, int ih, int llw, int llh, int16_t *pixels, int psize, int dist, int fwd)
 {
-	//int NW[3]={0}, N[3]={0}, W[3]={0}, pred[3]={0}, vmin[3]={0}, vmax[3]={0};
-	int rowstride=3*iw;
-	//int fwdmask=-fwd;
+#ifndef USE_SIMPLE_PRED
 	int32_t coeffs[3][NPREDS]={0}, bias[3]={1<<SHIFT>>1, 1<<SHIFT>>1, 1<<SHIFT>>1};
+#endif
+	int rowstride=3*iw;
 	int invdist=((1<<16)+dist-1)/dist;
 
 	memset(pixels, 0, psize);
@@ -953,18 +1105,25 @@ static void predictLL(int16_t *image, int iw, int ih, int llw, int llh, int16_t 
 			{
 				int
 					NN	=rows[2][0+0*NCH*NROWS*NVAL],
+					NNE	=rows[2][0+1*NCH*NROWS*NVAL],
 					NW	=rows[1][0-1*NCH*NROWS*NVAL],
 					N	=rows[1][0+0*NCH*NROWS*NVAL],
 					NE	=rows[1][0+1*NCH*NROWS*NVAL],
 					NEEE	=rows[1][0+3*NCH*NROWS*NVAL],
-					W	=rows[0][0-1*NCH*NROWS*NVAL];
+					WWW	=rows[0][0-3*NCH*NROWS*NVAL],
+					WW	=rows[0][0-2*NCH*NROWS*NVAL],
+					W	=rows[0][0-1*NCH*NROWS*NVAL],
+					eN	=rows[1][1+0*NCH*NROWS*NVAL],
+					eNE	=rows[1][1+1*NCH*NROWS*NVAL],
+					eW	=rows[0][1-1*NCH*NROWS*NVAL];
 				int pred, vmin, vmax, curr;
+#ifndef USE_SIMPLE_PRED
 				int estim[]=
 				{
-					W,
+					2*W-WW,
 					2*N-NN,
 					N+W-NW,
-					NE,
+					N+NE-NNE,
 				};
 
 				pred=(bias[kc]
@@ -980,11 +1139,17 @@ static void predictLL(int16_t *image, int iw, int ih, int llw, int llh, int16_t 
 				if(vmin>NEEE)vmin=NEEE;
 				if(vmax<NEEE)vmax=NEEE;
 				CLAMP2(pred, vmin, vmax);
-#if 0
-				pred=N+W-NW;
+#else
+				//pred=W-((eW[kc]+8)>>4);
+
+				pred=N+W-NW+((eW-eN+eNE+4)>>3);
 				vmax=N; vmin=W;
 				if(N<W)vmin=N, vmax=W;
 				CLAMP2(pred, vmin, vmax);
+
+				//pred=(3*(N+W)-2*NW+2)>>2;
+
+				//pred=(N+W)>>1;
 #endif
 				curr=*imptr;
 				if(fwd)
@@ -999,25 +1164,32 @@ static void predictLL(int16_t *image, int iw, int ih, int llw, int llh, int16_t 
 				if(!fwd)
 					*imptr=curr;
 				++imptr;
-				//pred^=fwdmask;
-				//pred-=fwdmask;
-				//val=*imptr;
-				//if(fwd)curr=val;
-				//pred+=val;
-				//if(!fwd)curr=pred;
-				//*imptr++=pred;
-
+#ifndef USE_SIMPLE_PRED
 				pred=(curr>pred)-(curr<pred);
 				bias[kc]+=pred;
 				coeffs[kc][0]+=pred*estim[0];
 				coeffs[kc][1]+=pred*estim[1];
 				coeffs[kc][2]+=pred*estim[2];
 				coeffs[kc][3]+=pred*estim[3];
+#endif
 				rows[0][0]=curr;
+				rows[0][1]=curr-pred;
 				rows[0]+=NROWS*NVAL;
 				rows[1]+=NROWS*NVAL;
 				rows[2]+=NROWS*NVAL;
 				rows[3]+=NROWS*NVAL;
+				(void)NN	;
+				(void)NNE	;
+				(void)NW	;
+				(void)N		;
+				(void)NE	;
+				(void)NEEE	;
+				(void)WWW	;
+				(void)WW	;
+				(void)W		;
+				(void)eN	;
+				(void)eNE	;
+				(void)eW	;
 			}
 #if 0
 			int y=imptr[0];
@@ -1345,7 +1517,7 @@ static void normalizehist(const uint32_t *hist, uint16_t *nhist, int probbits)
 	for(int ks=0;ks<256;++ks)
 		nhist[ks]=CDF[ks+1]-CDF[ks];
 }
-static void subband_code(int16_t *image
+static void subband_code_fse(int16_t *image
 	, int iw, int ih
 	, int x1, int x2, int y1, int y2
 	, int16_t *pixels, int psize
@@ -1504,7 +1676,7 @@ static void subband_code(int16_t *image
 			else//ordinary distribution
 				normalizehist((uint32_t*)hcurr, (uint16_t*)currnhist, PROBBITS);
 			
-#if defined LOUD &&0
+#if defined LOUD && 0
 			if(sum)
 			{
 				double p0a=(double)hcurr[0]/sum;
@@ -2025,12 +2197,6 @@ static void subband_code_ac(int16_t *image
 	//*(uint32_t*)*pstreamptr=streamptr-**pstreamptr;
 	*pstreamptr=streamptr;
 }
-enum
-{
-	RICE_USEBITS=14,
-	RICE_STOREBITS=20,
-	RICE_CTRBITS=9,
-};
 typedef struct _ACState
 {
 	uint64_t lo, hi, code;
@@ -2038,8 +2204,14 @@ typedef struct _ACState
 } ACState;
 INLINE void codebit(ACState *ac, uint32_t *pcell, int32_t *pbit, const int fwd)
 {
+	enum
+	{
+		RICE_USEBITS=14,
+		RICE_STOREBITS=20,
+		RICE_CTRBITS=9,
+	};
 	uint64_t x;
-	uint32_t cell, prob, count, p1, sh;
+	int32_t cell, prob, count, p1, sh;
 	int bit;
 
 	cell=*pcell;
@@ -2062,9 +2234,7 @@ INLINE void codebit(ACState *ac, uint32_t *pcell, int32_t *pbit, const int fwd)
 		ac->ptr+=sizeof(uint32_t);
 		ac->lo<<=32;
 		ac->hi=ac->hi<<32|~0U;
-		
-		if(ac->hi<ac->lo)
-			ac->hi=~0ULL;
+		if(ac->hi<ac->lo)ac->hi=~0ULL;
 		x=ac->hi-ac->lo;
 	}
 #ifdef _MSC_VER
@@ -2082,7 +2252,7 @@ INLINE void codebit(ACState *ac, uint32_t *pcell, int32_t *pbit, const int fwd)
 		fifoval_check(bit<<24^p1);
 #endif
 	*(bit?&ac->hi:&ac->lo)=x-bit;
-	prob+=(int32_t)((bit<<RICE_STOREBITS)-(1<<RICE_STOREBITS>>1)-prob)>>sh;
+	prob+=(int32_t)((bit<<RICE_STOREBITS)-(1<<RICE_STOREBITS>>1)-prob+(1<<sh>>1))>>sh;
 	*pcell=prob<<RICE_CTRBITS|count;
 }
 static void subband_code_riceac(int16_t *image
@@ -2090,7 +2260,6 @@ static void subband_code_riceac(int16_t *image
 	, int x1, int x2, int y1, int y2
 	, int16_t *pixels, int psize
 	, int fwd
-	, uint8_t *ctxbuf
 	, uint8_t **pstreamptr, uint8_t *streamend
 )
 {
@@ -2101,9 +2270,7 @@ static void subband_code_riceac(int16_t *image
 	};
 	int kx=0, ky=0, kc=0;
 	int sym=0;
-	//uint64_t lo=0, hi=0xFFFFFFFFFFFF, code=0, x=0;
 	int nzeros=0, tidx=0;
-	//int den=0, cdf=0, freq=0, tmp=0;
 	ACState ac={0};
 
 	memset(hists, 0, sizeof(hists));
@@ -2141,11 +2308,11 @@ static void subband_code_riceac(int16_t *image
 				int32_t *currhist;
 				int ctx, nbypass;
 
-				ctx=2*((eW|eN)!=0)+((eNW|eNE)!=0);
 				nbypass=31^LZCNT32(eW+1);
+				ctx=2*((eW|eN)!=0)+((eNW|eNE)!=0);
 				//ctx=31^LZCNT32(eW*eW+1);
-				if(ctx>NCTX-1)
-					ctx=NCTX-1;
+				//if(ctx>NCTX-1)
+				//	ctx=NCTX-1;
 				ctx+=NCTX*kc;
 				currhist=hists+NLEVELS*ctx;
 
@@ -2160,7 +2327,9 @@ static void subband_code_riceac(int16_t *image
 				for(;;)
 				{
 					int bit=tidx>=nzeros;
-					codebit(&ac, (uint32_t*)currhist+tidx, &bit, fwd);
+					int c=tidx;
+					if(c>255)c=255;
+					codebit(&ac, (uint32_t*)currhist+c, &bit, fwd);
 					if(bit)
 						break;
 					++tidx;
@@ -2200,16 +2369,88 @@ static void subband_proc(int16_t *image
 	, int LL, int fwd, int dist
 	, uint8_t *ctxbuf
 	, uint8_t **pstreamptr, uint8_t *streamend
+	, int level
 )
 {
+#define UPSCALE16(X) (int)((double)(X)*(1<<16)+0.5)
+	static const int coeffs[]=
+	{
+#if 1
+		UPSCALE16(1.0),
+		UPSCALE16(1.1),
+		UPSCALE16(1.2),
+		UPSCALE16(1.3),
+		UPSCALE16(1.4),
+		UPSCALE16(1.5),
+		UPSCALE16(1.6),
+		UPSCALE16(1.7),
+#endif
+#if 0
+		UPSCALE16(1.7),
+		UPSCALE16(1.6),
+		UPSCALE16(1.5),
+		UPSCALE16(1.4),
+		UPSCALE16(1.3),
+		UPSCALE16(1.2),
+		UPSCALE16(1.1),
+		UPSCALE16(1.0),
+#endif
+		//UPSCALE16(1),
+		//UPSCALE16(1),
+		//UPSCALE16(0.75),
+		//UPSCALE16(0.75),
+		//UPSCALE16(0.5),
+		//UPSCALE16(0.5),
+		//UPSCALE16(0.25),
+		//UPSCALE16(0.25),
+
+		//0x08000,
+		//0x10000,
+		//0x20000,
+		//0x40000,
+		//0x80000,
+	};
+	int d2=level;
+	if(d2>_countof(coeffs)-1)
+		d2=_countof(coeffs)-1;
+	d2=dist*coeffs[d2];
+	int qsteps[]=
+	{
+		d2,
+		d2,
+		d2,
+		//dist<<16,
+		//dist<<16,
+		//dist<<16,
+		//(dist-level*8)<<16,
+		//(dist-level*8)<<16,
+		//(dist-level*8)<<16,
+		//dist<<(16-level),
+		//dist<<(16-level),
+		//dist<<(16-level),
+		//(int)round((double)dist*pow(1.25, -level*0.5))<<16,
+		//(int)round((double)dist*pow(1.25, -level*0.5))<<16,
+		//(int)round((double)dist*pow(1.25, -level*0.5))<<16,
+	};
 	uint8_t *streamptr=*pstreamptr;
-	int qsteps[3]={dist<<16, dist<<16, dist<<16};
+
+	if(qsteps[0]<1<<16)qsteps[0]=1<<16;
+	if(qsteps[1]<1<<16)qsteps[1]=1<<16;
+	if(qsteps[2]<1<<16)qsteps[2]=1<<16;
 	//int dx=x2-x1, dy=y2-y1;
 	
 	if(fwd)
 	{
+#if defined _MSC_VER && 0
+		printf("%12.6lf %12.6lf %12.6lf  level %d\n"
+			, qsteps[0]*(1./(1<<16))
+			, qsteps[1]*(1./(1<<16))
+			, qsteps[2]*(1./(1<<16))
+			, level
+		);
+#endif
 		if(LL)
-			predictLL(image, iw, ih, x2-x1, y2-y1, pixels, psize, DIST_LO, fwd);
+			predictLL(image, iw, ih, x2-x1, y2-y1, pixels, psize, DIST_LL, fwd);
 		else
 		{
 		//	getqsteps(image, iw, ih, x1, x2, y1, y2, dist, qsteps);
@@ -2226,16 +2467,16 @@ static void subband_proc(int16_t *image
 		//	streamptr+=sizeof(qsteps);
 		}
 	}
-	subband_code_riceac(image, iw, ih, x1, x2, y1, y2, pixels, psize, fwd, ctxbuf, &streamptr, streamend);
+	subband_code_riceac(image, iw, ih, x1, x2, y1, y2, pixels, psize, fwd, &streamptr, streamend);
 //	subband_code_ac(image, iw, ih, x1, x2, y1, y2, pixels, psize, fwd, ctxbuf, &streamptr, streamend);
-//	subband_code(image, iw, ih, x1, x2, y1, y2, pixels, psize, fwd, ctxbuf, &streamptr, streamend);
+//	subband_code_fse(image, iw, ih, x1, x2, y1, y2, pixels, psize, fwd, ctxbuf, &streamptr, streamend);
 	(void)&subband_code_riceac;
 	(void)&subband_code_ac;
-	(void)&subband_code;
+	(void)&subband_code_fse;
 	if(!fwd)
 	{
 		if(LL)
-			predictLL(image, iw, ih, x2-x1, y2-y1, pixels, psize, DIST_LO, fwd);
+			predictLL(image, iw, ih, x2-x1, y2-y1, pixels, psize, DIST_LL, fwd);
 		else
 			quantization(image, iw, ih, x1, x2, y1, y2, qsteps, fwd);
 	}
@@ -2275,7 +2516,7 @@ int c60_codec(int argc, char **argv)
 	}
 	srcfn=argv[1];
 	dstfn=argv[2];
-	dist=argc<4?DIST_HI:atoi(argv[3]);
+	dist=argc<4?DIST_DEFAULT:atoi(argv[3]);
 	fsrc=fopen(srcfn, "rb");
 	if(!fsrc)
 	{
@@ -2357,7 +2598,8 @@ int c60_codec(int argc, char **argv)
 			struct stat info={0};
 
 			stat(srcfn, &info);
-			ccap=(int64_t)info.st_size-ftell(fsrc);
+			csize=info.st_size;
+			ccap=csize-ftell(fsrc);
 		}
 	}
 	if(iw<1||ih<1)
@@ -2379,7 +2621,7 @@ int c60_codec(int argc, char **argv)
 	streamend=stream+ccap;
 	if(fwd)
 	{
-		fread(image, 1, usize, fsrc);
+		c=fread(image, 1, usize, fsrc);
 #ifdef ENABLE_GUIDE
 		guide_save(image, iw, ih);
 #endif
@@ -2396,27 +2638,30 @@ int c60_codec(int argc, char **argv)
 #endif
 	}
 	else
-	{
 		c=fread(stream, 1, ccap, fsrc);
-	}
 	fclose(fsrc);
 
 	niter=dwt_gensizes(sizes, iw, ih);
 	if(fwd)
 	{
-		int64_t ctxbufsize=(int64_t)iw*ih;
-		
-		if(niter<=1)
-			ctxbufsize=3*ctxbufsize;
+		//int64_t ctxbufsize=(int64_t)iw*ih;
+		//
+		//if(niter<=1)
+		//	ctxbufsize=3*ctxbufsize;
 		ict_fwd(image, iw, ih, ict);
 		dwt_cdf97((int16_t*)image, sizes, niter, fwd);
-		ctxbuf=(uint8_t*)malloc(ctxbufsize);
-		if(!ctxbuf)
-		{
-			CRASH("Alloc error");
-			return 1;
-		}
-		subband_proc((int16_t*)image, iw, ih, 0, iw>>(niter-1), 0, ih>>(niter-1), pixels, psize, 1, fwd, dist, ctxbuf, &streamptr, streamend);//LL
+#ifdef _MSC_VER
+	//	ppm_save_16as8("20260808Sa_0616pm.ppm", (int16_t*)image, iw, ih);//
+	//	ppm_save_16bit("20260808Sa_0616pm.ppm", (int16_t*)image, iw, ih, 0xFFFF);//
+#endif
+		//ctxbuf=(uint8_t*)malloc(ctxbufsize);
+		//if(!ctxbuf)
+		//{
+		//	CRASH("Alloc error");
+		//	return 1;
+		//}
+	//	memset(hists, 0, sizeof(hists));
+		subband_proc((int16_t*)image, iw, ih, 0, iw>>(niter-1), 0, ih>>(niter-1), pixels, psize, 1, fwd, dist, ctxbuf, &streamptr, streamend, 2*(niter-1));//LL
 		for(int it=0;it<niter-1;)
 		{
 			int w2, h2;//2x
@@ -2427,15 +2672,17 @@ int c60_codec(int argc, char **argv)
 			++it;
 			w1=iw>>it;
 			h1=ih>>it;
-			subband_proc((int16_t*)image, iw, ih,  0, w1, h1, h2, pixels, psize, 0, fwd, dist, ctxbuf, &streamptr, streamend);//SW
-			subband_proc((int16_t*)image, iw, ih, w1, w2,  0, h1, pixels, psize, 0, fwd, dist, ctxbuf, &streamptr, streamend);//NE
-			subband_proc((int16_t*)image, iw, ih, w1, w2, h1, h2, pixels, psize, 0, fwd, dist, ctxbuf, &streamptr, streamend);//SE HH
+		//	memset(hists, 0, sizeof(hists));
+			subband_proc((int16_t*)image, iw, ih,  0, w1, h1, h2, pixels, psize, 0, fwd, dist, ctxbuf, &streamptr, streamend, 2*(niter-1-it)+1);//SW
+			subband_proc((int16_t*)image, iw, ih, w1, w2,  0, h1, pixels, psize, 0, fwd, dist, ctxbuf, &streamptr, streamend, 2*(niter-1-it)+1);//NE
+			subband_proc((int16_t*)image, iw, ih, w1, w2, h1, h2, pixels, psize, 0, fwd, dist, ctxbuf, &streamptr, streamend, 2*(niter-1-it)+0);//SE HH
 		}
-		free(ctxbuf);
+		//free(ctxbuf);
 	}
 	else
 	{
-		subband_proc((int16_t*)image, iw, ih, 0, iw>>(niter-1), 0, ih>>(niter-1), pixels, psize, 1, fwd, dist, ctxbuf, &streamptr, streamend);//LL
+	//	memset(hists, 0, sizeof(hists));
+		subband_proc((int16_t*)image, iw, ih, 0, iw>>(niter-1), 0, ih>>(niter-1), pixels, psize, 1, fwd, dist, ctxbuf, &streamptr, streamend, 2*(niter-1));//LL
 		for(int it=0;it<niter-1;)
 		{
 			int w2, h2;//2x
@@ -2446,9 +2693,10 @@ int c60_codec(int argc, char **argv)
 			++it;
 			w1=iw>>it;
 			h1=ih>>it;
-			subband_proc((int16_t*)image, iw, ih,  0, w1, h1, h2, pixels, psize, 0, fwd, dist, ctxbuf, &streamptr, streamend);//SW
-			subband_proc((int16_t*)image, iw, ih, w1, w2,  0, h1, pixels, psize, 0, fwd, dist, ctxbuf, &streamptr, streamend);//NE
-			subband_proc((int16_t*)image, iw, ih, w1, w2, h1, h2, pixels, psize, 0, fwd, dist, ctxbuf, &streamptr, streamend);//SE HH
+		//	memset(hists, 0, sizeof(hists));
+			subband_proc((int16_t*)image, iw, ih,  0, w1, h1, h2, pixels, psize, 0, fwd, dist, ctxbuf, &streamptr, streamend, 2*(niter-1-it)+1);//SW
+			subband_proc((int16_t*)image, iw, ih, w1, w2,  0, h1, pixels, psize, 0, fwd, dist, ctxbuf, &streamptr, streamend, 2*(niter-1-it)+1);//NE
+			subband_proc((int16_t*)image, iw, ih, w1, w2, h1, h2, pixels, psize, 0, fwd, dist, ctxbuf, &streamptr, streamend, 2*(niter-1-it)+0);//SE HH
 		}
 		dwt_cdf97((int16_t*)image, sizes, niter, fwd);
 		ict_inv(image, iw, ih, ict);
@@ -2479,6 +2727,7 @@ int c60_codec(int argc, char **argv)
 	free(stream);
 #ifdef LOUD
 	t=time_sec()-t;
+#if !defined C60TEST2
 	if(fwd)
 	{
 		printf("WH %5d*%5d  %8.2lf MB  \"%s\"\n", iw, ih, 3.*iw*ih/(1<<20), srcfn);
@@ -2499,9 +2748,83 @@ int c60_codec(int argc, char **argv)
 		, usize/(t*1024*1024)
 		, t*1024*1024*1000/usize
 	);
+#endif
 	if(!fwd)
 	{
+		static const double jxlcurve[]=
+		{//	BPS	PSNR
+
+			//DIV2K
+#if 0
+			0.0677, 26.617987,//10
+			0.0902, 28.435101,//20
+			0.1202, 29.648848,//30
+			0.1353, 30.156079,//40
+			0.1567, 30.831602,//50
+			0.1908, 31.723736,//60
+			0.2463, 32.956886,//70
+			0.2850, 33.663252,//75
+			0.3414, 34.609978,//80
+
+#endif
+
+			//DIV2K/0820
+#if 1
+			0.113, 25.484142,//10	0.340/3
+			0.139, 27.991428,//20	0.419/3
+			0.184, 29.615995,//30	0.552/3
+			0.205, 30.297540,//40	0.617/3
+			0.234, 31.133699,//50	0.704/3
+			0.278, 32.215792,//60	0.835/3
+			0.346, 33.726246,//70	1.040/3
+			0.391, 34.617069,//75	1.174/3
+			0.453, 35.742132,//80	1.361/3
+			0.688, 38.923345,//90	2.065/3
+			0.985, 41.586402,//95	2.957/3
+			1.761, 45.738214,//99	5.283/3
+			3.197, INFINITY,//100	9.592/3
+#endif
+		};
+		extern double g_score;
+		double bps=8.*csize/usize;
 		double psnr=guide_psnr(1/((double)iw*ih));
+		double exbps=0;
+		double dmax=0;
+		int bestidx=0;
+
+		for(int k=0;k<_countof(jxlcurve)/2-2;++k)
+		{
+			double dx=jxlcurve[2*(k+1)+0]-jxlcurve[2*(k+0)+0];
+			double dy=jxlcurve[2*(k+1)+1]-jxlcurve[2*(k+0)+1];
+			double sd=(dx*(psnr-jxlcurve[2*(k+0)+1])-dy*(bps-jxlcurve[2*(k+0)+0]))/sqrt(dx*dx+dy*dy);
+			if(!dmax||dmax<sd)
+				dmax=sd, bestidx=k;
+			//if(psnr<jxlcurve[2*(k+1)+1])
+			//{
+			//	exbps=(psnr-jxlcurve[2*(k+0)+1])
+			//		/(jxlcurve[2*(k+1)+1]-jxlcurve[2*(k+0)+1])
+			//		*(jxlcurve[2*(k+1)+0]-jxlcurve[2*(k+0)+0])
+			//		+jxlcurve[2*(k+0)+0];
+			//	break;
+			//}
+		}
+	//	double exbps=5*pow(rmse, -1.75);//expected BPS from JXL curve
+
+#ifdef C60TEST2
+		g_score+=dmax;
+		printf("%3d  %12.6lf\n", dist, dmax);
+#endif
+		//printf(
+		//	"JXL1      %12.6lf  %12.6lf\n"
+		//	"BPS PSNR  %12.6lf  %12.6lf\n"
+		//	"JXL2      %12.6lf  %12.6lf\n"
+		//	"sd = %12.8lf\n"
+		//	, jxlcurve[2*(bestidx+0)+0], jxlcurve[2*(bestidx+0)+1]
+		//	, bps, psnr
+		//	, jxlcurve[2*(bestidx+1)+0], jxlcurve[2*(bestidx+1)+1]
+		//	, dmax
+		//);
+	//	printf("RMSE %12.6lf  BPS %12.6lf  exBPS %12.6lf  BPS/exBPS %12.6lf%%\n", psnr, bps, exbps, 100.*bps/exbps);
 #ifdef C60TEST
 		results[dist].psnr=psnr;
 #endif
@@ -2509,8 +2832,9 @@ int c60_codec(int argc, char **argv)
 	}
 #endif
 	(void)csize;
-	(void)&save_ppm;
-	(void)&save_ppm_16bit;
+	(void)&ppm_save;
+	(void)&ppm_save_16bit;
+	(void)&ppm_save_16as8;
 	(void)&time_sec;
 	(void)&ict_select;
 	(void)&getqsteps;
