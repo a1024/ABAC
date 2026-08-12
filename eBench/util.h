@@ -55,6 +55,17 @@ extern "C"
 #define MAXVAR(A, B) ((A)>(B)?(A):(B))//use the faster _mm_max...
 #define CLAMP2(X, L, H) X=X<(L)?L:X, X=X>(H)?H:X
 #define CLAMP(LO, X, HI) ((X)>(LO)?(X)<(HI)?(X):(HI):(LO))//use MEDIAN3_32
+#ifdef _MSC_VER
+#	define LZCNT32 _lzcnt_u32
+#	define LZCNT64 _lzcnt_u64
+#	define TZCNT32 _tzcnt_u32
+#	define TZCNT64 _tzcnt_u64
+#else
+#	define LZCNT32 __builtin_clz
+#	define LZCNT64 __builtin_clzll
+#	define TZCNT32 __builtin_ctz
+#	define TZCNT64 __builtin_ctzll
+#endif
 
 //include<smmintrin.h>	SSE4.1
 #define MEDIAN3_32(DST, A, B, C)\

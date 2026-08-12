@@ -224,6 +224,7 @@ typedef enum TransformTypeEnum
 	
 	ST_FWD_GRAY,		ST_INV_GRAY,
 	ST_FWD_MIXN,		ST_INV_MIXN,
+	ST_FWD_MIXNC,		ST_INV_MIXNC,
 	ST_FWD_BESTN,		ST_INV_BESTN,
 	ST_FWD_RLS,		ST_INV_RLS,
 	ST_FWD_ADAQUANT,	ST_INV_ADAQUANT,
@@ -3157,6 +3158,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_GRAY:		a=" S Inv Gray";		break;
 	case ST_FWD_MIXN:		a=" S Fwd MIX N";		break;
 	case ST_INV_MIXN:		a=" S Inv MIX N";		break;
+	case ST_FWD_MIXNC:		a=" S Fwd MIX NC";		break;
+	case ST_INV_MIXNC:		a=" S Inv MIX NC";		break;
 	case ST_FWD_BESTN:		a=" S Fwd Best N";		break;
 	case ST_INV_BESTN:		a=" S Inv Best N";		break;
 	case ST_FWD_RLS:		a=" S Fwd RLS";			break;
@@ -4444,6 +4447,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_GRAY:		pred_gray(image, 0);					break;
 	case ST_FWD_MIXN:		pred_mixN(image, 1);					break;
 	case ST_INV_MIXN:		pred_mixN(image, 0);					break;
+	case ST_FWD_MIXNC:		pred_mixNC(image, 1);					break;
+	case ST_INV_MIXNC:		pred_mixNC(image, 0);					break;
 	case ST_FWD_BESTN:		pred_bestN(image, 1);					break;
 	case ST_INV_BESTN:		pred_bestN(image, 0);					break;
 	case ST_FWD_RLS:		pred_rls(image, 1);					break;
@@ -5866,6 +5871,29 @@ static void draw_cloud(int x, int y, int blocksize, float cubesize)
 	}
 }
 #endif
+static int world2screen(const Camera *cam, float *w, float *s)
+{
+	float cp[3]={0}, tmp[3]={0};
+
+	cam_world2cam(*cam, w, cp, tmp);
+	//(tmp)[0] = (w)[0] - (&(*cam).x)[0];
+	//(tmp)[1] = (w)[1] - (&(*cam).x)[1];
+	//(tmp)[2] = (w)[2] - (&(*cam).x)[2];
+	//(cp)[2] = (tmp)[0] * (*cam).cax + (tmp)[1] * (*cam).sax;
+	//(cp)[0] = (tmp)[0] * (*cam).sax - (tmp)[1] * (*cam).cax;
+	//(cp)[1] = (cp)[2] * (*cam).say - (tmp)[2] * (*cam).cay;
+	//(cp)[2] = (cp)[2] * (*cam).cay + (tmp)[2] * (*cam).say;
+	if(cp[2]<=0)
+		return 0;
+	cam_cam2screen(*cam, cp, s, wndw*0.5f, wndh*0.5f);
+	//GUIPrint(0, s[0], s[1], 1, "%s", str);
+	return 1;
+}
+typedef struct _NBInfo
+{
+	int dx, dy;
+	const char *label;
+} NBInfo;
 static void chart_jointhist_draw(void)
 {
 	draw_AAcuboid_wire(jh_cubesize, 0);
@@ -5876,7 +5904,188 @@ static void chart_jointhist_draw(void)
 	//	float *vertices=(float*)array_at(&jhc_mesh, k);
 	//	draw_3d_line(&cam, vertices, vertices+5, 0x80FF00FF);
 	//}
-	draw_3d_wireframe_gpu(&cam, jhc_gpubuf, (int)(jhc_mesh->count<<1), 0xC0000000, GL_LINES);
+	if(wndh)
+	{
+		int x=mx*im1->iw/wndw;
+		int y=my*im1->ih/wndh;
+		static const NBInfo nbs[]=
+		{
+			{-2, -2, "NNWW"},	// 0
+			{-1, -2, "NNW"},	// 1
+			{ 0, -2, "NN"},		// 2
+			{ 1, -2, "NNE"},	// 3
+			{ 2, -2, "NNEE"},	// 4
+			{-2, -1, "NWW"},	// 5
+			{-1, -1, "NW"},		// 6
+			{ 0, -1, "N"},		// 7
+			{ 1, -1, "NE"},		// 8
+			{ 2, -1, "NEE"},	// 9
+			{-2,  0, "WW"},		//10
+			{-1,  0, "W"},		//11
+			{ 0,  0, "?"},		//12
+			{ 0, -3, "NNN"},	//13
+			{-3,  0, "WWW"},	//14
+		};
+		static const int lineindices[][2]=
+		{
+			//horizontal lines
+			{0+0*5, 1+0*5},
+			{1+0*5, 2+0*5},
+			{2+0*5, 3+0*5},
+			{3+0*5, 4+0*5},
+
+			{0+1*5, 1+1*5},
+			{1+1*5, 2+1*5},
+			{2+1*5, 3+1*5},
+			{3+1*5, 4+1*5},
+			
+			{0+2*5, 1+2*5},
+			{1+2*5, 2+2*5},
+
+			//vertical lines
+			{0+0*5, 0+1*5},
+			{1+0*5, 1+1*5},
+			{2+0*5, 2+1*5},
+			{3+0*5, 3+1*5},
+			{4+0*5, 4+1*5},
+			
+			{0+1*5, 0+2*5},
+			{1+1*5, 1+2*5},
+			{2+1*5, 2+2*5},
+
+			{ 2, 13},
+			{10, 14},
+		};
+		float half[3]=
+		{
+			(float)(1<<im1->depth[0]>>1),
+			(float)(1<<im1->depth[1]>>1),
+			(float)(1<<im1->depth[2]>>1),
+		};
+		float gain[3]=
+		{
+			jh_cubesize/(2*half[0]),
+			jh_cubesize/(2*half[1]),
+			jh_cubesize/(2*half[2]),
+		};
+		float s[_countof(nbs)+1][6]={0};
+		for(int k=0;k<_countof(nbs);++k)
+		{
+			const NBInfo *nb=nbs+k;
+			if((uint32_t)(x+nb->dx)<(uint32_t)im1->iw&&(uint32_t)(y+nb->dy)<(uint32_t)im1->ih)
+			{
+				s[k][0]=gain[0]*((float)im1->data[4*(im1->iw*(y+nb->dy)+x+nb->dx)+0]+half[0]);
+				s[k][1]=gain[1]*((float)im1->data[4*(im1->iw*(y+nb->dy)+x+nb->dx)+1]+half[1]);
+				s[k][2]=gain[2]*((float)im1->data[4*(im1->iw*(y+nb->dy)+x+nb->dx)+2]+half[2]);
+				if(world2screen(&cam, s[k]+0, s[k]+3))
+					s[k][5]=1;
+				//	GUIPrint(0, s[0], s[1], 1, "%s", nb->label);
+			}
+		}
+		{
+			float *pred=s[_countof(nbs)], vmin, vmax;
+
+#define PRED_CG(P, N, W, NW) P=N+W-NW; vmin=N; vmax=W; if(vmax<vmin)vmax=N, vmin=W; CLAMP2(P, vmin, vmax);
+			PRED_CG(pred[0], s[7][0], s[11][0], s[6][0]);
+			PRED_CG(pred[1], s[7][1], s[11][1], s[6][1]);
+			PRED_CG(pred[2], s[7][2], s[11][2], s[6][2]);
+			//pred[0]=s[7][0]+s[11][0]-s[6][0]; vmin=s[7][0]; vmax=s[11][0]; if(vmax<vmin)vmax=s[7][0], vmin=s[11][0]; CLAMP2(pred[0], vmin, vmax);
+			//pred[1]=s[7][1]+s[11][1]-s[6][1];
+			//pred[2]=s[7][2]+s[11][2]-s[6][2];
+			if(world2screen(&cam, pred+0, pred+3))
+				pred[5]=1;
+		}
+		for(int k=0;k<_countof(lineindices);++k)
+		{
+			const int *idx=lineindices[k];
+			float *s1=s[idx[0]], *s2=s[idx[1]];
+			if(s1[5]>0.5f&&s2[5]>0.5f)
+				draw_line(s1[3], s1[4], s2[3], s2[4], 0xC0000000);
+		}
+		{
+			float *s1=s[7], *s2=s[_countof(nbs)], *s3=s[11];
+			if(s1[5]>0.5f&&s2[5]>0.5f)
+				draw_line(s1[3], s1[4], s2[3], s2[4], 0xC0F000F0);
+			if(s3[5]>0.5f&&s2[5]>0.5f)
+				draw_line(s3[3], s3[4], s2[3], s2[4], 0xC0F000F0);
+		}
+		for(int k=0;k<_countof(nbs);++k)
+		{
+			if(s[k][5]>0.5f)
+				GUIPrint(0, s[k][3], s[k][4], 1, "%s", nbs[k].label);
+		}
+		{
+			float *pred=s[_countof(nbs)];
+
+			if(pred[5]>0.5f)
+				GUIPrint(0, pred[3], pred[4], 1, "cg");
+		}
+#if 0
+		if((uint32_t)x<(uint32_t)im1->iw&&(uint32_t)y<(uint32_t)im1->ih)
+		{
+			float NW[3]={0}, N[3]={0}, NE[3]={0}, W[3]={0}, curr[3]={0};
+			float half[3]=
+			{
+				(float)(1<<im1->depth[0]>>1),
+				(float)(1<<im1->depth[1]>>1),
+				(float)(1<<im1->depth[2]>>1),
+			};
+			float gain[3]=
+			{
+				jh_cubesize/half[0],
+				jh_cubesize/half[1],
+				jh_cubesize/half[2],
+			};
+			if(x>0&&y>0)
+			{
+				NW[0]=gain[0]*((float)im1->data[4*(im1->iw*(y-1)+x-1)+0]+half[0]);
+				NW[1]=gain[1]*((float)im1->data[4*(im1->iw*(y-1)+x-1)+1]+half[1]);
+				NW[2]=gain[2]*((float)im1->data[4*(im1->iw*(y-1)+x-1)+2]+half[2]);
+			}
+			if(y>0)
+			{
+				N[0]=gain[0]*((float)im1->data[4*(im1->iw*(y-1)+x)+0]+half[0]);
+				N[1]=gain[1]*((float)im1->data[4*(im1->iw*(y-1)+x)+1]+half[1]);
+				N[2]=gain[2]*((float)im1->data[4*(im1->iw*(y-1)+x)+2]+half[2]);
+			}
+			if(x<im1->iw-1&&y>0)
+			{
+				NE[0]=gain[0]*((float)im1->data[4*(im1->iw*(y-1)+x+1)+0]+half[0]);
+				NE[1]=gain[1]*((float)im1->data[4*(im1->iw*(y-1)+x+1)+1]+half[1]);
+				NE[2]=gain[2]*((float)im1->data[4*(im1->iw*(y-1)+x+1)+2]+half[2]);
+			}
+			if(x>0)
+			{
+				W[0]=gain[0]*((float)im1->data[4*(im1->iw*y+x-1)+0]+half[0]);
+				W[1]=gain[1]*((float)im1->data[4*(im1->iw*y+x-1)+1]+half[1]);
+				W[2]=gain[2]*((float)im1->data[4*(im1->iw*y+x-1)+2]+half[2]);
+			}
+			curr[0]=gain[0]*((float)im1->data[4*(im1->iw*y+x)+0]+half[0]);
+			curr[1]=gain[1]*((float)im1->data[4*(im1->iw*y+x)+1]+half[1]);
+			curr[2]=gain[2]*((float)im1->data[4*(im1->iw*y+x)+2]+half[2]);
+			draw_3d_line(&cam, NW, N, 0xC0000000);
+			draw_3d_line(&cam, NW, W, 0xC0000000);
+			draw_3d_line(&cam, NE, N, 0xC0000000);
+			draw_3d_line(&cam, curr, N, 0xC0000000);
+			draw_3d_line(&cam, curr, W, 0xC0000000);
+			{
+				float s[2]={0};
+
+				if(world2screen(&cam, NW, s))
+					GUIPrint(0, s[0], s[1], 1, "NW");
+				if(world2screen(&cam, N, s))
+					GUIPrint(0, s[0], s[1], 1, "N");
+				if(world2screen(&cam, NE, s))
+					GUIPrint(0, s[0], s[1], 1, "NE");
+				if(world2screen(&cam, W, s))
+					GUIPrint(0, s[0], s[1], 1, "W");
+				if(world2screen(&cam, curr, s))
+					GUIPrint(0, s[0], s[1], 1, "curr");
+			}
+		}
+#endif
+	}
+	//draw_3d_wireframe_gpu(&cam, jhc_gpubuf, (int)(jhc_mesh->count<<1), 0xC0000000, GL_LINES);
 
 #if 0
 	draw_cloud(jhx, jhy, blocksize, cubesize);
@@ -6099,6 +6308,8 @@ int io_mousemove(void)//return true to redraw
 		return 1;
 	if(mode==VIS_IMAGE&&GET_KEY_STATE('Q'))
 		return 1;
+	if(mode==VIS_JOINT_HISTOGRAM)//
+		return !timer;
 	return 0;
 }
 static void click_hittest(int _mx, int _my, int *objidx, int *cellx, int *celly, int *cellidx, AABB **p)
@@ -6884,15 +7095,18 @@ int io_keydn(IOKey key, char c)
 		break;
 	case KEY_UP:
 	case KEY_DOWN:
-		if(im1)
+		if(mode!=VIS_JOINT_HISTOGRAM)
 		{
-			g_dist+=(key==KEY_UP)*2-1;
-			if(g_dist<1)
-				g_dist=1;
-			if(g_dist>31)
-				g_dist=31;
-			update_image();
-			return 1;
+			if(im1)
+			{
+				g_dist+=(key==KEY_UP)*2-1;
+				if(g_dist<1)
+					g_dist=1;
+				if(g_dist>31)
+					g_dist=31;
+				update_image();
+				return 1;
+			}
 		}
 		break;
 	case KEY_LEFT:
@@ -7751,14 +7965,15 @@ int io_keydn(IOKey key, char c)
 		else//if(mode==VIS_IMAGE||mode==VIS_ZIPF||mode==VIS_IMAGE_TRICOLOR||mode==VIS_JOINT_HISTOGRAM)
 		{
 			//if(mode==VIS_JOINT_HISTOGRAM&&GET_KEY_STATE(KEY_SHIFT))
-			if(mode==VIS_JOINT_HISTOGRAM)
-			{
-				int shift=GET_KEY_STATE(KEY_SHIFT);
-				space_not_color+=1-(shift<<1);
-				MODVAR(space_not_color, space_not_color, 4);
-				update_image();
-			}
-			else if(mode==VIS_HISTOGRAM)
+			//if(mode==VIS_JOINT_HISTOGRAM)
+			//{
+			//	int shift=GET_KEY_STATE(KEY_SHIFT);
+			//	space_not_color+=1-(shift<<1);
+			//	MODVAR(space_not_color, space_not_color, 4);
+			//	update_image();
+			//}
+			//else
+			if(mode==VIS_HISTOGRAM)
 			{
 				int shift=GET_KEY_STATE(KEY_SHIFT);
 				histmode+=1-(shift<<1);
@@ -7920,6 +8135,13 @@ int io_keydn(IOKey key, char c)
 					center_image();
 				return 1;
 			}
+		}
+		else if(mode==VIS_JOINT_HISTOGRAM)
+		{
+			int shift=GET_KEY_STATE(KEY_SHIFT);
+			space_not_color+=1-(shift<<1);
+			MODVAR(space_not_color, space_not_color, 4);
+			update_image();
 		}
 		break;
 	case KEY_1:

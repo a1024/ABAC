@@ -3222,6 +3222,8 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 	int sh0=32-src->depth[0];
 	int sh1=32-src->depth[1];
 	int sh2=32-src->depth[2];
+	if(g_dist>1)
+		goto cg_near;
 	if(fwd)
 	{
 		int *ptr=src->data+4*src->iw*src->ih-4;
@@ -3404,133 +3406,137 @@ void pred_clampgrad(Image *src, int fwd, int enable_ma)
 			}
 		}
 	}
+	return;
 #endif
 
 	//0.218 0.220 0.214 sec
-#if 0
-	int nlevels[]=
+#if 1
+cg_near:
 	{
-		1<<src->depth[0],
-		1<<src->depth[1],
-		1<<src->depth[2],
-		1<<src->depth[3],
-	};
-	int amin[]=
-	{
-		-(nlevels[0]>>1),
-		-(nlevels[1]>>1),
-		-(nlevels[2]>>1),
-		-(nlevels[3]>>1),
-	};
-	int amax[]=
-	{
-		(nlevels[0]>>1)-1,
-		(nlevels[1]>>1)-1,
-		(nlevels[2]>>1)-1,
-		(nlevels[3]>>1)-1,
-	};
-	//int fwdmask=-fwd;
-	int invdist=((1<<16)+g_dist-1)/g_dist;
-	short *pixels=(short*)malloc((src->iw+2LL)*sizeof(short[2*4]));//2 padded rows * 4 channels max
-	if(!pixels)
-	{
-		LOG_ERROR("Alloc error");
-		return;
-	}
-	memset(pixels, 0, (src->iw+2LL)*sizeof(short[2*4]));
-	for(int ky=0, idx=0;ky<src->ih;++ky)
-	{
-		short *rows[]=
+		int nlevels[]=
 		{
-			pixels+(((src->iw+2LL)*((ky-0LL)&1)+1)<<2),
-			pixels+(((src->iw+2LL)*((ky-1LL)&1)+1)<<2),
+			1<<src->depth[0],
+			1<<src->depth[1],
+			1<<src->depth[2],
+			1<<src->depth[3],
 		};
-		for(int kx=0;kx<src->iw;++kx, idx+=4)
+		int amin[]=
 		{
-			for(int kc=0;kc<src->nch;++kc)
-			{
-				//if(ky==100&&kx==100)//
-				//	printf("");
-
-				int
-					NW	=rows[1][kc-4],
-					N	=rows[1][kc+0],
-					W	=rows[0][kc-4];
-				//if(kx==src->iw/2&&ky==src->ih/2)//
-				//	printf("");
-				int pred=N+W-NW;
-				int vmax=N, vmin=W;
-				if(N<W)vmin=N, vmax=W;
-				CLAMP2(pred, vmin, vmax);
-
-				int curr=src->data[idx+kc];
-				//int val;
-				if(g_dist>1)
-				{
-					if(fwd)
-					{
-						curr-=(int)pred;
-						curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));//curr/=g_dist
-						src->data[idx+kc]=curr;
-
-						curr=g_dist*curr+(int)pred;
-						CLAMP2(curr, amin[kc], amax[kc]);
-					}
-					else
-					{
-						curr=g_dist*curr+(int)pred;
-						CLAMP2(curr, amin[kc], amax[kc]);
-
-						src->data[idx+kc]=curr;
-					}
-				}
-				else
-				{
-					if(fwd)
-					{
-						int error=curr-pred;
-						error<<=32-src->depth[kc];
-						error>>=32-src->depth[kc];
-						src->data[idx+kc]=error;
-					}
-					else
-					{
-						curr+=pred;
-						curr<<=32-src->depth[kc];
-						curr>>=32-src->depth[kc];
-						src->data[idx+kc]=curr;
-					}
-				}
-				//if(fwd)
-				//{
-				//	val=curr-(int)pred;
-				//	val=(val*invdist>>16)-(val>>31&-(g_dist>1));
-				//	curr=g_dist*val+(int)pred;
-				//}
-				//else
-				//{
-				//	val=g_dist*curr+(int)pred;
-				//	curr=val;
-				//	CLAMP2(val, amin[kc], amax[kc]);
-				//}
-				//src->data[idx+kc]=val;
-				rows[0][kc]=curr;
-				//pred^=fwdmask;
-				//pred-=fwdmask;
-				//pred+=curr;
-				//
-				//pred+=nlevels[kc]>>1;
-				//pred&=nlevels[kc]-1;
-				//pred-=nlevels[kc]>>1;
-				//src->data[idx+kc]=pred;
-				//rows[0][kc]=fwd?curr:pred;
-			}
-
-			rows[0]+=4;
-			rows[1]+=4;
+			-(nlevels[0]>>1),
+			-(nlevels[1]>>1),
+			-(nlevels[2]>>1),
+			-(nlevels[3]>>1),
+		};
+		int amax[]=
+		{
+			(nlevels[0]>>1)-1,
+			(nlevels[1]>>1)-1,
+			(nlevels[2]>>1)-1,
+			(nlevels[3]>>1)-1,
+		};
+		//int fwdmask=-fwd;
+		int invdist=((1<<16)+g_dist-1)/g_dist;
+		short *pixels=(short*)malloc((src->iw+2LL)*sizeof(short[2*4]));//2 padded rows * 4 channels max
+		if(!pixels)
+		{
+			LOG_ERROR("Alloc error");
+			return;
 		}
+		memset(pixels, 0, (src->iw+2LL)*sizeof(short[2*4]));
+		for(int ky=0, idx=0;ky<src->ih;++ky)
+		{
+			short *rows[]=
+			{
+				pixels+(((src->iw+2LL)*((ky-0LL)&1)+1)<<2),
+				pixels+(((src->iw+2LL)*((ky-1LL)&1)+1)<<2),
+			};
+			for(int kx=0;kx<src->iw;++kx, idx+=4)
+			{
+				for(int kc=0;kc<src->nch;++kc)
+				{
+					//if(ky==100&&kx==100)//
+					//	printf("");
+
+					int
+						NW	=rows[1][kc-4],
+						N	=rows[1][kc+0],
+						W	=rows[0][kc-4];
+					//if(kx==src->iw/2&&ky==src->ih/2)//
+					//	printf("");
+					int pred=N+W-NW;
+					int vmax=N, vmin=W;
+					if(N<W)vmin=N, vmax=W;
+					CLAMP2(pred, vmin, vmax);
+
+					int curr=src->data[idx+kc];
+					//int val;
+					if(g_dist>1)
+					{
+						if(fwd)
+						{
+							curr-=(int)pred;
+							curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));//curr/=g_dist
+							src->data[idx+kc]=curr;
+
+							curr=g_dist*curr+(int)pred;
+							CLAMP2(curr, amin[kc], amax[kc]);
+						}
+						else
+						{
+							curr=g_dist*curr+(int)pred;
+							CLAMP2(curr, amin[kc], amax[kc]);
+
+							src->data[idx+kc]=curr;
+						}
+					}
+					else
+					{
+						if(fwd)
+						{
+							int error=curr-pred;
+							error<<=32-src->depth[kc];
+							error>>=32-src->depth[kc];
+							src->data[idx+kc]=error;
+						}
+						else
+						{
+							curr+=pred;
+							curr<<=32-src->depth[kc];
+							curr>>=32-src->depth[kc];
+							src->data[idx+kc]=curr;
+						}
+					}
+					//if(fwd)
+					//{
+					//	val=curr-(int)pred;
+					//	val=(val*invdist>>16)-(val>>31&-(g_dist>1));
+					//	curr=g_dist*val+(int)pred;
+					//}
+					//else
+					//{
+					//	val=g_dist*curr+(int)pred;
+					//	curr=val;
+					//	CLAMP2(val, amin[kc], amax[kc]);
+					//}
+					//src->data[idx+kc]=val;
+					rows[0][kc]=curr;
+					//pred^=fwdmask;
+					//pred-=fwdmask;
+					//pred+=curr;
+					//
+					//pred+=nlevels[kc]>>1;
+					//pred&=nlevels[kc]-1;
+					//pred-=nlevels[kc]>>1;
+					//src->data[idx+kc]=pred;
+					//rows[0][kc]=fwd?curr:pred;
+				}
+
+				rows[0]+=4;
+				rows[1]+=4;
+			}
+		}
+		free(pixels);
 	}
-	free(pixels);
 #endif
 
 	//if(loud_transforms)//
