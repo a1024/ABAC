@@ -434,9 +434,9 @@ static void ict_fwd(uint8_t *image, int iw, int ih, int ict)
 		c0=imptr[0];
 		c1=imptr[1];
 		c2=imptr[2];
-		imptr2[0]=c0;
-		imptr2[1]=c1;
-		imptr2[2]=c2;
+		imptr2[0]=c0-128;
+		imptr2[1]=c1-128;
+		imptr2[2]=c2-128;
 		(void)y;
 		(void)u;
 		(void)v;
@@ -472,9 +472,9 @@ static void ict_inv(uint8_t *image, int iw, int ih, int ict)
 		imptr[idx1]=c1;
 		imptr[idx2]=c2;
 #else
-		c0=imptr2[0];
-		c1=imptr2[1];
-		c2=imptr2[2];
+		c0=imptr2[0]+128;
+		c1=imptr2[1]+128;
+		c2=imptr2[2]+128;
 		CLAMP2(c0, 0, 255);
 		CLAMP2(c1, 0, 255);
 		CLAMP2(c2, 0, 255);
@@ -593,15 +593,6 @@ static const int32_t cdf97_coeffs[]=
 	-SCALEUP(0.8829110755309),		//gamma		predict
 	+SCALEUP(0.4435068520439),		//delta		update
 	+SCALEUP(KAPPA), +SCALEUP(1/KAPPA),	//kappa		output gain is 1.89
-
-//	+SCALEUP(1.01), +SCALEUP(1/1.01),
-//	+SCALEUP(1.02), +SCALEUP(1/1.02),
-//	+SCALEUP(1.03),	+SCALEUP(1/1.03),
-//	+SCALEUP(1.04),	+SCALEUP(1/1.04),
-//	+SCALEUP(1.05),	+SCALEUP(1/1.05),
-//	+SCALEUP(1.06),	+SCALEUP(1/1.06),
-//	+SCALEUP(1.07),	+SCALEUP(1/1.07),
-//	+SCALEUP(1.08),	+SCALEUP(1/1.08),
 };
 static int dwt_getNiter(int iw, int ih, int dist)
 {
@@ -706,103 +697,6 @@ INLINE void dwt1d_cdf97_shr(int16_t *buf, intptr_t count3, int sh)
 		buf[k+2]=(c2+bias)>>sh;
 	}
 }
-#if 0
-INLINE void dwt1d_cdf97_predict(int64_t *odd, int64_t *even, int nodd3, int extraeven, int64_t coeff)
-{
-	even[0]=(even[0]<<DWT_SCALE)-odd[0]*coeff*2;
-	even[1]=(even[1]<<DWT_SCALE)-odd[1]*coeff*2;
-	even[2]=(even[2]<<DWT_SCALE)-odd[2]*coeff*2;
-	for(int k=3;k<nodd3;k+=3)//predict
-	{
-		even[k+0]=(even[k+0]<<DWT_SCALE)-coeff*(odd[k-3+0]+odd[k+0]);
-		even[k+1]=(even[k+1]<<DWT_SCALE)-coeff*(odd[k-3+1]+odd[k+1]);
-		even[k+2]=(even[k+2]<<DWT_SCALE)-coeff*(odd[k-3+2]+odd[k+2]);
-	}
-	if(extraeven)
-	{
-		even[nodd3+0]=(even[nodd3+0]<<DWT_SCALE)-odd[nodd3-3+0]*coeff*2;
-		even[nodd3+1]=(even[nodd3+1]<<DWT_SCALE)-odd[nodd3-3+1]*coeff*2;
-		even[nodd3+2]=(even[nodd3+2]<<DWT_SCALE)-odd[nodd3-3+2]*coeff*2;
-	}
-}
-INLINE void dwt1d_cdf97_update(int64_t *odd, int64_t *even, int nodd3, int extraeven, int64_t coeff)
-{
-	int count=nodd3-3*!extraeven;
-
-	for(int k=0;k<count;k+=3)//update
-	{
-		odd[k+0]=(odd[k+0]<<DWT_SCALE)-(even[k+0]+even[k+3+0])*coeff;
-		odd[k+1]=(odd[k+1]<<DWT_SCALE)-(even[k+1]+even[k+3+1])*coeff;
-		odd[k+2]=(odd[k+2]<<DWT_SCALE)-(even[k+2]+even[k+3+2])*coeff;
-	}
-	if(!extraeven)
-	{
-		odd[nodd3-3+0]=(odd[nodd3-3+0]<<DWT_SCALE)-even[nodd3-3+0]*coeff*2;
-		odd[nodd3-3+1]=(odd[nodd3-3+1]<<DWT_SCALE)-even[nodd3-3+1]*coeff*2;
-		odd[nodd3-3+2]=(odd[nodd3-3+2]<<DWT_SCALE)-even[nodd3-3+2]*coeff*2;
-	}
-}
-INLINE void dwt1d_cdf97_scale(int64_t *odd, int64_t *even, int nodd3, int extraeven, int64_t co, int64_t ce)
-{
-	for(int k=0;k<nodd3;k+=3)
-	{
-		odd[k+0]*=co;
-		odd[k+1]*=co;
-		odd[k+2]*=co;
-		even[k+0]*=ce;
-		even[k+1]*=ce;
-		even[k+2]*=ce;
-	}
-	if(extraeven)
-	{
-		even[nodd3+0]*=ce;
-		even[nodd3+1]*=ce;
-		even[nodd3+2]*=ce;
-	}
-}
-INLINE void dwt1d_cdf97_shr(int64_t *buf, int count3, int sh)
-{
-	for(int k=0;k<count3;k+=3)
-	{
-		int64_t c0=buf[k+0];
-		int64_t c1=buf[k+1];
-		int64_t c2=buf[k+2];
-		int64_t mask0=c0>>63;
-		int64_t mask1=c1>>63;
-		int64_t mask2=c2>>63;
-		c0^=mask0;
-		c1^=mask1;
-		c2^=mask2;
-		c0-=mask0;
-		c1-=mask1;
-		c2-=mask2;
-		c0>>=sh;
-		c1>>=sh;
-		c2>>=sh;
-		c0^=mask0;
-		c1^=mask1;
-		c2^=mask2;
-		c0-=mask0;
-		c1-=mask1;
-		c2-=mask2;
-		buf[k+0]=c0;
-		buf[k+1]=c1;
-		buf[k+2]=c2;
-	}
-}
-INLINE void dwt1d_cdf97_shl(int64_t *buf, int count3, int sh)
-{
-	for(int k=0;k<count3;k+=3)
-	{
-		int64_t c0=buf[k+0];
-		int64_t c1=buf[k+1];
-		int64_t c2=buf[k+2];
-		buf[k+0]=c0<<sh;
-		buf[k+1]=c1<<sh;
-		buf[k+2]=c2<<sh;
-	}
-}
-#endif
 #ifdef _MSC_VER
 #define DEBUGCHECK(A, B, C) if(A<-0x8000||A>0x7FFF||B<-0x8000||B>0x7FFF||C<-0x8000||C>0x7FFF)CRASH("%d %d %d", A, B, C)
 #else
@@ -1247,968 +1141,8 @@ static void predictLL(int16_t *image, int iw, int ih, int llw, int llh, int16_t 
 	}
 }
 
-//FSE		https://github.com/Cyan4973/FiniteStateEntropy
-#if 1
-typedef struct _FSE_CState_t
-{
-	ptrdiff_t value;
-	const void *stateTable, *symbolTT;
-	uint32_t stateLog;
-} FSE_CState_t;
-typedef struct _FSE_DState_t
-{
-	size_t state;
-	const void *table;
-} FSE_DState_t;
-typedef struct _FSE_symbolCompressionTransform
-{
-	int32_t deltaFindState;
-	uint32_t deltaNbBits;
-} FSE_symbolCompressionTransform;
-typedef uint32_t FSE_CTable;
-typedef uint32_t FSE_DTable;
-typedef struct _FSE_DTableHeader
-{
-	uint16_t tableLog, fastMode;
-} FSE_DTableHeader;
-typedef struct _FSE_decode_t
-{
-	uint16_t newState;
-	uint8_t symbol, nbBits;
-} FSE_decode_t;
-#define FSE_MAX_SYMBOL_VALUE 255
-#define FSE_FUNCTION_TYPE uint8_t
-#define FSE_TABLELOG_ABSOLUTE_MAX 15
-#define FSE_MAX_MEMORY_USAGE 14
-#define FSE_DEFAULT_MEMORY_USAGE 13
-#define FSE_MIN_TABLELOG 5
-#define FSE_MAX_TABLELOG (FSE_MAX_MEMORY_USAGE-2)
-#define FSE_DEFAULT_TABLELOG (FSE_DEFAULT_MEMORY_USAGE-2)
-#define FSE_TABLESTEP(tableSize) (((tableSize)>>1)+((tableSize)>>3)+3)
-#define FSE_CTABLE_SIZE_U32(maxTableLog, maxSymbolValue) (1+(1<<((maxTableLog)-1))+(((maxSymbolValue)+1)*2))
-#define FSE_DTABLE_SIZE_U32(maxTableLog) (1+(1<<(maxTableLog)))
-#define FSE_DECODE_TYPE FSE_decode_t
-typedef struct _FSEo1Tables
-{
-	FSE_symbolCompressionTransform symbolTT[NCH*NCTX][256];
-	uint16_t stateTable[NCH*NCTX][1<<FSE_PROBBITS];
-	FSE_decode_t decodeTable[NCH*NCTX][1<<FSE_PROBBITS];
-	
-	uint8_t wksp[1<<14>>2];
-} FSEo1Tables;
-#endif
-
-//LIFO Bit Packer inspired by FPC
-#if 1
-typedef struct _BitPackerLIFO
-{
-	int64_t bitidx;
-	uint64_t cache;
-	uint8_t *start, *ptr, *end;//fwd enc / bwd dec
-} BitPackerLIFO;
-INLINE void bitpacker_enc_init(BitPackerLIFO *ec, uint8_t *start, uint8_t *end)
-{
-	ec->bitidx=0;
-	ec->cache=0;
-	ec->start=start;
-	ec->ptr=start+sizeof(uint64_t);
-	ec->end=end;
-	*(uint64_t*)start=0;
-}
-INLINE void bitpacker_enc(BitPackerLIFO *ec, int64_t bitcount, uint64_t sym)//1 <= bitcount <= 56
-{
-	ansval_push(&sym, sizeof(sym), 1);
-	ec->cache|=sym<<ec->bitidx;
-	ec->bitidx+=bitcount;
-	*(uint64_t*)ec->ptr=ec->cache;
-	ec->cache>>=ec->bitidx&56;
-	ec->ptr+=ec->bitidx>>3;
-	ec->bitidx&=7;
-}
-INLINE uint8_t* bitpacker_enc_flush(BitPackerLIFO *ec)
-{
-	bitpacker_enc(ec, 1, 1);
-	++ec->ptr;
-	return ec->ptr;
-}
-INLINE uint64_t bitpacker_dec(BitPackerLIFO *ec, int64_t bitcount)
-{
-	uint64_t sym;
-
-	ec->bitidx-=bitcount;
-	sym=((uint64_t*)ec->ptr)[-1]>>ec->bitidx&((1ULL<<bitcount)-1);
-	ansval_check(&sym, sizeof(sym), 1);
-	ec->ptr-=(63-ec->bitidx)>>3;
-	ec->bitidx|=56;
-	return sym;
-}
-INLINE void bitpacker_dec_init(BitPackerLIFO *ec, uint8_t *start, uint8_t *end)
-{
-	ec->start=start;
-	ec->ptr=end;
-	ec->end=end;
-	ec->bitidx=64-LZCNT64(((uint64_t*)ec->ptr)[-1]);
-	bitpacker_dec(ec, 1);
-}
-#endif
-
-static void enc_packhist(BitPackerLIFO *ec, const int *hist, uint64_t bypassmask, int ctxidx, int userans, int probbits)//histogram must be normalized to PROBBITS, with spike at 128
-{
-	int sum, cdfW, CDFlevels, startsym, ks;
-	uint16_t hist2[256], CDF[257];
-
-	if(bypassmask>>ctxidx&1)
-		return;
-	sum=0;
-	if(userans)//32-bit hist
-	{
-		for(ks=0;ks<256;++ks)
-			hist2[ks]=hist[ks];
-	}
-	else//16-bit hist
-		memcpy(hist2, hist, sizeof(hist2));
-	for(ks=0;ks<256;++ks)//integrage to zigzag CDF to be packed backwards
-	{
-		int sym=((ks>>1^-(ks&1))+128)&255;
-		int freq=hist2[sym];
-		CDF[ks]=sum;//separate buffer for faster access in 2nd loop
-		sum+=freq;
-	}
-	CDF[256]=1<<probbits;
-	
-	cdfW=CDF[0];
-	CDFlevels=1<<probbits;
-	startsym=0;
-	for(ks=1;ks<=256;++ks)//push GR.k
-	{
-		int next=CDF[ks], freq=next-cdfW;
-		int nbypass=31-LZCNT32(CDFlevels);
-		if(ks>1)
-			nbypass-=7;
-		if(nbypass<0)
-			nbypass=0;
-		CDF[ks]=nbypass<<probbits|freq;
-		cdfW=next;
-		CDFlevels-=freq;
-		startsym=ks;
-		if(!CDFlevels)
-			break;
-	}
-	for(ks=startsym;ks>0;--ks)//encode GR
-	{
-		int freq=CDF[ks], nbypass=freq>>probbits;
-		freq&=(1<<probbits)-1;
-		int nzeros=freq>>nbypass, bypass=freq&((1<<nbypass)-1);
-#ifdef ANSVAL
-		//ansval_push(&freq, sizeof(freq), 1);
-#endif
-		if(nbypass)
-			bitpacker_enc(ec, nbypass, bypass);
-		bitpacker_enc(ec, 1, 1);
-		while(nzeros)
-		{
-			bitpacker_enc(ec, 1, 0);
-			--nzeros;
-		}
-#ifdef ANSVAL
-		//ansval_push(&ks, sizeof(ks), 1);
-#endif
-	}
-}
-static void dec_unpackhist(BitPackerLIFO *ec, uint64_t bypassmask, int ctxidx, uint16_t *hist, int probbits)
-{
-	if(bypassmask>>ctxidx&1)//rare context
-	{
-		for(int ks=0;ks<256;++ks)//bypass
-			hist[ks]=(1<<probbits)/256;
-	}
-	else
-	{
-		uint16_t CDF[257]={0};
-		int CDFlevels=1<<probbits;
-		CDF[0]=0;
-		for(int ks=0;ks<256;++ks)//decode GR
-		{
-			int freq=-1;//stop bit doesn't count
-			int nbypass=31-LZCNT32(CDFlevels);
-			int ks2=ks+1;
-			if(ks2>1)
-				nbypass-=7;
-			if(nbypass<0)
-				nbypass=0;
-#ifdef ANSVAL
-			//ansval_check(&ks2, sizeof(ks2), 1);
-#endif
-			int bit=0;
-			do
-			{
-				bit=(int)bitpacker_dec(ec, 1);
-				++freq;
-			}while(!bit);
-			if(nbypass)
-				freq=freq<<nbypass|(int)bitpacker_dec(ec, nbypass);
-#ifdef ANSVAL
-			//ansval_check(&freq, sizeof(freq), 1);
-#endif
-
-			CDF[ks]=freq;
-			CDFlevels-=freq;
-			if(CDFlevels<=0)
-			{
-#ifdef _DEBUG
-				if(CDFlevels<0)
-					CRASH("CDF unpack error");
-#endif
-				break;
-			}
-		}
-		if(CDFlevels)
-			CRASH("CDF unpack error");
-		for(int ks=0;ks<256;++ks)//undo zigzag
-		{
-			int sym=((ks>>1^-(ks&1))+128)&255;
-			hist[sym]=CDF[ks];
-		}
-	}
-	//int sum=0;
-	//for(int ks=0;ks<256;++ks)//integrate
-	//{
-	//	int freq=hist[ks];
-	//	hist[ks]=sum;
-	//	sum+=freq;
-	//}
-	//hist[256]=1<<PROBBITS;
-	//for(int ks=0;ks<256;++ks)//CDF2sym contains {freq, (state&0xFFF)-cdf, sym}
-	//{
-	//	int cdf=hist[ks], next=hist[ks+1], freq=next-cdf;
-	//	int val=(freq<<PROBBITS|0)<<8|ks;
-	//	for(int ks2=cdf;ks2<next;++ks2, val+=1<<8)
-	//		CDF2sym[ks2]=val;
-	//}
-}
-
-static const uint64_t g_bitmask[]=
-{
-	0x0,			0x1,			0x3,			0x7,
-	0xF,			0x1F,			0x3F,			0x7F,
-	0xFF,			0x1FF,			0x3FF,			0x7FF,
-	0xFFF,			0x1FFF,			0x3FFF,			0x7FFF,
-	0xFFFF,			0x1FFFF,		0x3FFFF,		0x7FFFF,
-	0xFFFFF,		0x1FFFFF,		0x3FFFFF,		0x7FFFFF,
-	0xFFFFFF,		0x1FFFFFF,		0x3FFFFFF,		0x7FFFFFF,
-	0xFFFFFFF,		0x1FFFFFFF,		0x3FFFFFFF,		0x7FFFFFFF,
-	0xFFFFFFFF,		0x1FFFFFFFF,		0x3FFFFFFFF,		0x7FFFFFFFF,
-	0xFFFFFFFFF,		0x1FFFFFFFFF,		0x3FFFFFFFFF,		0x7FFFFFFFFF,
-	0xFFFFFFFFFF,		0x1FFFFFFFFFF,		0x3FFFFFFFFFF,		0x7FFFFFFFFFF,
-	0xFFFFFFFFFFF,		0x1FFFFFFFFFFF,		0x3FFFFFFFFFFF,		0x7FFFFFFFFFFF,
-	0xFFFFFFFFFFFF,		0x1FFFFFFFFFFFF,	0x3FFFFFFFFFFFF,	0x7FFFFFFFFFFFF,
-	0xFFFFFFFFFFFFF,	0x1FFFFFFFFFFFFF,	0x3FFFFFFFFFFFFF,	0x7FFFFFFFFFFFFF,
-	0xFFFFFFFFFFFFFF,	0x1FFFFFFFFFFFFFF,	0x3FFFFFFFFFFFFFF,	0x7FFFFFFFFFFFFFF,
-	0xFFFFFFFFFFFFFFF,	0x1FFFFFFFFFFFFFFF,	0x3FFFFFFFFFFFFFFF,	0x7FFFFFFFFFFFFFFF,
-};
 static int32_t hists[3*NCTX*256];
-static int16_t nhists[3*NCTX*256];
-static void normalizehist(const uint32_t *hist, uint16_t *nhist, int probbits)
-{
-	int hsum=0, nusedlevels=0;
-	for(int ks=0;ks<256;++ks)//faster than maintaining hist sum
-	{
-		int freq=hist[ks];
-		hsum+=freq;
-		nusedlevels+=freq!=0;
-	}
-	int64_t rsum=(((1LL<<probbits)-nusedlevels)<<24)/hsum;//adaptive: allow all symbols
-	uint16_t CDF[257]={0};
-	for(int ks=0, c=0, c2=0;ks<256;++ks)
-	{
-		int freq=hist[ks];
-		CDF[ks]=(int)(c*rsum>>24)+c2;
-		c+=freq;
-		c2+=freq!=0;
-	}
-	CDF[256]=1<<probbits;
-	for(int ks=0;ks<256;++ks)
-		nhist[ks]=CDF[ks+1]-CDF[ks];
-}
-static void subband_code_fse(int16_t *image
-	, int iw, int ih
-	, int x1, int x2, int y1, int y2
-	, int16_t *pixels, int psize
-	, int fwd
-	, uint8_t *ctxbuf	//ctxbuf is size iw*ih bytes
-	, uint8_t **pstreamptr, uint8_t *streamend
-)
-{
-	enum
-	{
-		RBITS=2,
-	};
-	int kx=0, ky=0, kc=0;
-	uint64_t degenmask=0, bypassmask=0;
-	FSEo1Tables *fse=0;
-	BitPackerLIFO ec={0};
-	uint32_t states[3]={0};
-	int pixelcount=(y2-y1)*(x2-x1);
-	
-	fse=(FSEo1Tables*)malloc(sizeof(*fse));//FIXME don't malloc here
-	if(!fse)
-	{
-		CRASH("Alloc error");
-		return;
-	}
-	memset(fse, 0, sizeof(*fse));
-	memset(pixels, 0, psize);
-	if(fwd)
-	{
-		uint8_t *ctxptr=ctxbuf;
 
-		memset(hists, 0, sizeof(hists));
-		for(ky=y1;ky<y2;++ky)
-		{
-			int16_t *rows[]=
-			{
-				pixels+(XPAD*NCH*NROWS+(ky+0LL+NROWS)%NROWS)*NVAL,
-				pixels+(XPAD*NCH*NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
-				pixels+(XPAD*NCH*NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
-				pixels+(XPAD*NCH*NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
-			};
-			int16_t *imptr=image+3*(iw*ky+x1);
-			for(kx=x1;kx<x2;++kx)
-			{
-				int
-					eNW0	=rows[1][0-1*NCH*NROWS*NVAL],
-					eNW1	=rows[1][1-1*NCH*NROWS*NVAL],
-					eNW2	=rows[1][2-1*NCH*NROWS*NVAL],
-					eN0	=rows[1][0+0*NCH*NROWS*NVAL],
-					eN1	=rows[1][1+0*NCH*NROWS*NVAL],
-					eN2	=rows[1][2+0*NCH*NROWS*NVAL],
-					eNE0	=rows[1][0+1*NCH*NROWS*NVAL],
-					eNE1	=rows[1][1+1*NCH*NROWS*NVAL],
-					eNE2	=rows[1][2+1*NCH*NROWS*NVAL],
-					eW0	=rows[0][0-1*NCH*NROWS*NVAL],
-					eW1	=rows[0][1-1*NCH*NROWS*NVAL],
-					eW2	=rows[0][2-1*NCH*NROWS*NVAL];
-				int ctx0=2*((eW0|eN0)!=0)+((eNW0|eNE0)!=0);
-				int ctx1=2*((eW1|eN1)!=0)+((eNW1|eNE1)!=0);
-				int ctx2=2*((eW2|eN2)!=0)+((eNW2|eNE2)!=0);
-				//int ctx0=4*(eN0!=0)+2*(eW0!=0)+((eNW0|eNE0)!=0);
-				//int ctx1=4*(eN1!=0)+2*(eW1!=0)+((eNW1|eNE1)!=0);
-				//int ctx2=4*(eN2!=0)+2*(eW2!=0)+((eNW2|eNE2)!=0);
-				//int ctx0=(eW0|eN0)!=0;
-				//int ctx1=(eW1|eN1)!=0;
-				//int ctx2=(eW2|eN2)!=0;
-				//int ctx0=31^LZCNT32(eW0+1);
-				//int ctx1=31^LZCNT32(eW1+1);
-				//int ctx2=31^LZCNT32(eW2+1);
-				if(ctx0>NCTX-1)ctx0=NCTX-1;
-				if(ctx1>NCTX-1)ctx1=NCTX-1;
-				if(ctx2>NCTX-1)ctx2=NCTX-1;
-				int sym0=imptr[0];
-				int sym1=imptr[1];
-				int sym2=imptr[2];
-				ctx0+=0*NCTX;
-				ctx1+=1*NCTX;
-				ctx2+=2*NCTX;
-				++hists[ctx0*256+sym0];
-				++hists[ctx1*256+sym1];
-				++hists[ctx2*256+sym2];
-				ctxptr[0]=ctx0;
-				ctxptr[1]=ctx1;
-				ctxptr[2]=ctx2;
-				imptr+=3;
-				ctxptr+=3;
-				rows[0][0+0*NCH*NROWS*NVAL]=sym0;
-				rows[0][1+0*NCH*NROWS*NVAL]=sym1;
-				rows[0][2+0*NCH*NROWS*NVAL]=sym2;
-				//{
-				//	int
-				//		eNEE0	=rows[1][0+2*NCH*NROWS*NVAL],
-				//		eNEE1	=rows[1][1+2*NCH*NROWS*NVAL],
-				//		eNEE2	=rows[1][2+2*NCH*NROWS*NVAL],
-				//		eNEEE0	=rows[1][0+3*NCH*NROWS*NVAL],
-				//		eNEEE1	=rows[1][1+3*NCH*NROWS*NVAL],
-				//		eNEEE2	=rows[1][2+3*NCH*NROWS*NVAL];
-				//	rows[0][0+0*NCH*NROWS*NVAL]=(2*eW0+(sym0<<RBITS)+(eNEE0>eNEEE0?eNEE0:eNEEE0))>>2;
-				//	rows[0][1+0*NCH*NROWS*NVAL]=(2*eW1+(sym1<<RBITS)+(eNEE1>eNEEE1?eNEE1:eNEEE1))>>2;
-				//	rows[0][2+0*NCH*NROWS*NVAL]=(2*eW2+(sym2<<RBITS)+(eNEE2>eNEEE2?eNEE2:eNEEE2))>>2;
-				//}
-				rows[0]+=NCH*NROWS*NVAL;
-				rows[1]+=NCH*NROWS*NVAL;
-				rows[2]+=NCH*NROWS*NVAL;
-				rows[3]+=NCH*NROWS*NVAL;
-			}
-		}
-		for(kc=0;kc<3*NCTX;++kc)
-		{
-			enum
-			{
-				TABLESIZE=1<<FSE_PROBBITS,
-				TABLEMASK=TABLESIZE-1,
-				STEP=FSE_TABLESTEP(TABLESIZE),
-				VMAX=255,
-			};
-			int16_t *currnhist=nhists+256*kc;
-			int32_t *hcurr=hists+256*kc;
-			int sum=0, nlevels=0, vmax=0, fmax=0;
-			FSE_FUNCTION_TYPE *const tableSymbol=(FSE_FUNCTION_TYPE*)fse->wksp;
-			uint16_t *tableU16=fse->stateTable[kc];
-			FSE_symbolCompressionTransform *const symbolTT=fse->symbolTT[kc];
-			uint32_t CDF[FSE_MAX_SYMBOL_VALUE+2];
-			int highthreshold=TABLESIZE-1;
-			
-			//FSE_PROBBITS<=15 required for threshold strategy to work
-			if(FSE_PROBBITS>15||((size_t)1<<FSE_PROBBITS)*sizeof(FSE_FUNCTION_TYPE)>sizeof(fse->wksp))
-			{
-				CRASH("tableLog too large");
-				return;
-			}
-			for(int ks=0;ks<256;++ks)
-			{
-				int freq=hcurr[ks];
-				sum+=freq;
-				nlevels+=freq!=0;
-				if(fmax<freq)
-				{
-					fmax=freq;
-					vmax=ks;
-				}
-			}
-			if(nlevels==1)//degenerate distribution
-			{
-				memset(currnhist, 0, sizeof(int16_t[256]));
-				currnhist[vmax]=(1<<FSE_PROBBITS)-1;
-				currnhist[(uint8_t)(vmax+1)]=1;
-				degenmask|=1LL<<kc;
-			}
-			else if(sum<=256)//bypass distribution
-			{
-				for(int ks=0;ks<256;++ks)
-					currnhist[ks]=1<<FSE_PROBBITS>>8;
-				bypassmask|=1LL<<kc;
-			}
-			else//ordinary distribution
-				normalizehist((uint32_t*)hcurr, (uint16_t*)currnhist, FSE_PROBBITS);
-			
-#if defined LOUD && 0
-			if(sum)
-			{
-				double p0a=(double)hcurr[0]/sum;
-				double p0b=(double)currnhist[0]/4096.;
-				double e0=0, e1=0;
-				if(p0a>0)
-					e0-=hcurr[0]*log2(p0a);
-				if(p0a<1)
-					e0-=(sum-hcurr[0])*log2(1-p0a);
-				e0/=8;
-				if(p0b>0)
-					e1-=hcurr[0]*log2(p0b);
-				if(p0b<1)
-					e1-=(sum-hcurr[0])*log2(1-p0b);
-				e1/=8;
-				printf("C%d CTX%2d  %8.4lf%%->%8.4lf%% zeros  %7d  %12.2lf %12.2lf\n"
-					, kc/NCTX
-					, kc%NCTX
-					, 100.*hcurr[0]/sum
-					, currnhist[0]*(100./4096)
-					, sum
-					, e0
-					, e1
-				);
-			}
-#endif
-			{//Spread symbols
-				uint32_t position=0, symbol;
-				for(symbol=0;symbol<=VMAX;++symbol)
-				{
-					int freq=currnhist[symbol], nbOccurrences;
-					for(nbOccurrences=0;nbOccurrences<freq;++nbOccurrences)
-					{
-						tableSymbol[position]=(FSE_FUNCTION_TYPE)symbol;
-						position=(position+STEP)&TABLEMASK;
-						while((int)position>highthreshold)
-							position=(position+STEP)&TABLEMASK;//Low probability area
-					}
-				}
-				if(position)//Must have initialized all positions
-				{
-					CRASH("Must have initialized all positions");
-					return;
-				}
-			}
-
-#ifdef __clang_analyzer__
-			memset(fse->wksp, 0, sizeof(fse->wksp));//useless initialization, just to keep scan-build happy
-#endif
-			//For explanations on how to distribute symbol values over the table
-			//http://fastcompression.blogspot.fr/2014/02/fse-distributing-symbol-values.html
-			{//symbol start positions
-				uint32_t u;
-				CDF[0]=0;
-				for(u=1;u<=VMAX+1;++u)
-				{
-					if(currnhist[u-1]==-1)//Low probability symbol
-					{
-						CDF[u]=CDF[u-1]+1;
-						tableSymbol[highthreshold--]=(FSE_FUNCTION_TYPE)(u-1);
-					}
-					else
-						CDF[u]=CDF[u-1]+currnhist[u-1];
-				}
-				CDF[VMAX+1]=TABLESIZE+1;
-			}
-			{//Build table
-				uint32_t u;
-				for(u=0;u<TABLESIZE;++u)
-				{
-					FSE_FUNCTION_TYPE s=tableSymbol[u];//note : static analyzer may not understand tableSymbol is properly initialized
-					tableU16[CDF[s]++]=(uint16_t)(TABLESIZE+u);//TableU16 : sorted by symbol order; gives next state value
-				}
-			}
-			{//Build Symbol Transformation Table
-				uint32_t total=0, s;
-				for(s=0;s<=VMAX;++s)
-				{
-					switch(currnhist[s])
-					{
-					case  0://filling nonetheless, for compatibility with FSE_getMaxNbBits()
-						symbolTT[s].deltaNbBits=((FSE_PROBBITS+1)<<16)-(1<<FSE_PROBBITS);
-						break;
-					case -1:
-					case  1:
-						symbolTT[s].deltaNbBits=(FSE_PROBBITS<<16)-(1<<FSE_PROBBITS);
-						symbolTT[s].deltaFindState=total-1;
-						++total;
-						break;
-					default:
-						{
-							uint32_t const maxBitsOut=FSE_PROBBITS-(31-LZCNT32(currnhist[s]-1));
-							uint32_t const minStatePlus=currnhist[s]<<maxBitsOut;
-							symbolTT[s].deltaNbBits=(maxBitsOut<<16)-minStatePlus;
-							symbolTT[s].deltaFindState=total-currnhist[s];
-							total+=currnhist[s];
-						}
-						break;
-					}
-				}
-			}
-#if defined _DEBUG && 0		//debug : symbol costs
-			printf("table statistics\n");
-			{
-				uint32_t symbol;
-				for(symbol=0;symbol<=maxSymbolValue;++symbol)
-				{
-					printf("%3u: w=%3i,   maxBits=%u, fracBits=%.2f"
-						, symbol
-						, normalizedCounter[symbol]
-						, FSE_getMaxNbBits(symbolTT, symbol)
-						, (double)FSE_bitCost(symbolTT, tableLog, symbol, 8)/256
-					);
-				}
-			}
-#endif
-			if(nlevels==1)//RLE
-				currnhist[0]=vmax;
-		}
-		bitpacker_enc_init(&ec, *pstreamptr, streamend);
-		for(kc=0;kc<3;++kc)
-			states[kc]=1<<FSE_PROBBITS;
-		ctxptr=ctxbuf+3*(pixelcount-1);
-		for(ky=y2-1;ky>=y1;--ky)
-		{
-			int16_t *imptr=image+3*(iw*ky+x2-1);
-			for(kx=x2-1;kx>=x1;--kx)
-			{
-				const FSE_symbolCompressionTransform symbolTT2=fse->symbolTT[ctxptr[2]][imptr[2]];
-				const FSE_symbolCompressionTransform symbolTT1=fse->symbolTT[ctxptr[1]][imptr[1]];
-				const FSE_symbolCompressionTransform symbolTT0=fse->symbolTT[ctxptr[0]][imptr[0]];
-				const uint32_t nbBitsOut2=(states[2]+symbolTT2.deltaNbBits)>>16;
-				const uint32_t nbBitsOut1=(states[1]+symbolTT1.deltaNbBits)>>16;
-				const uint32_t nbBitsOut0=(states[0]+symbolTT0.deltaNbBits)>>16;
-				uint64_t sym2=states[2]&g_bitmask[nbBitsOut2];
-				uint64_t sym1=states[1]&g_bitmask[nbBitsOut1];
-				uint64_t sym0=states[0]&g_bitmask[nbBitsOut0];
-				states[2]=(states[2]>>nbBitsOut2)+symbolTT2.deltaFindState;
-				states[1]=(states[1]>>nbBitsOut1)+symbolTT1.deltaFindState;
-				states[0]=(states[0]>>nbBitsOut0)+symbolTT0.deltaFindState;
-				sym2|=sym1<<nbBitsOut2;
-				sym2|=sym0<<(nbBitsOut2+nbBitsOut1);
-				bitpacker_enc(&ec, (int64_t)nbBitsOut2+nbBitsOut1+nbBitsOut0, sym2);
-				states[2]=fse->stateTable[ctxptr[2]][states[2]];
-				states[1]=fse->stateTable[ctxptr[1]][states[1]];
-				states[0]=fse->stateTable[ctxptr[0]][states[0]];
-				imptr-=3;
-				ctxptr-=3;
-			}
-		}
-		for(kc=3-1;kc>=0;--kc)
-			bitpacker_enc(&ec, FSE_PROBBITS, states[kc]&((1<<FSE_PROBBITS)-1));
-		for(kc=3*NCTX-1;kc>=0;--kc)
-		{
-			int16_t *currnhist=nhists+256*kc;
-			if(degenmask>>kc&1)//degenerate distribution
-				bitpacker_enc(&ec, 8, (uint8_t)currnhist[0]);
-			else if(!(bypassmask>>kc&1))//ordinary distribution
-				enc_packhist(&ec, (int*)currnhist, bypassmask, kc, 0, FSE_PROBBITS);
-		}
-		bitpacker_enc(&ec, (int64_t)3*NCTX, bypassmask);
-		bitpacker_enc(&ec, (int64_t)3*NCTX, degenmask);
-		{
-			uint8_t *p0=*pstreamptr;
-			uint8_t *p=bitpacker_enc_flush(&ec);
-			intptr_t csize=p-p0;
-			*(uint64_t*)p0=csize;
-			*pstreamptr=p;
-		}
-	}
-	else
-	{
-		uint8_t *streamptr=*pstreamptr;
-		uint64_t csize=*(uint64_t*)streamptr;
-
-		if(csize>(uint64_t)iw*ih)
-			CRASH("subband size %lld", csize);
-		bitpacker_dec_init(&ec, streamptr, streamptr+csize);
-		degenmask=bitpacker_dec(&ec, (int64_t)3*NCTX);
-		bypassmask=bitpacker_dec(&ec, (int64_t)3*NCTX);
-		for(kc=0;kc<3*NCTX;++kc)
-		{
-			int16_t nhist[256]={0};
-			if(degenmask>>kc&1)//degenerate distribution
-			{
-				int sym=(int)bitpacker_dec(&ec, 8);
-				memset(nhist, 0, sizeof(nhist));
-				nhist[sym]=(1<<FSE_PROBBITS)-1;
-				nhist[(uint8_t)(sym+1)]=1;
-			}
-			else if(bypassmask>>kc&1)//bypass distribution
-			{
-				for(int ks=0;ks<256;++ks)
-					nhist[ks]=1<<FSE_PROBBITS>>8;
-			}
-			else//ordinary distribution
-				dec_unpackhist(&ec, bypassmask, kc, (uint16_t*)nhist, FSE_PROBBITS);
-
-			{
-				enum
-				{
-					TABLESIZE=1<<FSE_PROBBITS,
-					TABLEMASK=TABLESIZE-1,
-					STEP=FSE_TABLESTEP(TABLESIZE),
-					VMAX=255,
-					NLEVELS=VMAX+1,
-				};
-				FSE_DECODE_TYPE *const tableDecode=(FSE_DECODE_TYPE*)fse->decodeTable[kc];
-				uint16_t symbolNext[FSE_MAX_SYMBOL_VALUE+1];
-				uint32_t highThreshold=TABLESIZE-1;
-
-				if(VMAX>FSE_MAX_SYMBOL_VALUE)//Sanity Checks
-				{
-					CRASH("maxSymbolValue too large");
-					return;
-				}
-				if(FSE_PROBBITS>FSE_MAX_TABLELOG)
-				{
-					CRASH("tableLog too large");
-					return;
-				}
-				{//Init, lay down lowprob symbols
-					uint32_t s;
-					for(s=0;s<NLEVELS;++s)
-					{
-						if(nhist[s]==-1)
-						{
-							tableDecode[highThreshold--].symbol=(FSE_FUNCTION_TYPE)s;
-							symbolNext[s]=1;
-						}
-						else
-							symbolNext[s]=nhist[s];
-					}
-				}
-				{//Spread symbols
-					uint32_t s, position=0;
-					for(s=0;s<NLEVELS;++s)
-					{
-						int i;
-						for(i=0;i<nhist[s];++i)
-						{
-							tableDecode[position].symbol=(FSE_FUNCTION_TYPE)s;
-							position=(position+STEP)&TABLEMASK;
-							while(position>highThreshold)
-								position=(position+STEP)&TABLEMASK;//lowprob area
-						}
-					}
-					if(position!=0)//position must reach all cells once, otherwise normalizedCounter is incorrect
-					{
-						CRASH("position must reach all cells once, otherwise normalizedCounter is incorrect");
-						return;
-					}
-				}
-				{//Build Decoding table
-					uint32_t u;
-					for(u=0;u<TABLESIZE;++u)
-					{
-						FSE_FUNCTION_TYPE const symbol=(FSE_FUNCTION_TYPE)tableDecode[u].symbol;
-						uint32_t const nextState=symbolNext[symbol]++;
-						tableDecode[u].nbBits=(uint8_t)(FSE_PROBBITS-31+LZCNT32(nextState));
-						tableDecode[u].newState=(uint16_t)((nextState<<tableDecode[u].nbBits)-TABLESIZE);
-					}
-				}
-			}
-		}
-		for(kc=0;kc<3;++kc)
-			states[kc]=(uint32_t)bitpacker_dec(&ec, FSE_PROBBITS);
-		for(ky=y1;ky<y2;++ky)
-		{
-			int16_t *rows[]=
-			{
-				pixels+(XPAD*NCH*NROWS+(ky+0LL+NROWS)%NROWS)*NVAL,
-				pixels+(XPAD*NCH*NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
-				pixels+(XPAD*NCH*NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
-				pixels+(XPAD*NCH*NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
-			};
-			int16_t *imptr=image+3*(iw*ky+x1);
-			for(kx=x1;kx<x2;++kx)
-			{
-				int
-					eNW0	=rows[1][0-1*NCH*NROWS*NVAL],
-					eNW1	=rows[1][1-1*NCH*NROWS*NVAL],
-					eNW2	=rows[1][2-1*NCH*NROWS*NVAL],
-					eN0	=rows[1][0+0*NCH*NROWS*NVAL],
-					eN1	=rows[1][1+0*NCH*NROWS*NVAL],
-					eN2	=rows[1][2+0*NCH*NROWS*NVAL],
-					eNE0	=rows[1][0+1*NCH*NROWS*NVAL],
-					eNE1	=rows[1][1+1*NCH*NROWS*NVAL],
-					eNE2	=rows[1][2+1*NCH*NROWS*NVAL],
-					eW0	=rows[0][0-1*NCH*NROWS*NVAL],
-					eW1	=rows[0][1-1*NCH*NROWS*NVAL],
-					eW2	=rows[0][2-1*NCH*NROWS*NVAL];
-				int ctx0=2*((eW0|eN0)!=0)+((eNW0|eNE0)!=0);
-				int ctx1=2*((eW1|eN1)!=0)+((eNW1|eNE1)!=0);
-				int ctx2=2*((eW2|eN2)!=0)+((eNW2|eNE2)!=0);
-				//int ctx0=4*(eN0!=0)+2*(eW0!=0)+((eNW0|eNE0)!=0);
-				//int ctx1=4*(eN1!=0)+2*(eW1!=0)+((eNW1|eNE1)!=0);
-				//int ctx2=4*(eN2!=0)+2*(eW2!=0)+((eNW2|eNE2)!=0);
-				//int ctx0=(eW0|eN0)!=0;
-				//int ctx1=(eW1|eN1)!=0;
-				//int ctx2=(eW2|eN2)!=0;
-				//int ctx0=31^LZCNT32(eW0+1);
-				//int ctx1=31^LZCNT32(eW1+1);
-				//int ctx2=31^LZCNT32(eW2+1);
-				if(ctx0>NCTX-1)ctx0=NCTX-1;
-				if(ctx1>NCTX-1)ctx1=NCTX-1;
-				if(ctx2>NCTX-1)ctx2=NCTX-1;
-				ctx0+=0*NCTX;
-				ctx1+=1*NCTX;
-				ctx2+=2*NCTX;
-				uint32_t DInfo0=*(uint32_t*)&fse->decodeTable[ctx0][states[0]];
-				uint32_t DInfo1=*(uint32_t*)&fse->decodeTable[ctx1][states[1]];
-				uint32_t DInfo2=*(uint32_t*)&fse->decodeTable[ctx2][states[2]];
-				int sym0=imptr[0]=(uint8_t)(DInfo0>>16);
-				int sym1=imptr[1]=(uint8_t)(DInfo1>>16);
-				int sym2=imptr[2]=(uint8_t)(DInfo2>>16);
-				uint64_t n0=(uint8_t)(DInfo0>>24);
-				uint64_t n1=(uint8_t)(DInfo1>>24);
-				uint64_t n2=(uint8_t)(DInfo2>>24);
-				states[0]=(uint16_t)DInfo0;
-				states[1]=(uint16_t)DInfo1;
-				states[2]=(uint16_t)DInfo2;
-				int64_t c1=n2;
-				int64_t c2=n2+n1;
-				size_t lowBits=bitpacker_dec(&ec, n0+n1+n2);
-#ifdef LOUD
-				if(ec.ptr<ec.start)
-					CRASH("stream ended at %12.6lf%% of subband"
-						, 100.*((double)(x2-x1)*(ky-y1)+kx-x1)/((double)(x2-x1)*(y2-y1))
-					);
-#endif
-				states[0]+=(uint32_t)(lowBits>>c2&g_bitmask[n0]);
-				states[1]+=(uint32_t)(lowBits>>c1&g_bitmask[n1]);
-				states[2]+=(uint32_t)(lowBits    &g_bitmask[n2]);
-				imptr+=3;
-				rows[0][0+0*NCH*NROWS*NVAL]=sym0;
-				rows[0][1+0*NCH*NROWS*NVAL]=sym1;
-				rows[0][2+0*NCH*NROWS*NVAL]=sym2;
-				//{
-				//	int
-				//		eNEE0	=rows[1][0+2*NCH*NROWS*NVAL],
-				//		eNEE1	=rows[1][1+2*NCH*NROWS*NVAL],
-				//		eNEE2	=rows[1][2+2*NCH*NROWS*NVAL],
-				//		eNEEE0	=rows[1][0+3*NCH*NROWS*NVAL],
-				//		eNEEE1	=rows[1][1+3*NCH*NROWS*NVAL],
-				//		eNEEE2	=rows[1][2+3*NCH*NROWS*NVAL];
-				//	rows[0][0+0*NCH*NROWS*NVAL]=(2*eW0+(sym0<<RBITS)+(eNEE0>eNEEE0?eNEE0:eNEEE0))>>2;
-				//	rows[0][1+0*NCH*NROWS*NVAL]=(2*eW1+(sym1<<RBITS)+(eNEE1>eNEEE1?eNEE1:eNEEE1))>>2;
-				//	rows[0][2+0*NCH*NROWS*NVAL]=(2*eW2+(sym2<<RBITS)+(eNEE2>eNEEE2?eNEE2:eNEEE2))>>2;
-				//}
-				rows[0]+=NCH*NROWS*NVAL;
-				rows[1]+=NCH*NROWS*NVAL;
-				rows[2]+=NCH*NROWS*NVAL;
-				rows[3]+=NCH*NROWS*NVAL;
-			}
-		}
-		*pstreamptr+=csize;
-	}
-	free(fse);
-}
-static void subband_code_ac(int16_t *image
-	, int iw, int ih
-	, int x1, int x2, int y1, int y2
-	, int16_t *pixels, int psize
-	, int fwd
-	, uint8_t **pstreamptr, uint8_t *streamend
-)
-{
-	enum
-	{
-		RBITS=2,
-		NLEVELS=256,
-	};
-	int kx=0, ky=0, kc=0;
-	int sym=0;
-	uint64_t lo=0, hi=0xFFFFFFFFFFFF, code=0, x=0;
-	int den=0, cdf=0, freq=0, tmp=0;
-	uint8_t *streamptr=*pstreamptr;
-
-	memset(hists, 0, sizeof(hists));
-	//for(int ctx=0;ctx<3*NCTX;++ctx)
-	//{
-	//	int32_t *currhist=hists+NLEVELS*ctx;
-	//	int total=0x8000, sum=0;
-	//	for(int ks=0;ks<NLEVELS-1;++ks)
-	//		sum+=currhist[ks]=total>>=1;
-	//	currhist[NLEVELS-1]=sum;
-	//}
-	memset(pixels, 0, psize);
-	if(!fwd)
-	{
-		code=*(uint64_t*)streamptr;//load
-		code=code<<32|code>>32;
-		streamptr+=sizeof(uint64_t);
-	}
-	for(ky=y1;ky<y2;++ky)
-	{
-		int16_t *rows[]=
-		{
-			pixels+(XPAD*NCH*NROWS+(ky+0LL+NROWS)%NROWS)*NVAL,
-			pixels+(XPAD*NCH*NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
-			pixels+(XPAD*NCH*NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
-			pixels+(XPAD*NCH*NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
-		};
-		int16_t *imptr=image+3*(iw*ky+x1);
-		for(kx=x1;kx<x2;++kx)
-		{
-			for(kc=0;kc<3;++kc)
-			{
-				int
-					eNW	=rows[1][0-1*NCH*NROWS*NVAL],
-					eN	=rows[1][0+0*NCH*NROWS*NVAL],
-					eNE	=rows[1][0+1*NCH*NROWS*NVAL],
-				//	eNEE	=rows[1][0+2*NCH*NROWS*NVAL],
-				//	eNEEE	=rows[1][0+3*NCH*NROWS*NVAL],
-					eW	=rows[0][0-1*NCH*NROWS*NVAL];
-				int32_t *currhist;
-				int ctx;
-
-				ctx=2*((eW|eN)!=0)+((eNW|eNE)!=0);
-				//ctx=31^LZCNT32(eW*eW+1);
-				if(ctx>NCTX-1)
-					ctx=NCTX-1;
-				ctx+=NCTX*kc;
-				currhist=hists+NLEVELS*ctx;
-				den=currhist[NLEVELS-1]+NLEVELS;
-				if(fwd)
-				{
-					sym=*imptr;
-					//if(sym==255)
-					//	CRASH("");
-					x=hi-lo;
-					if(x<=0xFFFF)
-					{
-						*(uint32_t*)streamptr=(uint32_t)(lo>>32);
-						streamptr+=sizeof(uint32_t);
-						lo<<=32;
-						hi=hi<<32|~0U;
-						if(hi<lo)
-							hi=~0ULL;
-						x=hi-lo;
-					}
-					for(tmp=0, cdf=0;;++tmp)
-					{
-						freq=currhist[tmp]+1;
-						if(tmp>=sym)
-							break;
-						cdf+=freq;
-					}
-#ifdef _MSC_VER
-					if(!freq||(uint32_t)freq>(uint32_t)den||(uint32_t)cdf>(uint32_t)den)
-						CRASH("");
-#endif
-#ifdef FIFOVAL
-					fifoval_enqueue(freq<<16|cdf);
-#endif
-					lo+=x*cdf/den;
-					hi=lo+x*freq/den-1;
-				}
-				else
-				{
-					x=hi-lo;
-					if(x<=0xFFFF)//stall: unpredictable branch
-					{
-#ifdef _MSC_VER
-						if(streamptr>streamend)
-							CRASH("");
-#endif
-						code=code<<32|*(uint32_t*)streamptr;
-						streamptr+=sizeof(uint32_t);
-						lo<<=32;
-						hi=hi<<32|~0U;
-						if(hi<lo)
-							hi=~0ULL;
-						x=hi-lo;
-					}
-					tmp=(int)(((code-lo+1)*den-1)/x);
-					for(sym=0, cdf=0;;)
-					{
-						freq=currhist[sym]+1;
-						if(cdf+freq>tmp)
-							break;
-						cdf+=freq;
-						++sym;
-					}
-#ifdef FIFOVAL
-					fifoval_check(freq<<16|cdf);
-#endif
-					lo+=x*cdf/den;
-					hi=lo+x*freq/den-1;
-
-					*imptr=sym;
-				}
-				++currhist[sym];
-				++currhist[NLEVELS-1];
-				if(currhist[NLEVELS-1]>=0x8000)//rescale
-				{
-					den=0;
-					for(int k=0;k<NLEVELS-1;++k)
-						den+=currhist[k]>>=1;
-					currhist[NLEVELS-1]=den;
-				}
-				rows[0][0]=sym;
-				//rows[0][0]=(2*eW+(sym<<3)+(eNEE>eNEEE?eNEE:eNEEE))>>2;
-				rows[0]+=NROWS*NVAL;
-				rows[1]+=NROWS*NVAL;
-				rows[2]+=NROWS*NVAL;
-				rows[3]+=NROWS*NVAL;
-			}
-		}
-	}
-	if(fwd)
-	{
-		*(uint64_t*)streamptr=lo<<32|lo>>32;//flush
-		streamptr+=sizeof(uint64_t);
-	}
-	//*(uint32_t*)*pstreamptr=streamptr-**pstreamptr;
-	*pstreamptr=streamptr;
-}
 typedef struct _ACState
 {
 	uint64_t lo, hi, code;
@@ -2218,23 +1152,61 @@ INLINE void codebit(ACState *ac, uint32_t *pcell, int32_t *pbit, const int fwd)
 {
 	enum
 	{
-		RICE_USEBITS=14,
-		RICE_STOREBITS=20,
-		RICE_CTRBITS=9,
+		USEBITS=13,
+		STOREBITS=19,
+		CTRBITS=9,
 	};
 	uint64_t x;
 	int32_t cell, prob, count, p1, sh;
-	int bit;
+	int bit, prev1, prev2, prev3, prev4;
 
 	cell=*pcell;
 	x=ac->hi-ac->lo;
-	prob=(int32_t)cell>>RICE_CTRBITS;
-	count=cell&((1<<RICE_CTRBITS)-1);
-	p1=(int32_t)cell>>(RICE_STOREBITS+RICE_CTRBITS-RICE_USEBITS);
+	prev1=cell&1; cell>>=1;
+	prev2=cell&1; cell>>=1;
+	prev3=cell&1; cell>>=1;
+	prev4=cell&1; cell>>=1;
+	prob=(int32_t)cell>>CTRBITS;
+	count=cell&((1<<CTRBITS)-1);
+	p1=(int32_t)cell>>(STOREBITS-USEBITS+CTRBITS);
 	sh=31^LZCNT32(count+2);
 	p1+=p1<0;
-	count+=count<(1<<RICE_CTRBITS)-1;
-	p1+=1<<RICE_USEBITS>>1;
+	count+=count<(1<<CTRBITS)-1;
+	p1+=1<<USEBITS>>1;
+	/*
+	//p1+=((prev4<<USEBITS)-p1+(1<<5>>1))>>5;
+	//p1+=((prev3<<USEBITS)-p1+(1<<5>>1))>>5;
+	//p1+=((prev2<<USEBITS)-p1+(1<<5>>1))>>5;
+	//p1+=((prev1<<USEBITS)-p1+(1<<5>>1))>>5;
+	p1 = prev4/32 + p1*31/32
+	p1 = prev3/32 + p1*31/32
+	p1 = prev2/32 + p1*31/32
+	p1 = prev1/32 + p1*31/32
+
+	p1 = prev1/32 + (prev2/32 + (prev3/32 + (prev4/32 + p1*31/32)*31/32)*31/32)*31/32
+	   = prev1/32 + prev2*31/32^2 + prev3*31^2/32^3 + prev4*31^3/32^4 + p1*(31/32)^4
+*/
+#if 1
+	{
+#define MAKEFRAC(N, D, S) (int)((((int64_t)(N)<<(S))+(D)-1)/(D))
+		enum
+		{
+			C1=MAKEFRAC(32, 1, USEBITS),
+			C2=MAKEFRAC(31, 1, USEBITS),
+			C3=MAKEFRAC(31*31, 32, USEBITS),
+			C4=MAKEFRAC(31*31*31, 32*32, USEBITS),
+			CP=MAKEFRAC(31*31*31*31, 32*32, 0),
+		};
+		p1=(
+			+(-prev1&C1)
+			+(-prev2&C2)
+			+(-prev3&C3)
+			+(-prev4&C4)
+			+p1*CP
+		)>>10;
+#undef  MAKEFRAC
+	}
+#endif
 	if(x<=0xFFFF)
 	{
 		if(ac->ptr>=ac->end)
@@ -2249,23 +1221,28 @@ INLINE void codebit(ACState *ac, uint32_t *pcell, int32_t *pbit, const int fwd)
 		if(ac->hi<ac->lo)ac->hi=~0ULL;
 		x=ac->hi-ac->lo;
 	}
-#ifdef _MSC_VER
-	if((uint32_t)(p1-1)>(uint32_t)((1<<RICE_USEBITS)-2))
-		CRASH("Invalid p1 0x%08X / %d bit", p1, RICE_USEBITS);
-#endif
-	x=ac->lo+(x*(uint32_t)p1>>RICE_USEBITS);
+	x=ac->lo+(x*(uint32_t)p1>>USEBITS);
 	bit=*pbit;
 	bit=fwd?bit:ac->code<x;
 	*pbit=bit;
+#ifdef _MSC_VER
+	if((uint32_t)(p1-1)>(uint32_t)((1<<USEBITS)-2))
+		CRASH("Invalid p1 0x%08X / %d bit", p1, USEBITS);
 #ifdef FIFOVAL
 	if(fwd)
 		fifoval_enqueue(bit<<24^p1);
 	else
 		fifoval_check(bit<<24^p1);
 #endif
+#endif
 	*(bit?&ac->hi:&ac->lo)=x-bit;
-	prob+=(int32_t)((bit<<RICE_STOREBITS)-(1<<RICE_STOREBITS>>1)-prob+(1<<sh>>1))>>sh;
-	*pcell=prob<<RICE_CTRBITS|count;
+	prob+=(int32_t)((bit<<STOREBITS)-(1<<STOREBITS>>1)-prob+(1<<sh>>1))>>sh;
+	cell=prob<<CTRBITS|count;
+	cell=cell<<1|prev3;
+	cell=cell<<1|prev2;
+	cell=cell<<1|prev1;
+	cell=cell<<1|bit;
+	*pcell=cell;
 }
 static void subband_code_riceac(int16_t *image
 	, int iw, int ih
@@ -2314,15 +1291,12 @@ static void subband_code_riceac(int16_t *image
 					eNW	=rows[1][0-1*NCH*NROWS*NVAL],
 					eN	=rows[1][0+0*NCH*NROWS*NVAL],
 					eNE	=rows[1][0+1*NCH*NROWS*NVAL],
-				//	eNEE	=rows[1][0+2*NCH*NROWS*NVAL],
-				//	eNEEE	=rows[1][0+3*NCH*NROWS*NVAL],
 					eW	=rows[0][0-1*NCH*NROWS*NVAL];
 				int32_t *currhist;
 				int ctx, nbypass;
 
 				nbypass=31^LZCNT32(eW+1);
 				ctx=LL?nbypass:2*((eW|eN)!=0)+((eNW|eNE)!=0);
-				//ctx=31^LZCNT32(eW*eW+1);
 				if(ctx>NCTX-1)
 					ctx=NCTX-1;
 				ctx+=NCTX*kc;
@@ -2371,7 +1345,6 @@ static void subband_code_riceac(int16_t *image
 		*(uint64_t*)ac.ptr=ac.lo<<32|ac.lo>>32;//flush
 		ac.ptr+=sizeof(uint64_t);
 	}
-	//*(uint32_t*)*pstreamptr=streamptr-**pstreamptr;
 	*pstreamptr=ac.ptr;
 }
 static void subband_proc(int16_t *image
@@ -2386,51 +1359,12 @@ static void subband_proc(int16_t *image
 #define UPSCALE16(X) (int)((double)(X)*(1<<16)+0.5)
 	static const int coeffs[]=
 	{
-#if 1
 		UPSCALE16(1.0),
 		UPSCALE16(1.0),
 		UPSCALE16(1.1),
 		UPSCALE16(1.2),
 		UPSCALE16(1.4),
 		UPSCALE16(1.8),
-	//	UPSCALE16(2.0),
-	//	UPSCALE16(4.0),
-	//	UPSCALE16(8.0),
-#endif
-#if 0
-		UPSCALE16(1.0),
-		UPSCALE16(1.1),
-		UPSCALE16(1.2),
-		UPSCALE16(1.3),
-		UPSCALE16(1.4),
-		UPSCALE16(1.5),
-		UPSCALE16(1.6),
-		UPSCALE16(1.7),
-#endif
-#if 0
-		UPSCALE16(1.7),
-		UPSCALE16(1.6),
-		UPSCALE16(1.5),
-		UPSCALE16(1.4),
-		UPSCALE16(1.3),
-		UPSCALE16(1.2),
-		UPSCALE16(1.1),
-		UPSCALE16(1.0),
-#endif
-		//UPSCALE16(1),
-		//UPSCALE16(1),
-		//UPSCALE16(0.75),
-		//UPSCALE16(0.75),
-		//UPSCALE16(0.5),
-		//UPSCALE16(0.5),
-		//UPSCALE16(0.25),
-		//UPSCALE16(0.25),
-
-		//0x08000,
-		//0x10000,
-		//0x20000,
-		//0x40000,
-		//0x80000,
 	};
 	int d2=level, d3=level-1;
 	if(d2>_countof(coeffs)-1)
@@ -2444,18 +1378,6 @@ static void subband_proc(int16_t *image
 		dist*coeffs[d2],//y
 		dist*coeffs[d3],//u
 		dist*coeffs[d3],//v
-		//dist<<16,
-		//dist<<16,
-		//dist<<16,
-		//(dist-level*8)<<16,
-		//(dist-level*8)<<16,
-		//(dist-level*8)<<16,
-		//dist<<(16-level),
-		//dist<<(16-level),
-		//dist<<(16-level),
-		//(int)round((double)dist*pow(1.25, -level*0.5)*(1<<16)),
-		//(int)round((double)dist*pow(1.25, -level*0.5)*(1<<16)),
-		//(int)round((double)dist*pow(1.25, -level*0.5)*(1<<16)),
 	};
 	uint8_t *streamptr=*pstreamptr;
 
@@ -2475,27 +1397,10 @@ static void subband_proc(int16_t *image
 		if(LL)
 			predictLL(image, iw, ih, x2-x1, y2-y1, pixels, psize, DIST_LL, fwd);
 		else
-		{
-			//getqsteps(image, iw, ih, x1, x2, y1, y2, dist, qsteps);
 			quantization(image, iw, ih, x1, x2, y1, y2, qsteps, fwd);
-			//memcpy(streamptr, qsteps, sizeof(qsteps));
-			//streamptr+=sizeof(qsteps);
-		}
 	}
-	else
-	{
-		if(!LL)
-		{
-			//memcpy(qsteps, streamptr, sizeof(qsteps));
-			//streamptr+=sizeof(qsteps);
-		}
-	}
-	subband_code_riceac	(image, iw, ih, x1, x2, y1, y2, pixels, psize, fwd, LL, &streamptr, streamend);
-//	subband_code_ac		(image, iw, ih, x1, x2, y1, y2, pixels, psize, fwd, &streamptr, streamend);
-//	subband_code_fse	(image, iw, ih, x1, x2, y1, y2, pixels, psize, fwd, ctxbuf, &streamptr, streamend);
+	subband_code_riceac(image, iw, ih, x1, x2, y1, y2, pixels, psize, fwd, LL, &streamptr, streamend);
 	(void)&subband_code_riceac;
-	(void)&subband_code_ac;
-	(void)&subband_code_fse;
 	if(!fwd)
 	{
 		if(LL)
@@ -2616,7 +1521,6 @@ int c60_codec(int argc, char **argv)
 		dist=0;
 		fread(&iw, 1, 3, fsrc);
 		fread(&ih, 1, 3, fsrc);
-	//	fread(&ict, 1, 1, fsrc);
 		fread(&dist, 1, 2, fsrc);
 		{
 			struct stat info={0};
@@ -2671,23 +1575,12 @@ int c60_codec(int argc, char **argv)
 	niter=dwt_getNiter(iw, ih, dist);
 	if(fwd)
 	{
-		//int64_t ctxbufsize=(int64_t)iw*ih;
-		//
-		//if(niter<=1)
-		//	ctxbufsize=3*ctxbufsize;
 		ict_fwd(image, iw, ih, ict);
 		dwt_cdf97((int16_t*)image, iw, ih, niter, dist, fwd);
 #ifdef _MSC_VER
 	//	ppm_save_16as8("20260808Sa_0616pm.ppm", (int16_t*)image, iw, ih);//
 	//	ppm_save_16bit("20260808Sa_0616pm.ppm", (int16_t*)image, iw, ih, 0xFFFF);//
 #endif
-		//ctxbuf=(uint8_t*)malloc(ctxbufsize);
-		//if(!ctxbuf)
-		//{
-		//	CRASH("Alloc error");
-		//	return 1;
-		//}
-	//	memset(hists, 0, sizeof(hists));
 		subband_proc((int16_t*)image, iw, ih, 0, iw>>(niter-1), 0, ih>>(niter-1), pixels, psize, 2*niter, 2*(niter-1), 1, fwd, dist, ctxbuf, &streamptr, streamend);//LL
 		for(int it=0;it<niter-1;)
 		{
@@ -2699,16 +1592,13 @@ int c60_codec(int argc, char **argv)
 			++it;
 			w1=iw>>it;
 			h1=ih>>it;
-		//	memset(hists, 0, sizeof(hists));
 			subband_proc((int16_t*)image, iw, ih,  0, w1, h1, h2, pixels, psize, 2*niter, 2*(niter-1-it)+1, 0, fwd, dist, ctxbuf, &streamptr, streamend);//SW
 			subband_proc((int16_t*)image, iw, ih, w1, w2,  0, h1, pixels, psize, 2*niter, 2*(niter-1-it)+1, 0, fwd, dist, ctxbuf, &streamptr, streamend);//NE
 			subband_proc((int16_t*)image, iw, ih, w1, w2, h1, h2, pixels, psize, 2*niter, 2*(niter-1-it)+0, 0, fwd, dist, ctxbuf, &streamptr, streamend);//SE HH
 		}
-		//free(ctxbuf);
 	}
 	else
 	{
-	//	memset(hists, 0, sizeof(hists));
 		subband_proc((int16_t*)image, iw, ih, 0, iw>>(niter-1), 0, ih>>(niter-1), pixels, psize, 2*niter, 2*(niter-1), 1, fwd, dist, ctxbuf, &streamptr, streamend);//LL
 		for(int it=0;it<niter-1;)
 		{
@@ -2720,7 +1610,6 @@ int c60_codec(int argc, char **argv)
 			++it;
 			w1=iw>>it;
 			h1=ih>>it;
-		//	memset(hists, 0, sizeof(hists));
 			subband_proc((int16_t*)image, iw, ih,  0, w1, h1, h2, pixels, psize, 2*niter, 2*(niter-1-it)+1, 0, fwd, dist, ctxbuf, &streamptr, streamend);//SW
 			subband_proc((int16_t*)image, iw, ih, w1, w2,  0, h1, pixels, psize, 2*niter, 2*(niter-1-it)+1, 0, fwd, dist, ctxbuf, &streamptr, streamend);//NE
 			subband_proc((int16_t*)image, iw, ih, w1, w2, h1, h2, pixels, psize, 2*niter, 2*(niter-1-it)+0, 0, fwd, dist, ctxbuf, &streamptr, streamend);//SE HH
@@ -2739,7 +1628,6 @@ int c60_codec(int argc, char **argv)
 		csize+=fwrite(&tag, 1, 2, fdst);
 		csize+=fwrite(&iw, 1, 3, fdst);
 		csize+=fwrite(&ih, 1, 3, fdst);
-	//	csize+=fwrite(&ict, 1, 1, fdst);
 		csize+=fwrite(&dist, 1, 2, fdst);
 		csize+=fwrite(stream, 1, streamptr-stream, fdst);
 	}
@@ -2826,16 +1714,7 @@ int c60_codec(int argc, char **argv)
 			double sd=(dx*(psnr-jxlcurve[2*(k+0)+1])-dy*(bps-jxlcurve[2*(k+0)+0]))/sqrt(dx*dx+dy*dy);
 			if(!score||score<sd)
 				score=sd, bestidx=k;
-			//if(psnr<jxlcurve[2*(k+1)+1])
-			//{
-			//	exbps=(psnr-jxlcurve[2*(k+0)+1])
-			//		/(jxlcurve[2*(k+1)+1]-jxlcurve[2*(k+0)+1])
-			//		*(jxlcurve[2*(k+1)+0]-jxlcurve[2*(k+0)+0])
-			//		+jxlcurve[2*(k+0)+0];
-			//	break;
-			//}
 		}
-	//	double exbps=5*pow(rmse, -1.75);//expected BPS from JXL curve
 
 #ifdef C60TEST2
 		printf("dist %3d  BPS %12.6lf  PSNR %12.6lf  score %12.6lf", dist, bps, psnr, score);

@@ -470,6 +470,7 @@ int main(int argc, char **argv)
 	{
 		2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 16, 20, 30,
 	};
+	double t=time_sec();
 	for(int k=0;k<_countof(qarr);++k)
 	{
 		snprintf(quality, sizeof(quality)-1, "%d", qarr[k]);
@@ -478,7 +479,8 @@ int main(int argc, char **argv)
 		if(CODEC_FUNC(_countof(decargs), (char**)decargs))
 			return 1;
 	}
-	printf("%12.8lf\n", g_score);
+	t=time_sec()-t;
+	printf("score %12.8lf    %12.6lf sec\n", g_score, t);
 #else
 	if(CODEC_FUNC(_countof(encargs), (char**)encargs))
 		return 1;
