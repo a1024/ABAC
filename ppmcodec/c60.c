@@ -1151,42 +1151,126 @@ typedef struct _ACState
 INLINE void codebit(ACState *ac, uint32_t *pcell, int32_t *pbit, const int fwd)
 {
 	enum
-	{
-		USEBITS=13,
-		STOREBITS=19,
+	{//STOREBITS+CTRBITS+HISTBITS <= 32
 		CTRBITS=9,
+		HISTBITS=4,
+		STOREBITS=32-CTRBITS-HISTBITS,
+		USEBITS=13,
 	};
 	uint64_t x;
-	int32_t cell, prob, count, p1, sh;
-	int bit, prev1, prev2, prev3, prev4;
+	int32_t cell, prob, count, p1, sh, bias;
+	int bit, prev4;
 
 	cell=*pcell;
 	x=ac->hi-ac->lo;
-	prev1=cell&1; cell>>=1;
-	prev2=cell&1; cell>>=1;
-	prev3=cell&1; cell>>=1;
-	prev4=cell&1; cell>>=1;
+	prev4=cell&((1<<HISTBITS)-1);
+	cell>>=HISTBITS;
 	prob=(int32_t)cell>>CTRBITS;
 	count=cell&((1<<CTRBITS)-1);
 	p1=(int32_t)cell>>(STOREBITS-USEBITS+CTRBITS);
-	sh=31^LZCNT32(count+2);
+	sh=31^LZCNT32(count+3);
 	p1+=p1<0;
 	count+=count<(1<<CTRBITS)-1;
 	p1+=1<<USEBITS>>1;
+	bias=(1<<sh>>1)-(1<<STOREBITS>>1)-prob;
 	/*
-	//p1+=((prev4<<USEBITS)-p1+(1<<5>>1))>>5;
-	//p1+=((prev3<<USEBITS)-p1+(1<<5>>1))>>5;
-	//p1+=((prev2<<USEBITS)-p1+(1<<5>>1))>>5;
-	//p1+=((prev1<<USEBITS)-p1+(1<<5>>1))>>5;
 	p1 = prev4/32 + p1*31/32
 	p1 = prev3/32 + p1*31/32
 	p1 = prev2/32 + p1*31/32
 	p1 = prev1/32 + p1*31/32
 
 	p1 = prev1/32 + (prev2/32 + (prev3/32 + (prev4/32 + p1*31/32)*31/32)*31/32)*31/32
-	   = prev1/32 + prev2*31/32^2 + prev3*31^2/32^3 + prev4*31^3/32^4 + p1*(31/32)^4
+	p1 = prev1/32 + prev2*31/32^2 + prev3*31^2/32^3 + prev4*31^3/32^4 + p1*(31/32)^4
 */
+#if 0
+	{
+#define MAKEFRAC(N, D, S) (int)((((int64_t)(N)<<(S))+(D)-1)/(D))
+#define MAKECOEFF(X) (X>>3&1)*C1+(X>>2&1)*C2+(X>>1&1)*C3+(X>>0&1)*C4	//prev[1234]
+		enum
+		{
+			C1=MAKEFRAC(32, 1, USEBITS),
+			C2=MAKEFRAC(31, 1, USEBITS),
+			C3=MAKEFRAC(31*31, 32, USEBITS),
+			C4=MAKEFRAC(31*31*31, 32*32, USEBITS),
+			CP=MAKEFRAC(31*31*31*31, 32*32, 0),
+			A0=MAKECOEFF(0x0),
+			A1=MAKECOEFF(0x1),
+			A2=MAKECOEFF(0x2),
+			A3=MAKECOEFF(0x3),
+			A4=MAKECOEFF(0x4),
+			A5=MAKECOEFF(0x5),
+			A6=MAKECOEFF(0x6),
+			A7=MAKECOEFF(0x7),
+			A8=MAKECOEFF(0x8),
+			A9=MAKECOEFF(0x9),
+			AA=MAKECOEFF(0xA),
+			AB=MAKECOEFF(0xB),
+			AC=MAKECOEFF(0xC),
+			AD=MAKECOEFF(0xD),
+			AE=MAKECOEFF(0xE),
+			AF=MAKECOEFF(0xF),
+		};
+		static const int coeffs[]=
+		{
+			A0,
+			A1,
+			A2,
+			A3,
+			A4,
+			A5,
+			A6,
+			A7,
+			A8,
+			A9,
+			AA,
+			AB,
+			AC,
+			AD,
+			AE,
+			AF,
+#undef  MAKECOEFF
+		};
+		p1=(coeffs[prev4]+CP*p1)>>10;
+	}
+#endif
 #if 1
+	{
+		enum
+		{
+#define MAKEFRAC(N, D, S) (int)((((int64_t)(N)<<(S))+(D)-1)/(D))
+			C1=MAKEFRAC(32, 1, USEBITS),
+			C2=MAKEFRAC(31, 1, USEBITS),
+			C3=MAKEFRAC(31*31, 32, USEBITS),
+			C4=MAKEFRAC(31*31*31, 32*32, USEBITS),
+			CP=MAKEFRAC(31*31*31*31, 32*32, 0),
+#undef  MAKEFRAC
+		};
+		static const int coeffs[]=
+		{//prev[1234]
+#define MAKECOEFF(X) (X>>3&1)*C4+(X>>2&1)*C3+(X>>1&1)*C2+(X>>0&1)*C1
+			MAKECOEFF(0x0),
+			MAKECOEFF(0x1),
+			MAKECOEFF(0x2),
+			MAKECOEFF(0x3),
+			MAKECOEFF(0x4),
+			MAKECOEFF(0x5),
+			MAKECOEFF(0x6),
+			MAKECOEFF(0x7),
+			MAKECOEFF(0x8),
+			MAKECOEFF(0x9),
+			MAKECOEFF(0xA),
+			MAKECOEFF(0xB),
+			MAKECOEFF(0xC),
+			MAKECOEFF(0xD),
+			MAKECOEFF(0xE),
+			MAKECOEFF(0xF),
+#undef  MAKECOEFF
+		};
+		p1=(coeffs[prev4]+CP*p1)>>10;
+		prev4=prev4<<1&((1<<HISTBITS)-1);
+	}
+#endif
+#if 0
 	{
 #define MAKEFRAC(N, D, S) (int)((((int64_t)(N)<<(S))+(D)-1)/(D))
 		enum
@@ -1207,6 +1291,10 @@ INLINE void codebit(ACState *ac, uint32_t *pcell, int32_t *pbit, const int fwd)
 #undef  MAKEFRAC
 	}
 #endif
+	//p1+=((prev4<<USEBITS)-p1+(1<<5>>1))>>5;
+	//p1+=((prev3<<USEBITS)-p1+(1<<5>>1))>>5;
+	//p1+=((prev2<<USEBITS)-p1+(1<<5>>1))>>5;
+	//p1+=((prev1<<USEBITS)-p1+(1<<5>>1))>>5;
 	if(x<=0xFFFF)
 	{
 		if(ac->ptr>=ac->end)
@@ -1236,12 +1324,9 @@ INLINE void codebit(ACState *ac, uint32_t *pcell, int32_t *pbit, const int fwd)
 #endif
 #endif
 	*(bit?&ac->hi:&ac->lo)=x-bit;
-	prob+=(int32_t)((bit<<STOREBITS)-(1<<STOREBITS>>1)-prob+(1<<sh>>1))>>sh;
+	prob+=(int32_t)((bit<<STOREBITS)+bias)>>sh;
 	cell=prob<<CTRBITS|count;
-	cell=cell<<1|prev3;
-	cell=cell<<1|prev2;
-	cell=cell<<1|prev1;
-	cell=cell<<1|bit;
+	cell=cell<<HISTBITS|prev4|bit;
 	*pcell=cell;
 }
 static void subband_code_riceac(int16_t *image
