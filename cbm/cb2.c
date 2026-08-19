@@ -2310,14 +2310,14 @@ int main(int argc, char **argv)
 	}
 
 	//3. get dataset & previous tests
-	snprintf(g_buf, sizeof(g_buf)-1, "%szzzdata_%s.txt", programpath, datasetname);
+	snprintf(g_buf, sizeof(g_buf)-1, "%szz2data_%s.txt", programpath, datasetname);
 	{
 		String text=txt_load(g_buf);//null terminated
 		if(text)
 		{
 			const char *start, *ptr, *end;
 /*
-zzzdata_DATASET.TXT
+zz2data_DATASET.TXT
 path	extension
 "files:"
 {usize  filetitle}[NFILES]
@@ -2962,7 +2962,7 @@ dec_command_template
 	{
 		FILE *fdst=0;
 
-		snprintf(g_buf, sizeof(g_buf)-1, "%szzzdata_%s.txt", programpath, datasetname);
+		snprintf(g_buf, sizeof(g_buf)-1, "%szz2data_%s.txt", programpath, datasetname);
 		fdst=fopen(g_buf, "w");
 		if(!fdst)
 		{
