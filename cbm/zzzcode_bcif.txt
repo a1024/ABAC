@@ -1,2 +1,0 @@
-bcif *.ppm -c *.bcif
-bcif *.bcif -d *.ppm

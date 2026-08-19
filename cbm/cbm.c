@@ -1222,11 +1222,11 @@ static void print_summary(ArrayHandle besttestidxs, ArrayHandle testinfo, ptrdif
 			etime1/etime2,
 			dtime1/dtime2,
 		};
-		printf("Table notation \"+SSE+ED+D\":    For example {%g-%g, %g/%g, %g/%g} = {%+.2lf KB, %gx, %gx} -> ",
-			csize1, csize2,
-			etime1, etime2,
-			dtime1, dtime2,
-			score[0]/1024, score[1], score[2]
+		printf("Table notation \"+SSE+ED+D\":    For example {%g-%g, %g/%g, %g/%g} = {%+.2lf KB, %gx, %gx} -> "
+			, csize1, csize2
+			, etime1, etime2
+			, dtime1, dtime2
+			, score[0]/1024, score[1], score[2]
 		);
 		print_scicolor(score[0], score[0]/usize, 0);
 		print_scicolor(score[1], score[1], 1);
@@ -1241,14 +1241,14 @@ static void print_summary(ArrayHandle besttestidxs, ArrayHandle testinfo, ptrdif
 		TestInfo *test=(TestInfo*)array_at(&testinfo, *idx);
 		if(k2==special)
 			printf("\n");
-		printf("%10lld B  %12.6lf %12.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB  ",
-			test->total.csize,
-			test->total.etime,
-			test->total.dtime,
-			usize/(test->total.etime*1024*1024),
-			usize/(test->total.dtime*1024*1024),
-			(double)test->total.emem/(1024*1024),
-			(double)test->total.dmem/(1024*1024)
+		printf("%10lld B  %14.6lf %14.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB  "
+			, test->total.csize
+			, test->total.etime
+			, test->total.dtime
+			, usize/(test->total.etime*1024*1024)
+			, usize/(test->total.dtime*1024*1024)
+			, (double)test->total.emem/(1024*1024)
+			, (double)test->total.dmem/(1024*1024)
 		);
 		printf("%04d%02d%02d_%02d%02d%02d"
 			, test->datetime.year
@@ -1330,10 +1330,10 @@ int main(int argc, char **argv)
 	codecname=argc<3?0:argv[2];
 	flags=argc==4?atoi(argv[3]):CMDFLAG_VERIFY_BITEXACT;
 #else
-	datasetname="bandcamp";
-	codecname="aupk01";
-	//datasetname="div2k";
-	//codecname="c32";
+	datasetname="fivek";
+	codecname="qlic2";
+	//datasetname="bandcamp";
+	//codecname="aupk01";
 #endif
 	const char placeholdertag[]="*.";
 	const int placeholderlen=sizeof(placeholdertag)-1;
@@ -1859,6 +1859,7 @@ dec command template
 		usize+=info->usize;
 	}
 	TestInfo *selfrival=0;
+	TestInfo *currtest=(TestInfo*)ARRAY_APPEND(testinfo, 0, 1, 1, 0);
 	if(testinfo->count)
 	{
 		for(int k=0;k<(int)besttestidxs->count;++k)
@@ -1872,7 +1873,6 @@ dec command template
 			}
 		}
 	}
-	TestInfo *currtest=(TestInfo*)ARRAY_APPEND(testinfo, 0, 1, 1, 0);
 	STR_COPY(currtest->codecname, codecname, strlen(codecname));
 	ARRAY_ALLOC(CellInfo, currtest->cells, 0, uinfo->count, 0, 0);
 	print_summary(besttestidxs, testinfo, usize, -1, flags/CMDFLAG_PRINT_RIVALS);
@@ -1997,7 +1997,7 @@ dec command template
 				TestInfo *rival=(TestInfo*)array_at(&testinfo, worstabove);
 				msg=(char*)rival->codecname->data;
 			}
-			printf(" %-10s", msg);
+			printf(" %-12s", msg);
 
 			msg="-";
 			if(bestbelow!=-1)
@@ -2005,7 +2005,7 @@ dec command template
 				TestInfo *rival=(TestInfo*)array_at(&testinfo, bestbelow);
 				msg=(char*)rival->codecname->data;
 			}
-			printf(" < %-10s", msg);
+			printf(" < %-12s", msg);
 		}
 		if(selfrival)//print improvement
 		{

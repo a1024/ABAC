@@ -1196,7 +1196,7 @@ int log_error(const char *fn, int line, int quit, const char *format, ...)
 	//messagebox(MBOX_OK, "Error", latest_error_msg);
 	if(quit)
 	{
-		pause();
+	//	pause();
 		exit(0);
 	}
 	return firsttime;

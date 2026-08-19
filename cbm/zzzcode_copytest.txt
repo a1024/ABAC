@@ -1,0 +1,2 @@
+copytest *.ppm *.copy
+copytest *.copy *.ppm

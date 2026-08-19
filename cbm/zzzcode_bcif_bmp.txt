@@ -1,0 +1,2 @@
+bcif *.bmp -c *.bcif
+bcif *.bcif -d *.bmp

@@ -1,0 +1,2 @@
+cjxl -d 0 -e 1 *.ppm *.jxl
+djxl *.jxl *.ppm

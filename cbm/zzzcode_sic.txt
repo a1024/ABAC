@@ -1,0 +1,2 @@
+sic c *.ppm *.gbr
+sic d *.gbr *.ppm

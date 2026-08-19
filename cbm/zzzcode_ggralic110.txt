@@ -1,0 +1,2 @@
+gralic110d c *.gra110 *.pgm
+gralic110d d *.gra110 *.pgm

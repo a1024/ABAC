@@ -1,0 +1,2 @@
+charlstest -encodepnm *.ppm *.chs
+charlstest -decodetopnm *.chs *.ppm

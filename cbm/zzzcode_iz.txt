@@ -1,0 +1,2 @@
+imagezero c *.ppm *.iz
+imagezero d *.iz *.ppm

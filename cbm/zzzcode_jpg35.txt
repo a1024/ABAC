@@ -1,0 +1,2 @@
+ffmpeg -i *.ppm -qscale 35 *.jpg
+ffmpeg -i *.jpg *.ppm

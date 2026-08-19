@@ -1,0 +1,2 @@
+wavpack -h *.wav *.wv
+wvunpack *.wv *.wav

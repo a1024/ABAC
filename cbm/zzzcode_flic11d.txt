@@ -1,0 +1,2 @@
+flic11d c *.flic *.ppm
+flic11d d *.flic *.ppm

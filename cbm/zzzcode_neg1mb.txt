@@ -1,0 +1,2 @@
+neg *.ppm *.neg 1048576
+neg *.neg *.ppm 1048576

@@ -1,0 +1,2 @@
+acmejls *.ppm *.ajls
+acmejls *.ajls *.ppm

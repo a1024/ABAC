@@ -1,0 +1,2 @@
+cmd /c copy /b *.pgm *.copy
+cmd /c copy /b *.copy *.pgm

@@ -1,0 +1,2 @@
+HALAC_ENCODE_0.6.1_x64_AVX2.exe *.wav -o *.halac -m 4 -ow -s
+HALAC_DECODE_0.6.1_x64.exe *.halac -o *.wav
