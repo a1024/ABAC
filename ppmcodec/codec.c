@@ -310,6 +310,7 @@ int main(int argc, char **argv)
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0802.ppm"		//lemons
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0807.ppm"		//hard
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0808.ppm"		//crisp+grad
+	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0820.ppm"
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0843.ppm"
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0890.ppm"		//2.7 MP DIV2K median complexity
 	//	"C:/Projects/datasets/dataset-DIV2K-ppm/0891.ppm"		//3.4 MP

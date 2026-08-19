@@ -60,7 +60,6 @@ enum
 	NROWS=4,
 	NVAL=2,
 	
-	FSE_PROBBITS=12,
 	NCTX=6,
 };
 
@@ -1333,7 +1332,7 @@ static void subband_code_riceac(int16_t *image
 	, int iw, int ih
 	, int x1, int x2, int y1, int y2
 	, int16_t *pixels, int psize
-	, int fwd, int LL
+	, int fwd, int LL, int niter, int level
 	, uint8_t **pstreamptr, uint8_t *streamend
 )
 {
@@ -1381,6 +1380,8 @@ static void subband_code_riceac(int16_t *image
 				int ctx, nbypass;
 
 				nbypass=31^LZCNT32(eW+1);
+			//	ctx=LL?nbypass:2*((eW|eN)!=0)+(((niter>>1)==(level>>1)?eNW|eNE:image[3*(iw*(ky>>1)+(kx>>1))+kc])!=0);
+			//	ctx=LL?nbypass:2*((eW|eN)!=0)+(image[3*(iw*(ky>>1)+(kx>>1))+kc]!=0);
 				ctx=LL?nbypass:2*((eW|eN)!=0)+((eNW|eNE)!=0);
 				if(ctx>NCTX-1)
 					ctx=NCTX-1;
@@ -1484,8 +1485,7 @@ static void subband_proc(int16_t *image
 		else
 			quantization(image, iw, ih, x1, x2, y1, y2, qsteps, fwd);
 	}
-	subband_code_riceac(image, iw, ih, x1, x2, y1, y2, pixels, psize, fwd, LL, &streamptr, streamend);
-	(void)&subband_code_riceac;
+	subband_code_riceac(image, iw, ih, x1, x2, y1, y2, pixels, psize, fwd, LL, niter, level, &streamptr, streamend);
 	if(!fwd)
 	{
 		if(LL)
