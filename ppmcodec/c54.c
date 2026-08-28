@@ -254,7 +254,7 @@ static void print_rct(RCTInfo *rct)
 }
 typedef struct _AnalysisCtrs
 {
-	int64_t yctr, uctrs[RCTLEVELS], vctrs[RCTLEVELS*(RCTLEVELS+1)/2+1];
+	int32_t yctr, uctrs[RCTLEVELS], vctrs[RCTLEVELS*(RCTLEVELS+1)/2+1];
 } AnalysisCtrs;
 static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 {
@@ -264,31 +264,31 @@ static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 	{
 		STRIDE=7,
 	};
-	AnalysisCtrs counters[NPERMS]={0};
+	AnalysisCtrs counters[NPERMS]={0}, counters2[NPERMS]={0};
 	uint8_t *image=0, *imptr=0;
-	int64_t size=0;
+	int32_t size=0;
 	int rstr=0;
 	long fidx=0;
-	int64_t bestscore=0;
+	int32_t bestscore=0, bestscore2=0;
 	RCTInfo rct={0};
 #ifdef PRINT_RCT
 	int it=0;
 #endif
 	
 	fidx=ftell(fsrc);
-	size=(int64_t)3*iw*ih;
+	size=(int32_t)3*STRIDE*iw;
 	image=(uint8_t*)malloc(size);
 	if(!image)
 	{
 		CRASH("Alloc error");
 		return;
 	}
-	fread(image, 1, size, fsrc);
 	rstr=3*iw;
 	for(int ky=1;ky<=ih-STRIDE;ky+=STRIDE)
 	{
 		int kx=1;
-		imptr=image+rstr*ky+3*kx;
+		imptr=image+rstr+3*kx;
+		fread(image, 1, size, fsrc);
 		for(;kx<=iw-STRIDE;kx+=STRIDE)
 		{
 			int rgb[]=
@@ -315,6 +315,12 @@ static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 						currctrs->vctrs[idx]+=abs(yuv[2]-((kp1*yuv[0]+kp2*yuv[1])>>RCTBITS));
 				}
 			}
+		}
+		for(int k=0;k<sizeof(counters)/(sizeof(uint32_t));++k)
+		{
+			uint32_t *src=((uint32_t*)counters)+k, *dst=((uint32_t*)counters2)+k;
+			*dst+=*src>>16;
+			*src&=0xFFFF;
 		}
 	}
 	free(image);
@@ -410,13 +416,17 @@ static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 	for(int kp=0;kp<NPERMS;++kp)
 	{
 		AnalysisCtrs *currctrs=counters+kp;
+		AnalysisCtrs *currctrs2=counters2+kp;
 		for(int uc0=0;uc0<=RCTMAX;++uc0)
 		{
 			for(int vc0=0, idx=0;vc0<=RCTMAX;++vc0)
 			{
 				for(int vc1=0;vc0+vc1<=RCTMAX;++vc1, ++idx)
 				{
-					int64_t score=currctrs->yctr+currctrs->uctrs[uc0]+currctrs->vctrs[idx];
+					uint32_t score=currctrs->yctr+currctrs->uctrs[uc0]+currctrs->vctrs[idx];
+					uint32_t score2=currctrs2->yctr+currctrs2->uctrs[uc0]+currctrs2->vctrs[idx]+(score>>16);
+
+					score&=0xFFFF;
 #ifdef PRINT_RCT
 					{
 						RCTInfo rct2={0};
@@ -424,14 +434,16 @@ static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 						rct2.uc0=uc0;
 						rct2.vc0=vc0;
 						rct2.vc1=vc1;
-						print_rct(&rct2, it++, score);
+						++it;
+						print_rct(&rct2);
 						if(!bestscore||bestscore>score)
 							printf(" <-");
 						printf("\n");
 					}
 #endif
-					if(!bestscore||bestscore>score)
+					if((!bestscore2&&!bestscore)||bestscore2>score2||(bestscore2==score2&&bestscore>score))
 					{
+						bestscore2=score2;
 						bestscore=score;
 						rct.pidx=kp;
 						rct.uc0=uc0;
@@ -630,8 +642,6 @@ int c54_codec(int argc, char **argv)
 		for(int ks=0;ks<1<<DEPTH;++ks)
 		{
 			int sym=(int8_t)(ks-(1<<DEPTH>>1));
-			//if(sym==21)
-			//	printf("");
 			sym=sym<<1^sym>>31;
 			for(int kb=0;kb<DEPTH;++kb)
 			{
