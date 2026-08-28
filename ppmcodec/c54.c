@@ -395,6 +395,7 @@ int c54_codec(int argc, char **argv)
 	int psize=0;
 	int16_t *pixels=0;
 	uint64_t cache=0;
+	uint32_t code=0, inc=0;
 	int nbits=0;
 	uint8_t *rdptr=0, *wtptr=0, *rdend=0, *wtend=0;
 	RCTInfo rct={0};
@@ -694,32 +695,32 @@ int c54_codec(int argc, char **argv)
 				{
 					sym=(int8_t)(yuv[kc]-pred);
 					sym=sym<<1^sym>>31;
-					uint32_t code=enctable[nbypass|sym];
-					int codelen=(uint8_t)code;
-					code>>=8;
-					cache|=(uint64_t)code<<nbits;
-					nbits+=codelen;
+					code=enctable[nbypass|sym];
+					cache|=(uint64_t)code>>8<<nbits;
+					nbits+=(uint8_t)code;
 					*(uint64_t*)wtptr=cache;
-					if(wtptr+(nbits>>3)>=wtend)
+					inc=nbits>>3;
+					wtptr+=inc;
+					if(wtptr>=wtend)
 					{
 						fwrite(wtbuf+sizeof(uint64_t), 1, BUFSIZE, fdst);
 						wtptr-=BUFSIZE;
-						*(uint64_t*)wtptr=cache;
+						*(uint64_t*)(wtptr-inc)=cache;
 					}
 					cache>>=nbits&56;
-					wtptr+=nbits>>3;
 					nbits&=7;
 				}
 				else
 				{
 					cache|=*(uint64_t*)rdptr<<nbits;
-					if(rdptr+(nbits>>3^7)>=rdend)
+					inc=nbits>>3^7;
+					rdptr+=inc;
+					if(rdptr>=rdend)
 					{
 						fread(rdbuf+sizeof(uint64_t), 1, BUFSIZE, fsrc);
 						rdptr-=BUFSIZE;
-						cache|=*(uint64_t*)rdptr<<nbits;
+						cache|=*(uint64_t*)(rdptr-inc)<<nbits;
 					}
-					rdptr+=nbits>>3^7;
 					nbits|=56;
 					nzeros=(int)TZCNT64(cache);
 					sym=nzeros<<nbypass;
