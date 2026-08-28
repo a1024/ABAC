@@ -644,6 +644,7 @@ int c54_codec(int argc, char **argv)
 				(void)NNN;
 				(void)NN;
 				(void)NNE;
+				(void)NWW;
 				(void)NW;
 				(void)N;
 				(void)NE;
@@ -685,9 +686,9 @@ int c54_codec(int argc, char **argv)
 					if(vmax<NEEE)vmax=NEEE;
 					vmin<<=4;
 					vmax<<=4;
-					CLAMP2(p1, vmin, vmax);
+					CLAMP2(p1, vmin-8, vmax+8);
 				}
-				pred=(p1+offset+(1<<TOTALADD>>1))>>TOTALADD;
+				pred=(p1+offset+((1<<TOTALADD>>1)+2))>>TOTALADD;
 				CLAMP2(pred, 0, 255);
 				offset=(offset-7)>>4;
 				if(fwd)
