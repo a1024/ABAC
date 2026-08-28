@@ -211,14 +211,14 @@ static uint8_t rdbuf[BUFSIZE+sizeof(uint64_t[2])], wtbuf[BUFSIZE+sizeof(uint64_t
 
 //cRCT
 #if 1
-static const int perms[]=
+static const uint8_t perms[]=
 {
-	1, 0, 2,
-	1, 2, 0,
+	//1, 0, 2,
+	//1, 2, 0,
 
-	//0, 1, 2,	2, 1, 0,
-	//2, 0, 1,	1, 0, 2,
-	//1, 2, 0,	0, 2, 1,
+	0, 1, 2,	2, 1, 0,
+	2, 0, 1,	1, 0, 2,
+	1, 2, 0,	0, 2, 1,
 };
 enum
 {
@@ -232,10 +232,9 @@ typedef struct _RCTInfo
 {
 	uint8_t pidx, uc0, vc0, vc1;
 } RCTInfo;
-static void print_rct(RCTInfo *rct, int tidx, int64_t score)
+static void print_rct(RCTInfo *rct)
 {
-	printf("[%7d]  RCT%c%c%c_%c_%c%c/%c  %16lld"
-		, tidx
+	printf("RCT%c%c%c_%c_%c%c/%c"
 		, '0'+perms[rct->pidx*3+0]
 		, '0'+perms[rct->pidx*3+1]
 		, '0'+perms[rct->pidx*3+2]
@@ -243,8 +242,18 @@ static void print_rct(RCTInfo *rct, int tidx, int64_t score)
 		, rct->vc0+(rct->vc0<9?'0':'A'-10)
 		, rct->vc1+(rct->vc1<9?'0':'A'-10)
 		, RCTMAX+(RCTMAX<9?'0':'A'-10)
-		, score
 	);
+	//printf("[%7d]  RCT%c%c%c_%c_%c%c/%c  %16lld"
+	//	, tidx
+	//	, '0'+perms[rct->pidx*3+0]
+	//	, '0'+perms[rct->pidx*3+1]
+	//	, '0'+perms[rct->pidx*3+2]
+	//	, rct->uc0+(rct->uc0<9?'0':'A'-10)
+	//	, rct->vc0+(rct->vc0<9?'0':'A'-10)
+	//	, rct->vc1+(rct->vc1<9?'0':'A'-10)
+	//	, RCTMAX+(RCTMAX<9?'0':'A'-10)
+	//	, score
+	//);
 }
 typedef struct _AnalysisCtrs
 {
@@ -252,6 +261,71 @@ typedef struct _AnalysisCtrs
 } AnalysisCtrs;
 static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 {
+	//strided analysis
+#if 1
+	enum
+	{
+		STRIDE=3,
+	};
+	AnalysisCtrs counters[NPERMS]={0};
+	uint8_t *image=0, *imptr=0;
+	int64_t size=0;
+	int rstr=0;
+	long fidx=0;
+	int64_t bestscore=0;
+	RCTInfo rct={0};
+#ifdef PRINT_RCT
+	int it=0;
+#endif
+	
+	fidx=ftell(fsrc);
+	size=(int64_t)3*iw*ih;
+	image=(uint8_t*)malloc(size);
+	if(!image)
+	{
+		CRASH("Alloc error");
+		return;
+	}
+	fread(image, 1, size, fsrc);
+	rstr=3*iw;
+	for(int ky=1;ky<=ih-STRIDE;ky+=STRIDE)
+	{
+		int kx=1;
+		imptr=image+rstr*ky+3*kx;
+		for(;kx<=iw-STRIDE;kx+=STRIDE)
+		{
+			int rgb[]=
+			{
+				(imptr[0]-imptr[-3+0]-imptr[-rstr+0]+imptr[-rstr-3+0])<<RCTBITS,
+				(imptr[1]-imptr[-3+1]-imptr[-rstr+1]+imptr[-rstr-3+1])<<RCTBITS,
+				(imptr[2]-imptr[-3+2]-imptr[-rstr+2]+imptr[-rstr-3+2])<<RCTBITS,
+			};
+			imptr+=3*STRIDE;
+			for(int kp=0;kp<NPERMS;++kp)
+			{
+				AnalysisCtrs *currctrs=counters+kp;
+				int yuv[]=
+				{
+					rgb[perms[3*kp+0]],
+					rgb[perms[3*kp+1]],
+					rgb[perms[3*kp+2]],
+				};
+				currctrs->yctr+=abs(yuv[0]);
+				for(int kp1=0, idx=0;kp1<=RCTMAX;++kp1)
+				{
+					currctrs->uctrs[kp1]+=abs(yuv[1]-(kp1*yuv[0]>>RCTBITS));
+					for(int kp2=0;kp1+kp2<=RCTMAX;++kp2, ++idx)
+						currctrs->vctrs[idx]+=abs(yuv[2]-((kp1*yuv[0]+kp2*yuv[1])>>RCTBITS));
+				}
+			}
+		}
+	}
+	free(image);
+	fseek(fsrc, fidx, SEEK_SET);
+#endif
+
+	//buffered analysis
+#if 0
 	enum
 	{
 		XPAD=8,
@@ -334,6 +408,7 @@ static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 	}
 	fseek(fsrc, fidx, SEEK_SET);
 	free(pixels);
+#endif
 	for(int kp=0;kp<NPERMS;++kp)
 	{
 		AnalysisCtrs *currctrs=counters+kp;
@@ -385,7 +460,8 @@ int c54_codec(int argc, char **argv)
 		NROWS=4,
 		NVAL=3,
 
-		TOTALADD=4+RCTBITS,
+		PREDADD=4,
+		TOTALADD=PREDADD+RCTBITS,
 	};
 	const uint16_t tag='5'|'4'<<8;
 
@@ -401,8 +477,8 @@ int c54_codec(int argc, char **argv)
 	int nbits=0;
 	uint8_t *rdptr=0, *wtptr=0, *rdend=0, *wtend=0;
 	RCTInfo rct={0};
+	int c0[3]={0}, c1[3]={0};
 	int ysh=0, ush=0, vsh=0;
-	int csums[3]={0};
 #ifdef LOUD
 	double t=0;
 #endif
@@ -525,6 +601,13 @@ int c54_codec(int argc, char **argv)
 		guide_save(fsrc, iw, ih);
 #endif
 		crct_analysis(fsrc, iw, ih, &rct);
+#if defined LOUD && 1
+		{
+			double t2=time_sec()-t;
+			print_rct(&rct);
+			printf("   analysis  %12.6lf ms/MB\n", t2*1024*1024*1000/usize);
+		}
+#endif
 		fwrite(&tag, 1, 2, fdst);
 		fwrite(&iw, 1, 3, fdst);
 		fwrite(&ih, 1, 3, fdst);
@@ -569,9 +652,16 @@ int c54_codec(int argc, char **argv)
 	wtptr=wtbuf+sizeof(uint64_t);
 	rdend=rdbuf+sizeof(uint64_t)+BUFSIZE;
 	wtend=wtbuf+sizeof(uint64_t)+BUFSIZE;
-	csums[0]=0;
-	csums[1]=rct.uc0;
-	csums[2]=rct.vc0+rct.vc1;
+	if(fwd)
+		rdend-=3;
+	else
+		wtend-=3;
+	c0[0]=0;
+	c0[1]=rct.uc0<<PREDADD;
+	c0[2]=rct.vc0<<PREDADD;
+	c1[0]=0;
+	c1[1]=0;
+	c1[2]=rct.vc1<<PREDADD;
 	for(int ky=0;ky<ih;++ky)
 	{
 		int yuv[3]={0};
@@ -585,11 +675,11 @@ int c54_codec(int argc, char **argv)
 		};
 		for(int kx=0;kx<iw;++kx)
 		{
-			int offset=0, csum=0;
+			int offset=0;
 			if(fwd)
 			{
 				uint64_t data=*(uint64_t*)rdptr;
-				if(rdptr+3>=rdend)
+				if(rdptr>=rdend)
 				{
 					fread(rdbuf+sizeof(uint64_t), 1, BUFSIZE, fsrc);
 					rdptr-=BUFSIZE;
@@ -633,13 +723,6 @@ int c54_codec(int argc, char **argv)
 					nW	=rows[0][1-1*NCH*NROWS*NVAL];
 				int nbypass, sym, nzeros;
 
-				offset=0;
-				if(kc==1)offset=rct.uc0*yuv[0];
-				if(kc==2)offset=rct.vc0*yuv[0]+rct.vc1*yuv[1];
-				csum=csums[kc];
-				offset<<=4;
-				if(csum<4)
-					offset+=offset>>4;
 #if 1
 				(void)NNN;
 				(void)NN;
@@ -670,6 +753,9 @@ int c54_codec(int argc, char **argv)
 				(void)nWW;
 				(void)nW;
 #endif
+				offset=c0[kc]*yuv[0]+c1[kc]*yuv[1];
+				if(c0[kc]+c1[kc]<1<<TOTALADD)
+					offset-=offset>>6;
 				nbypass=logtable[nW];
 				//					1/8
 				//					-2
@@ -684,13 +770,13 @@ int c54_codec(int argc, char **argv)
 					if(vmax<NE)vmax=NE;
 					if(vmin>NEEE)vmin=NEEE;
 					if(vmax<NEEE)vmax=NEEE;
-					vmin<<=4;
-					vmax<<=4;
-					CLAMP2(p1, vmin-8, vmax+8);
+					vmin<<=PREDADD;
+					vmax<<=PREDADD;
+					CLAMP2(p1, vmin-(1<<PREDADD>>1), vmax+(1<<PREDADD>>1));
 				}
 				pred=(p1+offset+((1<<TOTALADD>>1)+2))>>TOTALADD;
 				CLAMP2(pred, 0, 255);
-				offset=(offset-7)>>4;
+				offset=(offset-7)>>PREDADD;
 				if(fwd)
 				{
 					nbypass<<=8;
@@ -754,7 +840,7 @@ int c54_codec(int argc, char **argv)
 			{
 				uint64_t data=(uint64_t)yuv[2]<<vsh|(uint64_t)yuv[1]<<ush|(uint64_t)yuv[0]<<ysh;
 				*(uint64_t*)wtptr=data;
-				if(wtptr+3>=wtend)
+				if(wtptr>=wtend)
 				{
 					fwrite(wtbuf+sizeof(uint64_t), 1, BUFSIZE, fdst);
 					wtptr-=BUFSIZE;
