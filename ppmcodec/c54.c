@@ -40,7 +40,7 @@ enum
 
 	NCTX=6,
 	DEPTH=8,
-	RLIMIT=11,
+	RLIMIT=13,
 };
 
 #if 1
@@ -224,7 +224,7 @@ enum
 {
 	RCTBITS=2,
 	RCTMAX=1<<RCTBITS,
-	RCTLEVELS=RCTMAX+1,//+zero
+	RCTLEVELS=RCTMAX+1,//+unity
 	NRCTS=RCTLEVELS*RCTLEVELS*(RCTLEVELS+1)/2,
 	NPERMS=_countof(perms)/3,
 };
@@ -265,7 +265,7 @@ static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 #if 1
 	enum
 	{
-		STRIDE=3,
+		STRIDE=7,
 	};
 	AnalysisCtrs counters[NPERMS]={0};
 	uint8_t *image=0, *imptr=0;
@@ -324,7 +324,7 @@ static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 	fseek(fsrc, fidx, SEEK_SET);
 #endif
 
-	//buffered analysis
+	//buffered analysis	slow
 #if 0
 	enum
 	{
@@ -409,6 +409,7 @@ static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 	fseek(fsrc, fidx, SEEK_SET);
 	free(pixels);
 #endif
+
 	for(int kp=0;kp<NPERMS;++kp)
 	{
 		AnalysisCtrs *currctrs=counters+kp;
@@ -451,6 +452,7 @@ static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 
 static uint8_t logtable[1<<DEPTH];
 static uint32_t enctable[DEPTH<<DEPTH];
+static uint8_t signpack[1<<DEPTH];
 int c54_codec(int argc, char **argv)
 {
 	enum
@@ -601,7 +603,7 @@ int c54_codec(int argc, char **argv)
 		guide_save(fsrc, iw, ih);
 #endif
 		crct_analysis(fsrc, iw, ih, &rct);
-#if defined LOUD && 1
+#if defined LOUD && 0
 		{
 			double t2=time_sec()-t;
 			print_rct(&rct);
@@ -627,25 +629,39 @@ int c54_codec(int argc, char **argv)
 	}
 	if(fwd)
 	{
-		//for(int ks=0;ks<1<<DEPTH;++ks)
-		//	logtable[ks]<<=8;
+		//for(int ks=0;ks<1<<DEPTH;++ks)//90 93 90 92  vs  90 91 92 90 MB/s
+		//	logtable[ks]<<=DEPTH;
 		for(int ks=0;ks<1<<DEPTH;++ks)
 		{
+			int sym=(int8_t)(ks-(1<<DEPTH>>1));
+			//if(sym==21)
+			//	printf("");
+			sym=sym<<1^sym>>31;
 			for(int kb=0;kb<DEPTH;++kb)
 			{
 				uint32_t code;
 				int nzeros, stopbit, nbypass, codelen;
 				
 				nbypass=kb;
-				nzeros=ks>>kb;
+				nzeros=sym>>kb;
 				stopbit=nzeros<RLIMIT;
 				codelen=nzeros+1+kb;
 				if(nzeros>=RLIMIT)
 					nzeros=RLIMIT, stopbit=0, nbypass=DEPTH, codelen=RLIMIT+DEPTH;
-				code=(ks&((1<<nbypass)-1))<<(nzeros+stopbit)|stopbit<<nzeros;
+				code=(sym&((1<<nbypass)-1))<<(nzeros+stopbit)|stopbit<<nzeros;
 				enctable[kb<<DEPTH|ks]=code<<8|codelen;
 			}
 		}
+		for(int ks=0;ks<1<<DEPTH;++ks)//s->u
+		{
+			int sym=ks-128;
+			signpack[ks]=sym<<1^sym>>31;
+		}
+	}
+	else
+	{
+		for(int ks=0;ks<1<<DEPTH;++ks)//u->s
+			signpack[ks]=(uint8_t)(ks>>1^ks<<31>>31);
 	}
 	memset(pixels, 0, psize);
 	rdptr=rdbuf+sizeof(uint64_t)+BUFSIZE;
@@ -761,7 +777,7 @@ int c54_codec(int argc, char **argv)
 				//					-2
 				//				-5	10	2	1/8
 				//	-2/8	1	-3	13	[?]
-				int p1=13*W+10*N-5*NW+2*NE-2*NN-3*WW+WWW+((-2*WWWW+NNN+NEE)>>3);
+				pred=13*W+10*N-5*NW+2*NE-2*NN-3*WW+WWW+((-2*WWWW+NNN+NEE)>>3);
 				{
 					int vmin, vmax;
 					vmax=N, vmin=W;
@@ -772,17 +788,19 @@ int c54_codec(int argc, char **argv)
 					if(vmax<NEEE)vmax=NEEE;
 					vmin<<=PREDADD;
 					vmax<<=PREDADD;
-					CLAMP2(p1, vmin-(1<<PREDADD>>1), vmax+(1<<PREDADD>>1));
+					CLAMP2(pred, vmin-(1<<PREDADD>>1), vmax+(1<<PREDADD>>1));
 				}
-				pred=(p1+offset+((1<<TOTALADD>>1)+2))>>TOTALADD;
+				pred=(pred+offset+((1<<TOTALADD>>1)+2))>>TOTALADD;
 				CLAMP2(pred, 0, 255);
 				offset=(offset-7)>>PREDADD;
+				//if(ky==0&&kx==1&&kc==0)//
+				//	printf("");
 				if(fwd)
 				{
-					nbypass<<=8;
 					sym=(int8_t)(yuv[kc]-pred);
-					sym=sym<<1^sym>>31;
-					code=enctable[nbypass|sym];
+					code=enctable[nbypass<<DEPTH|(sym+128)];
+					sym=(signpack+128)[sym];
+					//sym=sym<<1^sym>>31;
 					cache|=(uint64_t)code>>8<<nbits;
 					nbits+=(uint8_t)code;
 					*(uint64_t*)wtptr=cache;
@@ -799,6 +817,7 @@ int c54_codec(int argc, char **argv)
 				}
 				else
 				{
+					static const uint8_t masks[]={0, 1, 3, 7, 15, 31, 63, 127, 255};
 					cache|=*(uint64_t*)rdptr<<nbits;
 					inc=nbits>>3^7;
 					rdptr+=inc;
@@ -814,10 +833,12 @@ int c54_codec(int argc, char **argv)
 					if(nzeros>RLIMIT-1)
 						nzeros=RLIMIT-1, nbypass=DEPTH, sym=0;
 					cache>>=nzeros+1;
-					sym|=(int)(cache&((1ULL<<nbypass)-1));
+					sym|=(int)(cache&masks[nbypass]);
+				//	sym|=(int)(cache&((1ULL<<nbypass)-1));
 					cache>>=nbypass;
 					nbits-=nzeros+1+nbypass;
-					yuv[kc]=(uint8_t)((sym>>1^sym<<31>>31)+pred);
+					yuv[kc]=(uint8_t)(signpack[sym]+pred);
+				//	yuv[kc]=(uint8_t)((sym>>1^sym<<31>>31)+pred);
 #ifdef ENABLE_GUIDE
 					if(yuv[kc]!=g_image[3*(iw*ky+kx)+perms[rct.pidx*3+kc]])
 					{
