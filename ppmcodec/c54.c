@@ -40,7 +40,7 @@ enum
 
 	NCTX=6,
 	DEPTH=8,
-	RLIMIT=13,
+	RLIMIT=13,//<=16
 };
 
 #if 1
@@ -54,7 +54,7 @@ enum
 #		define _countof(A) (sizeof(A)/sizeof(*(A)))
 #	endif
 #endif
-#define CLAMP2(X, L, H) X=X<(L)?L:X, X=X>(H)?H:X
+#define CLAMP(X, L, H) X=X<(L)?L:X, X=X>(H)?H:X
 #if _MSC_VER
 #define LZCNT32 _lzcnt_u32
 #define LZCNT64 _lzcnt_u64
@@ -206,9 +206,6 @@ static void valfifo_check(uint32_t val)
 #endif
 
 
-static uint8_t rdbuf[BUFSIZE+sizeof(uint64_t[2])], wtbuf[BUFSIZE+sizeof(uint64_t[2])];
-
-
 //cRCT
 #if 1
 static const uint8_t perms[]=
@@ -334,7 +331,7 @@ static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 		NVAL=1,
 	};
 	AnalysisCtrs counters[NPERMS]={0};
-	uint8_t *const rdend=rdbuf+sizeof(uint64_t)+BUFSIZE, *rdptr=0;
+	uint8_t *const rdend=rdbuf+sizeof(uint32_t)+BUFSIZE, *rdptr=0;
 	long fidx=0;
 	int prev[3]={0}, rgb[3]={0}, yuv[3]={0};
 	int64_t bestscore=0;
@@ -363,12 +360,12 @@ static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 		};
 		for(int kx=0;kx<iw;++kx)
 		{
-			uint64_t data=*(uint64_t*)rdptr;
+			uint32_t data=*(uint32_t*)rdptr;
 			if(rdptr>=rdend)
 			{
-				fread(rdbuf+sizeof(uint64_t), 1, BUFSIZE, fsrc);
+				fread(rdbuf+sizeof(uint32_t), 1, BUFSIZE, fsrc);
 				rdptr-=BUFSIZE;
-				data|=*(uint64_t*)rdptr;
+				data|=*(uint32_t*)rdptr;
 			}
 			rdptr+=3;
 			rgb[0]=(uint8_t)(data>>0*8);
@@ -453,6 +450,7 @@ static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 static uint8_t logtable[1<<DEPTH];
 static uint32_t enctable[DEPTH<<DEPTH];
 static uint8_t signpack[1<<DEPTH];
+static uint8_t rdbuf[BUFSIZE+sizeof(uint32_t[2])], wtbuf[BUFSIZE+sizeof(uint32_t[2])];
 int c54_codec(int argc, char **argv)
 {
 	enum
@@ -460,7 +458,7 @@ int c54_codec(int argc, char **argv)
 		XPAD=8,
 		NCH=3,
 		NROWS=4,
-		NVAL=3,
+		NVAL=2,
 
 		PREDADD=4,
 		TOTALADD=PREDADD+RCTBITS,
@@ -469,13 +467,13 @@ int c54_codec(int argc, char **argv)
 
 	const char *srcfn=0, *dstfn=0;
 	FILE *fsrc=0, *fdst=0;
-	uint64_t c=0;
+	uint32_t c=0;
 	int fwd=0, iw=0, ih=0;
 	int64_t usize=0, csize=0;
 	int psize=0;
 	int16_t *pixels=0;
-	uint64_t cache=0;
-	uint32_t code=0, inc=0;
+	uint32_t cache=0;
+	uint32_t inc=0;
 	int nbits=0;
 	uint8_t *rdptr=0, *wtptr=0, *rdend=0, *wtend=0;
 	RCTInfo rct={0};
@@ -534,7 +532,7 @@ int c54_codec(int argc, char **argv)
 		iw=0;
 		while((uint32_t)(c-'0')<10)
 		{
-			iw=10*iw+(int32_t)c-'0';
+			iw=10*iw+c-'0';
 			c=fgetc(fsrc);
 		}
 		while(c<=' ')
@@ -542,7 +540,7 @@ int c54_codec(int argc, char **argv)
 		ih=0;
 		while((uint32_t)(c-'0')<10)
 		{
-			ih=10*ih+(int32_t)c-'0';
+			ih=10*ih+c-'0';
 			c=fgetc(fsrc);
 		}
 		while(c=='#')
@@ -552,17 +550,15 @@ int c54_codec(int argc, char **argv)
 				c=fgetc(fsrc);
 			c=fgetc(fsrc);
 		}
-		c|=(int64_t)fgetc(fsrc)<<8*1;
-		c|=(int64_t)fgetc(fsrc)<<8*2;
-		c|=(int64_t)fgetc(fsrc)<<8*3;
-		c|=(int64_t)fgetc(fsrc)<<8*4;
+		c|=fgetc(fsrc)<<8*1;
+		c|=fgetc(fsrc)<<8*2;
+		c|=fgetc(fsrc)<<8*3;
 		if(c!=(
-			(uint64_t)'\n'<<8*0|
-			(uint64_t) '2'<<8*1|
-			(uint64_t) '5'<<8*2|
-			(uint64_t) '5'<<8*3|
-			(uint64_t)'\n'<<8*4
-		))
+			'\n'<<8*0|
+			'2' <<8*1|
+			'5' <<8*2|
+			'5' <<8*3
+		)||fgetc(fsrc)!='\n')
 		{
 			CRASH("Unsupported file \"%s\"", srcfn);
 			return 1;
@@ -629,7 +625,7 @@ int c54_codec(int argc, char **argv)
 	}
 	if(fwd)
 	{
-		//for(int ks=0;ks<1<<DEPTH;++ks)//90 93 90 92  vs  90 91 92 90 MB/s
+		//for(int ks=0;ks<1<<DEPTH;++ks)
 		//	logtable[ks]<<=DEPTH;
 		for(int ks=0;ks<1<<DEPTH;++ks)
 		{
@@ -664,10 +660,10 @@ int c54_codec(int argc, char **argv)
 			signpack[ks]=(uint8_t)(ks>>1^ks<<31>>31);
 	}
 	memset(pixels, 0, psize);
-	rdptr=rdbuf+sizeof(uint64_t)+BUFSIZE;
-	wtptr=wtbuf+sizeof(uint64_t);
-	rdend=rdbuf+sizeof(uint64_t)+BUFSIZE;
-	wtend=wtbuf+sizeof(uint64_t)+BUFSIZE;
+	rdptr=rdbuf+sizeof(uint32_t)+BUFSIZE;
+	wtptr=wtbuf+sizeof(uint32_t);
+	rdend=rdbuf+sizeof(uint32_t)+BUFSIZE;
+	wtend=wtbuf+sizeof(uint32_t)+BUFSIZE;
 	if(fwd)
 		rdend-=3;
 	else
@@ -680,8 +676,8 @@ int c54_codec(int argc, char **argv)
 	c1[2]=rct.vc1<<PREDADD;
 	for(int ky=0;ky<ih;++ky)
 	{
+		static const uint8_t masks[]={0, 1, 3, 7, 15, 31, 63, 127, 255};
 		int yuv[3]={0};
-		int pred=0;
 		int16_t *rows[]=
 		{
 			pixels+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,
@@ -689,22 +685,435 @@ int c54_codec(int argc, char **argv)
 			pixels+(XPAD*NCH*NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
 			pixels+(XPAD*NCH*NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
 		};
+
+		//interleaved
+#if 1
+		uint32_t data;
+		int nbypass[3], pred[3], offset[3];
+		int vmin[3], vmax[3], t[6];
+		int sym[3];
+		uint32_t code[3];
+
+		if(fwd)
+		{
+			for(int kx=0;kx<iw;++kx)
+			{
+				//					1/8
+				//					-2
+				//				-5	10	2	1/8
+				//	-2/8	1	-3	13	[?]
+				pred[0]=
+					+10*rows[1][0+(+0*NCH+0)*NROWS*NVAL]//N
+					+13*rows[0][0+(-1*NCH+0)*NROWS*NVAL]//W
+					- 5*rows[1][0+(-1*NCH+0)*NROWS*NVAL]//NW
+					+ 2*rows[1][0+(+1*NCH+0)*NROWS*NVAL]//NE
+					- 2*rows[2][0+(+0*NCH+0)*NROWS*NVAL]//NN
+					- 3*rows[0][0+(-2*NCH+0)*NROWS*NVAL]//WW
+					+   rows[0][0+(-3*NCH+0)*NROWS*NVAL]//WWW
+					+((
+						-2*rows[0][0+(-4*NCH+0)*NROWS*NVAL]//WWWW
+						+  rows[3][0+(+0*NCH+0)*NROWS*NVAL]//NNN
+						+  rows[1][0+(+2*NCH+0)*NROWS*NVAL]//NEE
+					)>>3);
+				pred[1]=
+					+10*rows[1][0+(+0*NCH+1)*NROWS*NVAL]//N
+					+13*rows[0][0+(-1*NCH+1)*NROWS*NVAL]//W
+					- 5*rows[1][0+(-1*NCH+1)*NROWS*NVAL]//NW
+					+ 2*rows[1][0+(+1*NCH+1)*NROWS*NVAL]//NE
+					- 2*rows[2][0+(+0*NCH+1)*NROWS*NVAL]//NN
+					- 3*rows[0][0+(-2*NCH+1)*NROWS*NVAL]//WW
+					+   rows[0][0+(-3*NCH+1)*NROWS*NVAL]//WWW
+					+((
+						-2*rows[0][0+(-4*NCH+1)*NROWS*NVAL]//WWWW
+						+  rows[3][0+(+0*NCH+1)*NROWS*NVAL]//NNN
+						+  rows[1][0+(+2*NCH+1)*NROWS*NVAL]//NEE
+					)>>3);
+				pred[2]=
+					+10*rows[1][0+(+0*NCH+2)*NROWS*NVAL]//N
+					+13*rows[0][0+(-1*NCH+2)*NROWS*NVAL]//W
+					- 5*rows[1][0+(-1*NCH+2)*NROWS*NVAL]//NW
+					+ 2*rows[1][0+(+1*NCH+2)*NROWS*NVAL]//NE
+					- 2*rows[2][0+(+0*NCH+2)*NROWS*NVAL]//NN
+					- 3*rows[0][0+(-2*NCH+2)*NROWS*NVAL]//WW
+					+   rows[0][0+(-3*NCH+2)*NROWS*NVAL]//WWW
+					+((
+						-2*rows[0][0+(-4*NCH+2)*NROWS*NVAL]//WWWW
+						+  rows[3][0+(+0*NCH+2)*NROWS*NVAL]//NNN
+						+  rows[1][0+(+2*NCH+2)*NROWS*NVAL]//NEE
+					)>>3);
+#if 1
+				t[0]=vmax[0]=rows[1][0+(+0*NCH+0)*NROWS*NVAL]; t[0+3]=vmin[0]=rows[0][0+(-1*NCH+0)*NROWS*NVAL];//N W
+				t[1]=vmax[1]=rows[1][0+(+0*NCH+1)*NROWS*NVAL]; t[1+3]=vmin[1]=rows[0][0+(-1*NCH+1)*NROWS*NVAL];
+				t[2]=vmax[2]=rows[1][0+(+0*NCH+2)*NROWS*NVAL]; t[2+3]=vmin[2]=rows[0][0+(-1*NCH+2)*NROWS*NVAL];
+				vmin[0]=t[0]<t[0+3]?t[0]:vmin[0]; vmax[0]=t[0]<t[0+3]?t[0+3]:vmax[0];
+				vmin[1]=t[1]<t[1+3]?t[1]:vmin[1]; vmax[1]=t[1]<t[1+3]?t[1+3]:vmax[1];
+				vmin[2]=t[2]<t[2+3]?t[2]:vmin[2]; vmax[2]=t[2]<t[2+3]?t[2+3]:vmax[2];
+				t[0]=rows[1][0+(+1*NCH+0)*NROWS*NVAL];//NE
+				t[1]=rows[1][0+(+1*NCH+1)*NROWS*NVAL];
+				t[2]=rows[1][0+(+1*NCH+2)*NROWS*NVAL];
+				t[3]=rows[1][0+(+3*NCH+0)*NROWS*NVAL];//NEEE
+				t[4]=rows[1][0+(+3*NCH+1)*NROWS*NVAL];
+				t[5]=rows[1][0+(+3*NCH+2)*NROWS*NVAL];
+				vmin[0]=vmin[0]>t[0]?t[0]:vmin[0];
+				vmin[1]=vmin[1]>t[1]?t[1]:vmin[1];
+				vmin[2]=vmin[2]>t[2]?t[2]:vmin[2];
+				vmax[0]=vmax[0]<t[0]?t[0]:vmax[0];
+				vmax[1]=vmax[1]<t[1]?t[1]:vmax[1];
+				vmax[2]=vmax[2]<t[2]?t[2]:vmax[2];
+				vmin[0]=vmin[0]>t[0+3]?t[0+3]:vmin[0];
+				vmin[1]=vmin[1]>t[1+3]?t[1+3]:vmin[1];
+				vmin[2]=vmin[2]>t[2+3]?t[2+3]:vmin[2];
+				vmax[0]=vmax[0]<t[0+3]?t[0+3]:vmax[0];
+				vmax[1]=vmax[1]<t[1+3]?t[1+3]:vmax[1];
+				vmax[2]=vmax[2]<t[2+3]?t[2+3]:vmax[2];
+				vmin[0]<<=PREDADD;
+				vmax[0]<<=PREDADD;
+				vmin[1]<<=PREDADD;
+				vmax[1]<<=PREDADD;
+				vmin[2]<<=PREDADD;
+				vmax[2]<<=PREDADD;
+				CLAMP(pred[0], vmin[0]-(1<<PREDADD>>1), vmax[0]+(1<<PREDADD>>1));
+				CLAMP(pred[1], vmin[1]-(1<<PREDADD>>1), vmax[1]+(1<<PREDADD>>1));
+				CLAMP(pred[2], vmin[2]-(1<<PREDADD>>1), vmax[2]+(1<<PREDADD>>1));
+#endif
+				nbypass[0]=logtable[rows[0][1+(-1*NCH+0)*NROWS*NVAL]];//nW
+				nbypass[1]=logtable[rows[0][1+(-1*NCH+1)*NROWS*NVAL]];
+				nbypass[2]=logtable[rows[0][1+(-1*NCH+2)*NROWS*NVAL]];
+				
+				data=*(uint32_t*)rdptr;
+				if(rdptr>=rdend)
+				{
+					fread(rdbuf+sizeof(uint32_t), 1, BUFSIZE, fsrc);
+					rdptr-=BUFSIZE;
+					data|=*(uint32_t*)rdptr;
+				}
+				rdptr+=3;
+				yuv[0]=(uint8_t)(data>>ysh);
+				yuv[1]=(uint8_t)(data>>ush);
+				yuv[2]=(uint8_t)(data>>vsh);
+				offset[0]=0;
+				offset[1]=c0[1]*yuv[0];
+				offset[2]=c0[2]*yuv[0]+c1[2]*yuv[1];
+				if(c0[1]<1<<TOTALADD)offset[1]-=offset[1]>>6;
+				if(c0[2]+c1[2]<1<<TOTALADD)offset[2]-=offset[2]>>6;
+
+				pred[0]=(pred[0]+offset[0]+((1<<TOTALADD>>1)+2))>>TOTALADD;
+				pred[1]=(pred[1]+offset[1]+((1<<TOTALADD>>1)+2))>>TOTALADD;
+				pred[2]=(pred[2]+offset[2]+((1<<TOTALADD>>1)+2))>>TOTALADD;
+				CLAMP(pred[0], 0, 255);
+				CLAMP(pred[1], 0, 255);
+				CLAMP(pred[2], 0, 255);
+
+				sym[0]=(int8_t)(yuv[0]-pred[0]);
+				sym[1]=(int8_t)(yuv[1]-pred[1]);
+				sym[2]=(int8_t)(yuv[2]-pred[2]);
+				code[0]=enctable[nbypass[0]<<DEPTH|(sym[0]+128)];
+				code[1]=enctable[nbypass[1]<<DEPTH|(sym[1]+128)];
+				code[2]=enctable[nbypass[2]<<DEPTH|(sym[2]+128)];
+				sym[0]=(signpack+128)[sym[0]];
+				sym[1]=(signpack+128)[sym[1]];
+				sym[2]=(signpack+128)[sym[2]];
+
+				for(int kc=0;kc<3;++kc)
+				{
+					cache|=code[kc]>>8<<nbits;
+					nbits+=(uint8_t)code[kc];
+					*(uint32_t*)wtptr=cache;
+					inc=nbits>>3;
+					wtptr+=inc;
+					if(wtptr>=wtend)
+					{
+						fwrite(wtbuf+sizeof(uint32_t), 1, BUFSIZE, fdst);
+						wtptr-=BUFSIZE;
+						*(uint32_t*)(wtptr-inc)=cache;
+					}
+					cache>>=nbits&24;
+					nbits&=7;
+				}
+				offset[0]=(offset[0]-7)>>PREDADD;
+				offset[1]=(offset[1]-7)>>PREDADD;
+				offset[2]=(offset[2]-7)>>PREDADD;
+				rows[0][0+(+0*NCH+0)*NROWS*NVAL]=(yuv[0]<<RCTBITS)-offset[0];
+				rows[0][0+(+0*NCH+1)*NROWS*NVAL]=(yuv[1]<<RCTBITS)-offset[1];
+				rows[0][0+(+0*NCH+2)*NROWS*NVAL]=(yuv[2]<<RCTBITS)-offset[2];
+				//			8	12	8
+				//	20	[17]	?
+				rows[0][1+(+0*NCH+0)*NROWS*NVAL]=(
+					+20*rows[0][1+(-1*NCH+0)*NROWS*NVAL]//nW
+					+17*sym[0]
+					+ 8*rows[1][1+(+1*NCH+0)*NROWS*NVAL]//nNE
+					+12*rows[1][1+(+2*NCH+0)*NROWS*NVAL]//nNEE
+					+ 8*rows[1][1+(+3*NCH+0)*NROWS*NVAL]//nNEEE
+				+9)>>6;
+				rows[0][1+(+0*NCH+1)*NROWS*NVAL]=(
+					+20*rows[0][1+(-1*NCH+1)*NROWS*NVAL]//nW
+					+17*sym[1]
+					+ 8*rows[1][1+(+1*NCH+1)*NROWS*NVAL]//nNE
+					+12*rows[1][1+(+2*NCH+1)*NROWS*NVAL]//nNEE
+					+ 8*rows[1][1+(+3*NCH+1)*NROWS*NVAL]//nNEEE
+				+9)>>6;
+				rows[0][1+(+0*NCH+2)*NROWS*NVAL]=(
+					+20*rows[0][1+(-1*NCH+2)*NROWS*NVAL]//nW
+					+17*sym[2]
+					+ 8*rows[1][1+(+1*NCH+2)*NROWS*NVAL]//nNE
+					+12*rows[1][1+(+2*NCH+2)*NROWS*NVAL]//nNEE
+					+ 8*rows[1][1+(+3*NCH+2)*NROWS*NVAL]//nNEEE
+				+9)>>6;
+				rows[0]+=NCH*NROWS*NVAL;
+				rows[1]+=NCH*NROWS*NVAL;
+				rows[2]+=NCH*NROWS*NVAL;
+				rows[3]+=NCH*NROWS*NVAL;
+			}
+		}
+		else
+		{
+			int nzeros;
+
+			for(int kx=0;kx<iw;++kx)
+			{
+				//					1/8
+				//					-2
+				//				-5	10	2	1/8
+				//	-2/8	1	-3	13	[?]
+				pred[0]=
+					+10*rows[1][0+(+0*NCH+0)*NROWS*NVAL]//N
+					+13*rows[0][0+(-1*NCH+0)*NROWS*NVAL]//W
+					- 5*rows[1][0+(-1*NCH+0)*NROWS*NVAL]//NW
+					+ 2*rows[1][0+(+1*NCH+0)*NROWS*NVAL]//NE
+					- 2*rows[2][0+(+0*NCH+0)*NROWS*NVAL]//NN
+					- 3*rows[0][0+(-2*NCH+0)*NROWS*NVAL]//WW
+					+   rows[0][0+(-3*NCH+0)*NROWS*NVAL]//WWW
+					+((
+						-2*rows[0][0+(-4*NCH+0)*NROWS*NVAL]//WWWW
+						+  rows[3][0+(+0*NCH+0)*NROWS*NVAL]//NNN
+						+  rows[1][0+(+2*NCH+0)*NROWS*NVAL]//NEE
+					)>>3);
+				pred[1]=
+					+10*rows[1][0+(+0*NCH+1)*NROWS*NVAL]//N
+					+13*rows[0][0+(-1*NCH+1)*NROWS*NVAL]//W
+					- 5*rows[1][0+(-1*NCH+1)*NROWS*NVAL]//NW
+					+ 2*rows[1][0+(+1*NCH+1)*NROWS*NVAL]//NE
+					- 2*rows[2][0+(+0*NCH+1)*NROWS*NVAL]//NN
+					- 3*rows[0][0+(-2*NCH+1)*NROWS*NVAL]//WW
+					+   rows[0][0+(-3*NCH+1)*NROWS*NVAL]//WWW
+					+((
+						-2*rows[0][0+(-4*NCH+1)*NROWS*NVAL]//WWWW
+						+  rows[3][0+(+0*NCH+1)*NROWS*NVAL]//NNN
+						+  rows[1][0+(+2*NCH+1)*NROWS*NVAL]//NEE
+					)>>3);
+				pred[2]=
+					+10*rows[1][0+(+0*NCH+2)*NROWS*NVAL]//N
+					+13*rows[0][0+(-1*NCH+2)*NROWS*NVAL]//W
+					- 5*rows[1][0+(-1*NCH+2)*NROWS*NVAL]//NW
+					+ 2*rows[1][0+(+1*NCH+2)*NROWS*NVAL]//NE
+					- 2*rows[2][0+(+0*NCH+2)*NROWS*NVAL]//NN
+					- 3*rows[0][0+(-2*NCH+2)*NROWS*NVAL]//WW
+					+   rows[0][0+(-3*NCH+2)*NROWS*NVAL]//WWW
+					+((
+						-2*rows[0][0+(-4*NCH+2)*NROWS*NVAL]//WWWW
+						+  rows[3][0+(+0*NCH+2)*NROWS*NVAL]//NNN
+						+  rows[1][0+(+2*NCH+2)*NROWS*NVAL]//NEE
+					)>>3);
+#if 1
+				t[0]=vmax[0]=rows[1][0+(+0*NCH+0)*NROWS*NVAL]; t[0+3]=vmin[0]=rows[0][0+(-1*NCH+0)*NROWS*NVAL];//N W
+				t[1]=vmax[1]=rows[1][0+(+0*NCH+1)*NROWS*NVAL]; t[1+3]=vmin[1]=rows[0][0+(-1*NCH+1)*NROWS*NVAL];
+				t[2]=vmax[2]=rows[1][0+(+0*NCH+2)*NROWS*NVAL]; t[2+3]=vmin[2]=rows[0][0+(-1*NCH+2)*NROWS*NVAL];
+				vmin[0]=t[0]<t[0+3]?t[0]:vmin[0]; vmax[0]=t[0]<t[0+3]?t[0+3]:vmax[0];
+				vmin[1]=t[1]<t[1+3]?t[1]:vmin[1]; vmax[1]=t[1]<t[1+3]?t[1+3]:vmax[1];
+				vmin[2]=t[2]<t[2+3]?t[2]:vmin[2]; vmax[2]=t[2]<t[2+3]?t[2+3]:vmax[2];
+				t[0]=rows[1][0+(+1*NCH+0)*NROWS*NVAL];//NE
+				t[1]=rows[1][0+(+1*NCH+1)*NROWS*NVAL];
+				t[2]=rows[1][0+(+1*NCH+2)*NROWS*NVAL];
+				t[3]=rows[1][0+(+3*NCH+0)*NROWS*NVAL];//NEEE
+				t[4]=rows[1][0+(+3*NCH+1)*NROWS*NVAL];
+				t[5]=rows[1][0+(+3*NCH+2)*NROWS*NVAL];
+				vmin[0]=vmin[0]>t[0]?t[0]:vmin[0];
+				vmin[1]=vmin[1]>t[1]?t[1]:vmin[1];
+				vmin[2]=vmin[2]>t[2]?t[2]:vmin[2];
+				vmax[0]=vmax[0]<t[0]?t[0]:vmax[0];
+				vmax[1]=vmax[1]<t[1]?t[1]:vmax[1];
+				vmax[2]=vmax[2]<t[2]?t[2]:vmax[2];
+				vmin[0]=vmin[0]>t[0+3]?t[0+3]:vmin[0];
+				vmin[1]=vmin[1]>t[1+3]?t[1+3]:vmin[1];
+				vmin[2]=vmin[2]>t[2+3]?t[2+3]:vmin[2];
+				vmax[0]=vmax[0]<t[0+3]?t[0+3]:vmax[0];
+				vmax[1]=vmax[1]<t[1+3]?t[1+3]:vmax[1];
+				vmax[2]=vmax[2]<t[2+3]?t[2+3]:vmax[2];
+				vmin[0]<<=PREDADD;
+				vmax[0]<<=PREDADD;
+				vmin[1]<<=PREDADD;
+				vmax[1]<<=PREDADD;
+				vmin[2]<<=PREDADD;
+				vmax[2]<<=PREDADD;
+				CLAMP(pred[0], vmin[0]-(1<<PREDADD>>1), vmax[0]+(1<<PREDADD>>1));
+				CLAMP(pred[1], vmin[1]-(1<<PREDADD>>1), vmax[1]+(1<<PREDADD>>1));
+				CLAMP(pred[2], vmin[2]-(1<<PREDADD>>1), vmax[2]+(1<<PREDADD>>1));
+#endif
+				nbypass[0]=logtable[rows[0][1+(-1*NCH+0)*NROWS*NVAL]];//nW
+				nbypass[1]=logtable[rows[0][1+(-1*NCH+1)*NROWS*NVAL]];
+				nbypass[2]=logtable[rows[0][1+(-1*NCH+2)*NROWS*NVAL]];
+				
+				offset[0]=0;
+				pred[0]=(pred[0]+offset[0]+((1<<TOTALADD>>1)+2))>>TOTALADD;
+				CLAMP(pred[0], 0, 255);
+
+				cache|=*(uint32_t*)rdptr<<nbits;
+				inc=nbits>>3^3;
+				rdptr+=inc;
+				if(rdptr>=rdend)
+				{
+					fread(rdbuf+sizeof(uint32_t), 1, BUFSIZE, fsrc);
+					rdptr-=BUFSIZE;
+					cache|=*(uint32_t*)(rdptr-inc)<<nbits;
+				}
+				nbits|=24;
+				nzeros=(int)TZCNT32(cache);
+				sym[0]=nzeros<<nbypass[0];
+				if(nzeros>RLIMIT-1)
+					nzeros=RLIMIT-1, nbypass[0]=DEPTH, sym[0]=0;
+				cache>>=nzeros+1;
+				sym[0]|=(int)(cache&masks[nbypass[0]]);
+				cache>>=nbypass[0];
+				nbits-=nzeros+1+nbypass[0];
+				yuv[0]=(uint8_t)(signpack[sym[0]]+pred[0]);
+#ifdef ENABLE_GUIDE
+				if(yuv[0]!=g_image[3*(iw*ky+kx)+perms[rct.pidx*3+0]])
+				{
+					printf("Y %d  X %d  C0\n", ky, kx);
+					CRASH("guide");
+					return 1;
+				}
+#endif
+				
+				offset[1]=c0[1]*yuv[0];
+				if(c0[1]<1<<TOTALADD)offset[1]-=offset[1]>>6;
+				pred[1]=(pred[1]+offset[1]+((1<<TOTALADD>>1)+2))>>TOTALADD;
+				CLAMP(pred[1], 0, 255);
+
+				cache|=*(uint32_t*)rdptr<<nbits;
+				inc=nbits>>3^3;
+				rdptr+=inc;
+				if(rdptr>=rdend)
+				{
+					fread(rdbuf+sizeof(uint32_t), 1, BUFSIZE, fsrc);
+					rdptr-=BUFSIZE;
+					cache|=*(uint32_t*)(rdptr-inc)<<nbits;
+				}
+				nbits|=24;
+				nzeros=(int)TZCNT32(cache);
+				sym[1]=nzeros<<nbypass[1];
+				if(nzeros>RLIMIT-1)
+					nzeros=RLIMIT-1, nbypass[1]=DEPTH, sym[1]=0;
+				cache>>=nzeros+1;
+				sym[1]|=(int)(cache&masks[nbypass[1]]);
+				cache>>=nbypass[1];
+				nbits-=nzeros+1+nbypass[1];
+				yuv[1]=(uint8_t)(signpack[sym[1]]+pred[1]);
+#ifdef ENABLE_GUIDE
+				if(yuv[1]!=g_image[3*(iw*ky+kx)+perms[rct.pidx*3+1]])
+				{
+					printf("Y %d  X %d  C1\n", ky, kx);
+					CRASH("guide");
+					return 1;
+				}
+#endif
+				
+				offset[2]=c0[2]*yuv[0]+c1[2]*yuv[1];
+				if(c0[2]+c1[2]<1<<TOTALADD)offset[2]-=offset[2]>>6;
+				pred[2]=(pred[2]+offset[2]+((1<<TOTALADD>>1)+2))>>TOTALADD;
+				CLAMP(pred[2], 0, 255);
+
+				cache|=*(uint32_t*)rdptr<<nbits;
+				inc=nbits>>3^3;
+				rdptr+=inc;
+				if(rdptr>=rdend)
+				{
+					fread(rdbuf+sizeof(uint32_t), 1, BUFSIZE, fsrc);
+					rdptr-=BUFSIZE;
+					cache|=*(uint32_t*)(rdptr-inc)<<nbits;
+				}
+				nbits|=24;
+				nzeros=(int)TZCNT32(cache);
+				sym[2]=nzeros<<nbypass[2];
+				if(nzeros>RLIMIT-1)
+					nzeros=RLIMIT-1, nbypass[2]=DEPTH, sym[2]=0;
+				cache>>=nzeros+1;
+				sym[2]|=(int)(cache&masks[nbypass[2]]);
+				cache>>=nbypass[2];
+				nbits-=nzeros+1+nbypass[2];
+				yuv[2]=(uint8_t)(signpack[sym[2]]+pred[2]);
+#ifdef ENABLE_GUIDE
+				if(yuv[2]!=g_image[3*(iw*ky+kx)+perms[rct.pidx*3+2]])
+				{
+					printf("Y %d  X %d  C2\n", ky, kx);
+					CRASH("guide");
+					return 1;
+				}
+#endif
+				data=(uint32_t)yuv[2]<<vsh|(uint32_t)yuv[1]<<ush|(uint32_t)yuv[0]<<ysh;
+				*(uint32_t*)wtptr=data;
+				if(wtptr>=wtend)
+				{
+					fwrite(wtbuf+sizeof(uint32_t), 1, BUFSIZE, fdst);
+					wtptr-=BUFSIZE;
+					*(uint32_t*)wtptr=data;
+				}
+				wtptr+=3;
+				offset[0]=(offset[0]-7)>>PREDADD;
+				offset[1]=(offset[1]-7)>>PREDADD;
+				offset[2]=(offset[2]-7)>>PREDADD;
+				rows[0][0+(+0*NCH+0)*NROWS*NVAL]=(yuv[0]<<RCTBITS)-offset[0];
+				rows[0][0+(+0*NCH+1)*NROWS*NVAL]=(yuv[1]<<RCTBITS)-offset[1];
+				rows[0][0+(+0*NCH+2)*NROWS*NVAL]=(yuv[2]<<RCTBITS)-offset[2];
+				//			8	12	8
+				//	20	[17]	?
+				rows[0][1+(+0*NCH+0)*NROWS*NVAL]=(
+					+20*rows[0][1+(-1*NCH+0)*NROWS*NVAL]//nW
+					+17*sym[0]
+					+ 8*rows[1][1+(+1*NCH+0)*NROWS*NVAL]//nNE
+					+12*rows[1][1+(+2*NCH+0)*NROWS*NVAL]//nNEE
+					+ 8*rows[1][1+(+3*NCH+0)*NROWS*NVAL]//nNEEE
+				+9)>>6;
+				rows[0][1+(+0*NCH+1)*NROWS*NVAL]=(
+					+20*rows[0][1+(-1*NCH+1)*NROWS*NVAL]//nW
+					+17*sym[1]
+					+ 8*rows[1][1+(+1*NCH+1)*NROWS*NVAL]//nNE
+					+12*rows[1][1+(+2*NCH+1)*NROWS*NVAL]//nNEE
+					+ 8*rows[1][1+(+3*NCH+1)*NROWS*NVAL]//nNEEE
+				+9)>>6;
+				rows[0][1+(+0*NCH+2)*NROWS*NVAL]=(
+					+20*rows[0][1+(-1*NCH+2)*NROWS*NVAL]//nW
+					+17*sym[2]
+					+ 8*rows[1][1+(+1*NCH+2)*NROWS*NVAL]//nNE
+					+12*rows[1][1+(+2*NCH+2)*NROWS*NVAL]//nNEE
+					+ 8*rows[1][1+(+3*NCH+2)*NROWS*NVAL]//nNEEE
+				+9)>>6;
+				rows[0]+=NCH*NROWS*NVAL;
+				rows[1]+=NCH*NROWS*NVAL;
+				rows[2]+=NCH*NROWS*NVAL;
+				rows[3]+=NCH*NROWS*NVAL;
+			}
+		}
+#endif
+		//reference
+#if 0
+		int pred=0;
 		for(int kx=0;kx<iw;++kx)
 		{
 			int offset=0;
 			if(fwd)
 			{
-				uint64_t data=*(uint64_t*)rdptr;
+				uint32_t data=*(uint32_t*)rdptr;
 				if(rdptr>=rdend)
 				{
-					fread(rdbuf+sizeof(uint64_t), 1, BUFSIZE, fsrc);
+					fread(rdbuf+sizeof(uint32_t), 1, BUFSIZE, fsrc);
 					rdptr-=BUFSIZE;
-					data|=*(uint64_t*)rdptr;
+					data|=*(uint32_t*)rdptr;
 				}
 				rdptr+=3;
-				yuv[0]=data>>ysh&255;
-				yuv[1]=data>>ush&255;
-				yuv[2]=data>>vsh&255;
+				yuv[0]=(uint8_t)(data>>ysh);
+				yuv[1]=(uint8_t)(data>>ush);
+				yuv[2]=(uint8_t)(data>>vsh);
 			}
 			for(int kc=0;kc<3;++kc)
 			{
@@ -788,47 +1197,44 @@ int c54_codec(int argc, char **argv)
 					if(vmax<NEEE)vmax=NEEE;
 					vmin<<=PREDADD;
 					vmax<<=PREDADD;
-					CLAMP2(pred, vmin-(1<<PREDADD>>1), vmax+(1<<PREDADD>>1));
+					CLAMP(pred, vmin-(1<<PREDADD>>1), vmax+(1<<PREDADD>>1));
 				}
 				pred=(pred+offset+((1<<TOTALADD>>1)+2))>>TOTALADD;
-				CLAMP2(pred, 0, 255);
+				CLAMP(pred, 0, 255);
 				offset=(offset-7)>>PREDADD;
-				//if(ky==0&&kx==1&&kc==0)//
-				//	printf("");
 				if(fwd)
 				{
 					sym=(int8_t)(yuv[kc]-pred);
 					code=enctable[nbypass<<DEPTH|(sym+128)];
 					sym=(signpack+128)[sym];
 					//sym=sym<<1^sym>>31;
-					cache|=(uint64_t)code>>8<<nbits;
+					cache|=code>>8<<nbits;
 					nbits+=(uint8_t)code;
-					*(uint64_t*)wtptr=cache;
+					*(uint32_t*)wtptr=cache;
 					inc=nbits>>3;
 					wtptr+=inc;
 					if(wtptr>=wtend)
 					{
-						fwrite(wtbuf+sizeof(uint64_t), 1, BUFSIZE, fdst);
+						fwrite(wtbuf+sizeof(uint32_t), 1, BUFSIZE, fdst);
 						wtptr-=BUFSIZE;
-						*(uint64_t*)(wtptr-inc)=cache;
+						*(uint32_t*)(wtptr-inc)=cache;
 					}
-					cache>>=nbits&56;
+					cache>>=nbits&24;
 					nbits&=7;
 				}
 				else
 				{
-					static const uint8_t masks[]={0, 1, 3, 7, 15, 31, 63, 127, 255};
-					cache|=*(uint64_t*)rdptr<<nbits;
-					inc=nbits>>3^7;
+					cache|=*(uint32_t*)rdptr<<nbits;
+					inc=nbits>>3^3;
 					rdptr+=inc;
 					if(rdptr>=rdend)
 					{
-						fread(rdbuf+sizeof(uint64_t), 1, BUFSIZE, fsrc);
+						fread(rdbuf+sizeof(uint32_t), 1, BUFSIZE, fsrc);
 						rdptr-=BUFSIZE;
-						cache|=*(uint64_t*)(rdptr-inc)<<nbits;
+						cache|=*(uint32_t*)(rdptr-inc)<<nbits;
 					}
-					nbits|=56;
-					nzeros=(int)TZCNT64(cache);
+					nbits|=24;
+					nzeros=(int)TZCNT32(cache);
 					sym=nzeros<<nbypass;
 					if(nzeros>RLIMIT-1)
 						nzeros=RLIMIT-1, nbypass=DEPTH, sym=0;
@@ -859,32 +1265,33 @@ int c54_codec(int argc, char **argv)
 			}
 			if(!fwd)
 			{
-				uint64_t data=(uint64_t)yuv[2]<<vsh|(uint64_t)yuv[1]<<ush|(uint64_t)yuv[0]<<ysh;
-				*(uint64_t*)wtptr=data;
+				uint32_t data=(uint32_t)yuv[2]<<vsh|(uint32_t)yuv[1]<<ush|(uint32_t)yuv[0]<<ysh;
+				*(uint32_t*)wtptr=data;
 				if(wtptr>=wtend)
 				{
-					fwrite(wtbuf+sizeof(uint64_t), 1, BUFSIZE, fdst);
+					fwrite(wtbuf+sizeof(uint32_t), 1, BUFSIZE, fdst);
 					wtptr-=BUFSIZE;
-					*(uint64_t*)wtptr=data;
+					*(uint32_t*)wtptr=data;
 				}
 				wtptr+=3;
 			}
 		}
+#endif
 	}
 	if(fwd)
 	{
-		*(uint64_t*)wtptr=cache;
+		*(uint32_t*)wtptr=cache;
 		if(wtptr>=wtend)
 		{
-			fwrite(wtbuf+sizeof(uint64_t), 1, BUFSIZE, fdst);
+			fwrite(wtbuf+sizeof(uint32_t), 1, BUFSIZE, fdst);
 			wtptr-=BUFSIZE;
-			*(uint64_t*)wtptr=cache;
+			*(uint32_t*)wtptr=cache;
 		}
 		++wtptr;
 	}
 
-	if(wtptr>wtbuf+sizeof(uint64_t))
-		fwrite(wtbuf+sizeof(uint64_t), 1, wtptr-(wtbuf+sizeof(uint64_t)), fdst);
+	if(wtptr>wtbuf+sizeof(uint32_t))
+		fwrite(wtbuf+sizeof(uint32_t), 1, wtptr-(wtbuf+sizeof(uint32_t)), fdst);
 	free(pixels);
 	fclose(fsrc);
 	fclose(fdst);
