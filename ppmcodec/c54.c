@@ -606,6 +606,7 @@ int c54_codec(int argc, char **argv)
 					NNN	=rows[3][0+0*NCH*NROWS*NVAL],
 					NN	=rows[2][0+0*NCH*NROWS*NVAL],
 					NNE	=rows[2][0+1*NCH*NROWS*NVAL],
+					NWW	=rows[1][0-2*NCH*NROWS*NVAL],
 					NW	=rows[1][0-1*NCH*NROWS*NVAL],
 					N	=rows[1][0+0*NCH*NROWS*NVAL],
 					NE	=rows[1][0+1*NCH*NROWS*NVAL],
@@ -669,10 +670,11 @@ int c54_codec(int argc, char **argv)
 				(void)nW;
 #endif
 				nbypass=logtable[nW];
-				//			-2
-				//		-4	10	2
-				//	-2	12	[?]
-				int p1=12*W+10*N-4*NW+2*NE-2*NN-2*WW;
+				//					1/8
+				//					-2
+				//				-5	10	2	1/8
+				//	-2/8	1	-3	13	[?]
+				int p1=13*W+10*N-5*NW+2*NE-2*NN-3*WW+WWW+((-2*WWWW+NNN+NEE)>>3);
 				{
 					int vmin, vmax;
 					vmax=N, vmin=W;
