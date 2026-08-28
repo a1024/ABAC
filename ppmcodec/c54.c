@@ -374,7 +374,7 @@ static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 #endif
 
 
-static uint16_t logtable[1<<DEPTH];
+static uint8_t logtable[1<<DEPTH];
 static uint32_t enctable[DEPTH<<DEPTH];
 int c54_codec(int argc, char **argv)
 {
@@ -384,6 +384,8 @@ int c54_codec(int argc, char **argv)
 		NCH=3,
 		NROWS=4,
 		NVAL=3,
+
+		TOTALADD=4+RCTBITS,
 	};
 	const uint16_t tag='5'|'4'<<8;
 
@@ -404,7 +406,7 @@ int c54_codec(int argc, char **argv)
 #ifdef LOUD
 	double t=0;
 #endif
-
+	
 	if(argc!=3)
 	{
 		printf(
@@ -542,8 +544,8 @@ int c54_codec(int argc, char **argv)
 	}
 	if(fwd)
 	{
-		for(int ks=0;ks<1<<DEPTH;++ks)
-			logtable[ks]<<=8;
+		//for(int ks=0;ks<1<<DEPTH;++ks)
+		//	logtable[ks]<<=8;
 		for(int ks=0;ks<1<<DEPTH;++ks)
 		{
 			for(int kb=0;kb<DEPTH;++kb)
@@ -667,10 +669,6 @@ int c54_codec(int argc, char **argv)
 				(void)nW;
 #endif
 				nbypass=logtable[nW];
-				enum
-				{
-					TOTALADD=4+RCTBITS,
-				};
 				//			-2
 				//		-4	10	2
 				//	-2	12	[?]
@@ -687,12 +685,12 @@ int c54_codec(int argc, char **argv)
 					vmax<<=4;
 					CLAMP2(p1, vmin, vmax);
 				}
-				p1+=offset;
-				p1+=1<<TOTALADD>>1;
-				CLAMP2(p1, 0, 255<<TOTALADD);
-				pred=p1>>TOTALADD;
+				pred=(p1+offset+(1<<TOTALADD>>1))>>TOTALADD;
+				CLAMP2(pred, 0, 255);
+				offset=(offset-7)>>4;
 				if(fwd)
 				{
+					nbypass<<=8;
 					sym=(int8_t)(yuv[kc]-pred);
 					sym=sym<<1^sym>>31;
 					code=enctable[nbypass|sym];
@@ -740,7 +738,7 @@ int c54_codec(int argc, char **argv)
 					}
 #endif
 				}
-				rows[0][0]=(yuv[kc]<<RCTBITS)-(offset>>4);
+				rows[0][0]=(yuv[kc]<<RCTBITS)-offset;
 				//			8	12	8
 				//	20	[17]	?
 				rows[0][1]=(20*nW+17*sym+8*nNE+12*nNEE+8*nNEEE+9)>>6;
