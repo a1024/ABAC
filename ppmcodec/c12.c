@@ -29,6 +29,7 @@
 #if defined _MSC_VER && !defined RELEASE
 	#define LOUD
 //	#define PRINT_RCT
+	#define JOINT_EXP
 
 	#define ENABLE_GUIDE
 //	#define FIFOVAL
@@ -447,6 +448,13 @@ typedef int32_t Cell_t;
 ALIGN(64) static Cell_t stats1[3][NCTX][256<<ADDBITS][GRLIMIT];//unary
 ALIGN(64) static Cell_t stats2[3][256<<ADDBITS][256];//remainder
 ALIGN(64) static Cell_t stats3[3][8][256];//bypass on GRLIMIT
+#ifdef JOINT_EXP
+enum
+{
+	NJOINT=64,
+};
+static int joint_hist[3][256*NJOINT]={0};
+#endif
 static const size_t memusage=sizeof(stats1)+sizeof(stats2)+sizeof(stats3);
 typedef struct _ACState
 {
@@ -592,6 +600,9 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, uint8_t *image, uint8_t *stre
 	};
 	int64_t res=0;
 	int sh=0;
+#ifdef JOINT_EXP
+	int syms[3]={0};
+#endif
 
 	(void)memusage;
 	psize=(iw+2*XPAD)*(int)sizeof(int16_t[NCH*NROWS*NVAL]);
@@ -620,7 +631,6 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, uint8_t *image, uint8_t *stre
 	bias[2]=1<<sh>>1;
 	for(ky=0;ky<ih;++ky)
 	{
-		int yuv[3]={0};
 		int16_t *rows[]=
 		{
 			pixels+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,
@@ -632,6 +642,8 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, uint8_t *image, uint8_t *stre
 			pixels+(XPAD*NCH*NROWS+(ky-6LL+NROWS)%NROWS)*NVAL,
 			pixels+(XPAD*NCH*NROWS+(ky-7LL+NROWS)%NROWS)*NVAL,
 		};
+		int yuv[3]={0};
+
 		for(kx=0;kx<iw;++kx, imptr+=3)
 		{
 			int kc;
@@ -893,6 +905,17 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, uint8_t *image, uint8_t *stre
 					if(error==256)
 						error=e2;
 					nzeros=error>>nbypass;
+#ifdef JOINT_EXP
+					{
+						int idx=(imptr-image)/3&(NJOINT-1LL);
+						syms[kc]+=error;
+						if(idx==NJOINT-1)
+						{
+							++joint_hist[kc][syms[kc]];
+							syms[kc]=0;
+						}
+					}
+#endif
 				}
 				statsptr=stats1[kc][ctx][hpredf];
 				tidx=0;
@@ -1012,6 +1035,35 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, uint8_t *image, uint8_t *stre
 		}
 	}
 	free(pixels);
+#ifdef JOINT_EXP
+	if(fwd)
+	{
+		for(int kc=0;kc<3;++kc)
+		{
+			int vmax=0, smax=0, sigsym=0;
+			for(int ks=0;ks<256*NJOINT;++ks)
+			{
+				int freq=joint_hist[kc][ks];
+				if(vmax<freq)vmax=freq;
+				if(freq)
+					smax=ks;
+				if(freq>1000)
+					sigsym=ks;
+			}
+			printf("%d levels  %8.4lf%%\n", 256*NJOINT, sigsym*(100./(256*NJOINT)));
+			for(int ks=0;ks<=smax;++ks)
+			{
+				int freq=joint_hist[kc][ks], nstars=freq*64/vmax;
+
+				printf("%4d  %7d  ", ks, freq);
+				for(int k2=0;k2<nstars;++k2)
+					printf("-");
+				printf("\n");
+			}
+			printf("\n");
+		}
+	}
+#endif
 }
 int c12_codec(int argc, char **argv)
 {

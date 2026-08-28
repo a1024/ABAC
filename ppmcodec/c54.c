@@ -14,102 +14,62 @@
 #include<math.h>
 #include<sys/stat.h>
 #if defined _MSC_VER || defined _WIN32
-#define WIN32_LEAN_AND_MEAN
-#include<Windows.h>
+#	define WIN32_LEAN_AND_MEAN
+#	include<Windows.h>
 #else
-#include<time.h>
+#	include<time.h>
 #endif
-#include<immintrin.h>
-#ifdef PROFILER
-void* prof_start();
-void prof_end(void *prof_ctx);
+#ifdef _MSC_VER
+#	include<intrin.h>
+#elif defined __GNUC__
+#	include<x86intrin.h>
 #endif
 
 
 #ifdef _MSC_VER
 	#define LOUD
-//	#define ENABLE_GUIDE
+//	#define PRINT_RCT
+	#define ENABLE_GUIDE
 //	#define FIFOVAL
 #endif
 
 
-	#define USE_LUT
-	#define USE_L1
-	#define ENABLE_CRCT
-
-
-#ifdef USE_L1
-#define PREDLIST\
-	PRED(W)\
-	PRED(N+W-NW)\
-	PRED(2*N-NN)\
-	PRED(NE)\
-
-#endif
 enum
 {
-#ifdef USE_L1
-	SHIFT=19,
-#define PRED(...) +1
-	NPREDS=PREDLIST,
-#undef  PRED
-#endif
-	GRBITS=5,
-
-	XPAD=8,
-	NCH=3,
-	NROWS=4,
-	NVAL=2,
-
 	BUFSIZE=512*1024,
+
+	NCTX=6,
+	DEPTH=8,
+	RLIMIT=11,
 };
 
-//runtime
 #if 1
-#define CLAMP2(X, LO, HI)\
-	do\
-	{\
-		if((X)<(LO))X=LO;\
-		if((X)>(HI))X=HI;\
-	}while(0)
 #ifdef _MSC_VER
-#	define	ALIGN(N) __declspec(align(N))
+#	define ALIGN(N) __declspec(align(N))
 #	define INLINE __forceinline static
 #else
-#	define	ALIGN(N) __attribute__((aligned(N)))
+#	define ALIGN(N) __attribute__((aligned(N)))
 #	define INLINE __attribute__((always_inline)) inline static
 #	ifndef _countof
 #		define _countof(A) (sizeof(A)/sizeof(*(A)))
 #	endif
 #endif
-#if defined _M_X64 || defined __x86_64__
-#define FLOOR_LOG2(X)\
-	(sizeof(X)==8?63-(int32_t)_lzcnt_u64(X):31-_lzcnt_u32((uint32_t)(X)))
+#define CLAMP2(X, L, H) X=X<(L)?L:X, X=X>(H)?H:X
+#if _MSC_VER
+#define LZCNT32 _lzcnt_u32
+#define LZCNT64 _lzcnt_u64
+#define TZCNT32 _tzcnt_u32
+#define TZCNT64 _tzcnt_u64
 #else
-INLINE int floor_log2_64(uint64_t n)
-{
-	int	logn=-!n;
-	int	sh=(n>=1ULL<<32)<<5;	logn+=sh, n>>=sh;
-		sh=(n>=1<<16)<<4;	logn+=sh, n>>=sh;
-		sh=(n>=1<< 8)<<3;	logn+=sh, n>>=sh;
-		sh=(n>=1<< 4)<<2;	logn+=sh, n>>=sh;
-		sh=(n>=1<< 2)<<1;	logn+=sh, n>>=sh;
-		sh= n>=1<< 1;		logn+=sh;
-	return logn;
-}
-INLINE int floor_log2_32(uint32_t n)
-{
-	int	logn=-!n;
-	int	sh=(n>=1<<16)<<4;	logn+=sh, n>>=sh;
-		sh=(n>=1<< 8)<<3;	logn+=sh, n>>=sh;
-		sh=(n>=1<< 4)<<2;	logn+=sh, n>>=sh;
-		sh=(n>=1<< 2)<<1;	logn+=sh, n>>=sh;
-		sh= n>=1<< 1;		logn+=sh;
-	return logn;
-}
-#define FLOOR_LOG2(X)\
-	(sizeof(X)==8?floor_log2_64(X):floor_log2_32((uint32_t)(X)))
+#define LZCNT32(X) (X?__builtin_clz(X):32)
+#define LZCNT64(X) (X?__builtin_clzll(X):64)
+#define TZCNT32(X) (X?__builtin_ctz(X):32)
+#define TZCNT64(X) (X?__builtin_ctzll(X):64)
 #endif
+#define ROUND32(X) _mm_cvt_ss2si(_mm_set_ss(X))
+#define ROUND64(X) _mm_cvtsd_si64(_mm_set_sd(X))
+#define TRUNC32(X) _mm_cvtt_ss2si(_mm_set_ss(X))
+#define TRUNC64(X) _mm_cvttsd_si64(_mm_set_sd(X))
 static void crash(const char *file, int line, const char *format, ...)
 {
 	printf("%s(%d):\n", file, line);
@@ -185,8 +145,6 @@ static void guide_check(uint8_t *image, int kx, int ky)
 #define guide_check(...)
 #define guide_update(...)
 #endif//ENABLE_GUIDE
-#endif
-
 #ifdef FIFOVAL
 static ptrdiff_t fifoidx=0, fifocap=0, fifoidx2=0;
 static uint32_t *fifoval=0;
@@ -245,362 +203,188 @@ static void valfifo_check(uint32_t val)
 	}
 }
 #endif
+#endif
 
 
-static uint8_t rdbuf[BUFSIZE+sizeof(uint64_t)], wtbuf[BUFSIZE+sizeof(uint64_t)];
-INLINE uint64_t acme_read(uint8_t **pptr, ptrdiff_t size, FILE *f)
-{
-	uint8_t *ptr=*pptr;
-	uint64_t data=*(uint64_t*)ptr;
-	ptrdiff_t left;
-
-	/*
-	overflow:
-	|                    ______left______   ______right_____
-	|                   /                \ /                \
-	|buf1start ... ... [datastart  buf1end|buf2start  dataend] ...
-	|                   \________________    _______________/
-	|                                    size
-	*/
-	
-	left=rdbuf+BUFSIZE-ptr;
-	ptr+=size;
-	if(left<size)
-	{
-		fread(rdbuf, 1, BUFSIZE, f);
-		ptr=(rdbuf+size)-left;
-		left<<=3;
-		data&=0xFFFFFFFFFFFFFFFF>>(64-left);
-		data|=*(uint64_t*)rdbuf<<left;
-	}
-	*pptr=ptr;
-	return data;
-}
-INLINE void acme_write(uint8_t **pptr, ptrdiff_t size, FILE *f, uint64_t data)
-{
-	uint8_t *ptr=*pptr;
-	ptrdiff_t left;
-	
-	/*
-	overflow:
-	|                    ______left______   ______right_____
-	|                   /                \ /                \
-	|buf1start ... ... [datastart  buf1end|buf2start  dataend] ...
-	|                   \________________    _______________/
-	|                                    size
-	*/
-	
-	*(uint64_t*)ptr=data;
-	left=wtbuf+BUFSIZE-ptr;
-	ptr+=size;
-	if(left<size)
-	{
-		fwrite(wtbuf, 1, BUFSIZE, f);
-		ptr=(wtbuf+size)-left;
-		left<<=3;
-		data>>=left;
-		*(uint64_t*)wtbuf=data;
-	}
-	*pptr=ptr;
-}
+static uint8_t rdbuf[BUFSIZE+sizeof(uint64_t[2])], wtbuf[BUFSIZE+sizeof(uint64_t[2])];
 
 
 //cRCT
-#ifdef ENABLE_CRCT
-	#define ENABLE_EXTENDED_RCT
-#ifndef ENABLE_EXTENDED_RCT
-#define OCHLIST\
-	OCH(YX00) OCH(Y0X0) OCH(Y00X)\
-	OCH(CX40) OCH(C0X4) OCH(C40X)
-#endif
-#ifdef ENABLE_EXTENDED_RCT
-#define OCHLIST\
-	OCH(YX00) OCH(Y0X0) OCH(Y00X)\
-	OCH(CX40) OCH(C0X4) OCH(C40X)\
-	OCH(CX31) OCH(C3X1) OCH(C31X)\
-	OCH(CX13) OCH(C1X3) OCH(C13X)\
-	OCH(CX22) OCH(C2X2) OCH(C22X)
-#if 0
-#define OCHLIST\
-	OCH(Y400) OCH(Y040) OCH(Y004)\
-	OCH(Y310) OCH(Y031) OCH(Y103)\
-	OCH(Y301) OCH(Y130) OCH(Y013)\
-	OCH(Y211) OCH(Y121) OCH(Y112)\
-	OCH(CX40) OCH(C0X4) OCH(C40X)\
-	OCH(CX31) OCH(C3X1) OCH(C31X)\
-	OCH(CX13) OCH(C1X3) OCH(C13X)\
-	OCH(CX22) OCH(C2X2) OCH(C22X)
-#endif
-#endif
-typedef enum _OCHIndex
+#if 1
+static const int perms[]=
 {
-#define OCH(X) OCH_##X,
-	OCHLIST
-#undef  OCH
-	OCH_COUNT,
+	1, 0, 2,
+	1, 2, 0,
 
-	OCH_R=OCH_YX00,
-	OCH_G=OCH_Y0X0,
-	OCH_B=OCH_Y00X,
-	OCH_C4X0=OCH_CX40,
-	OCH_C04X=OCH_C0X4,
-	OCH_CX04=OCH_C40X,
-	OCH_BG=OCH_C04X,
-	OCH_BR=OCH_C40X,
-	OCH_RG=OCH_CX40,
-	OCH_RB=OCH_CX04,
-	OCH_GB=OCH_C0X4,
-	OCH_GR=OCH_C4X0,
-#ifdef ENABLE_EXTENDED_RCT
-	OCH_R1=OCH_CX13,
-	OCH_G1=OCH_C3X1,
-	OCH_B1=OCH_C13X,
-	OCH_R2=OCH_CX22,
-	OCH_G2=OCH_C2X2,
-	OCH_B2=OCH_C22X,
-	OCH_R3=OCH_CX31,
-	OCH_G3=OCH_C1X3,
-	OCH_B3=OCH_C31X,
-#endif
-} OCHIndex;
-static const char *och_names[]=
-{
-#define OCH(X) #X,
-	OCHLIST
-#undef  OCH
+	//0, 1, 2,	2, 1, 0,
+	//2, 0, 1,	1, 0, 2,
+	//1, 2, 0,	0, 2, 1,
 };
-typedef enum _RCTInfoIdx
+enum
 {
-	II_OCH_Y,
-	II_OCH_U,
-	II_OCH_V,
-
-	II_PERM_Y,
-	II_PERM_U,
-	II_PERM_V,
-
-	II_COEFF_U_SUB_Y,
-	II_COEFF_V_SUB_Y,
-	II_COEFF_V_SUB_U,
-
-//	II_COEFF_Y_SUB_U,
-//	II_COEFF_Y_SUB_V,
-//	II_COEFF_U_SUB_V2,
-//	II_COEFF_V_SUB_U2,
-
-	II_COUNT,
-} RCTInfoIdx;
-//YUV = RCT * RGB	watch out for permutation in last row
-//luma: averaging	chroma: subtraction
-//example: _X00_40X_3X1 == [1 0 0; -1 0 1; -3/4 1 -1/4]
-#ifndef ENABLE_EXTENDED_RCT
-#define RCTLIST\
-	RCT(_X00_0X0_00X,	OCH_R,		OCH_G,		OCH_B,		0, 1, 2,	0,  0, 0)\
-	RCT(_X00_0X0_04X,	OCH_R,		OCH_G,		OCH_BG,		0, 1, 2,	0,  0, 4)\
-	RCT(_X00_0X0_40X,	OCH_R,		OCH_G,		OCH_BR,		0, 1, 2,	0,  4, 0)\
-	RCT(_0X0_00X_X40,	OCH_G,		OCH_B,		OCH_RG,		1, 2, 0,	0,  4, 0)\
-	RCT(_0X0_00X_X04,	OCH_G,		OCH_B,		OCH_RB,		1, 2, 0,	0,  0, 4)\
-	RCT(_00X_X00_4X0,	OCH_B,		OCH_R,		OCH_GR,		2, 0, 1,	0,  0, 4)\
-	RCT(_00X_X00_0X4,	OCH_B,		OCH_R,		OCH_GB,		2, 0, 1,	0,  4, 0)\
-	RCT(_0X0_04X_X40,	OCH_G,		OCH_BG,		OCH_RG,		1, 2, 0,	4,  4, 0)\
-	RCT(_0X0_04X_X04,	OCH_G,		OCH_BG,		OCH_RB,		1, 2, 0,	4,  0, 4)\
-	RCT(_0X0_X40_40X,	OCH_G,		OCH_RG,		OCH_BR,		1, 0, 2,	4,  0, 4)\
-	RCT(_00X_X04_0X4,	OCH_B,		OCH_RB,		OCH_GB,		2, 0, 1,	4,  4, 0)\
-	RCT(_00X_X04_4X0,	OCH_B,		OCH_RB,		OCH_GR,		2, 0, 1,	4,  0, 4)\
-	RCT(_00X_0X4_X40,	OCH_B,		OCH_GB,		OCH_RG,		2, 1, 0,	4,  0, 4)\
-	RCT(_X00_4X0_40X,	OCH_R,		OCH_GR,		OCH_BR,		0, 1, 2,	4,  4, 0)\
-	RCT(_X00_4X0_04X,	OCH_R,		OCH_GR,		OCH_BG,		0, 1, 2,	4,  0, 4)\
-	RCT(_X00_40X_0X4,	OCH_R,		OCH_BR,		OCH_GB,		0, 2, 1,	4,  0, 4)
-#endif
-#ifdef ENABLE_EXTENDED_RCT
-#define RCTLIST\
-	RCT(_X00_0X0_00X,	OCH_R,		OCH_G,		OCH_B,		0, 1, 2,	0,  0, 0)\
-	RCT(_X00_0X0_04X,	OCH_R,		OCH_G,		OCH_BG,		0, 1, 2,	0,  0, 4)\
-	RCT(_X00_0X0_40X,	OCH_R,		OCH_G,		OCH_BR,		0, 1, 2,	0,  4, 0)\
-	RCT(_0X0_00X_X40,	OCH_G,		OCH_B,		OCH_RG,		1, 2, 0,	0,  4, 0)\
-	RCT(_0X0_00X_X04,	OCH_G,		OCH_B,		OCH_RB,		1, 2, 0,	0,  0, 4)\
-	RCT(_00X_X00_4X0,	OCH_B,		OCH_R,		OCH_GR,		2, 0, 1,	0,  0, 4)\
-	RCT(_00X_X00_0X4,	OCH_B,		OCH_R,		OCH_GB,		2, 0, 1,	0,  4, 0)\
-	RCT(_0X0_04X_X40,	OCH_G,		OCH_BG,		OCH_RG,		1, 2, 0,	4,  4, 0)\
-	RCT(_0X0_04X_X04,	OCH_G,		OCH_BG,		OCH_RB,		1, 2, 0,	4,  0, 4)\
-	RCT(_0X0_X40_40X,	OCH_G,		OCH_RG,		OCH_BR,		1, 0, 2,	4,  0, 4)\
-	RCT(_00X_X04_0X4,	OCH_B,		OCH_RB,		OCH_GB,		2, 0, 1,	4,  4, 0)\
-	RCT(_00X_X04_4X0,	OCH_B,		OCH_RB,		OCH_GR,		2, 0, 1,	4,  0, 4)\
-	RCT(_00X_0X4_X40,	OCH_B,		OCH_GB,		OCH_RG,		2, 1, 0,	4,  0, 4)\
-	RCT(_X00_4X0_40X,	OCH_R,		OCH_GR,		OCH_BR,		0, 1, 2,	4,  4, 0)\
-	RCT(_X00_4X0_04X,	OCH_R,		OCH_GR,		OCH_BG,		0, 1, 2,	4,  0, 4)\
-	RCT(_X00_40X_0X4,	OCH_R,		OCH_BR,		OCH_GB,		0, 2, 1,	4,  0, 4)\
-	RCT(_X00_0X0_13X,	OCH_R,		OCH_G,		OCH_B1,		0, 1, 2,	0,  1, 3)\
-	RCT(_X00_4X0_13X,	OCH_R,		OCH_GR,		OCH_B1,		0, 1, 2,	4,  1, 3)\
-	RCT(_X00_00X_3X1,	OCH_R,		OCH_B,		OCH_G1,		0, 2, 1,	0,  3, 1)\
-	RCT(_X00_40X_3X1,	OCH_R,		OCH_BR,		OCH_G1,		0, 2, 1,	4,  3, 1)\
-	RCT(_0X0_00X_X13,	OCH_G,		OCH_B,		OCH_R1,		1, 2, 0,	0,  1, 3)\
-	RCT(_0X0_04X_X13,	OCH_G,		OCH_BG,		OCH_R1,		1, 2, 0,	4,  1, 3)\
-	RCT(_0X0_X40_13X,	OCH_G,		OCH_RG,		OCH_B1,		1, 0, 2,	4,  3, 1)\
-	RCT(_00X_X04_3X1,	OCH_B,		OCH_RB,		OCH_G1,		2, 0, 1,	4,  1, 3)\
-	RCT(_00X_04X_X13,	OCH_B,		OCH_GB,		OCH_R1,		2, 1, 0,	4,  3, 1)\
-	RCT(_X00_0X0_22X,	OCH_R,		OCH_G,		OCH_B2,		0, 1, 2,	0,  2, 2)\
-	RCT(_X00_4X0_22X,	OCH_R,		OCH_GR,		OCH_B2,		0, 1, 2,	4,  2, 2)\
-	RCT(_X00_00X_2X2,	OCH_R,		OCH_B,		OCH_G2,		0, 2, 1,	0,  2, 2)\
-	RCT(_X00_40X_2X2,	OCH_R,		OCH_BR,		OCH_G2,		0, 2, 1,	4,  2, 2)\
-	RCT(_0X0_00X_X22,	OCH_G,		OCH_B,		OCH_R2,		1, 2, 0,	0,  2, 2)\
-	RCT(_0X0_04X_X22,	OCH_G,		OCH_BG,		OCH_R2,		1, 2, 0,	4,  2, 2)\
-	RCT(_0X0_X40_22X,	OCH_G,		OCH_RG,		OCH_B2,		1, 0, 2,	4,  2, 2)\
-	RCT(_00X_X04_2X2,	OCH_B,		OCH_RB,		OCH_G2,		2, 0, 1,	4,  2, 2)\
-	RCT(_00X_0X4_X22,	OCH_B,		OCH_GB,		OCH_R2,		2, 1, 0,	4,  2, 2)\
-	RCT(_X00_0X0_31X,	OCH_R,		OCH_G,		OCH_B3,		0, 1, 2,	0,  3, 1)\
-	RCT(_X00_4X0_31X,	OCH_R,		OCH_GR,		OCH_B3,		0, 1, 2,	4,  3, 1)\
-	RCT(_X00_00X_1X3,	OCH_R,		OCH_B,		OCH_G3,		0, 2, 1,	0,  1, 3)\
-	RCT(_X00_40X_1X3,	OCH_R,		OCH_BR,		OCH_G3,		0, 2, 1,	4,  1, 3)\
-	RCT(_0X0_00X_X31,	OCH_G,		OCH_B,		OCH_R3,		1, 2, 0,	0,  3, 1)\
-	RCT(_0X0_04X_X31,	OCH_G,		OCH_BG,		OCH_R3,		1, 2, 0,	4,  3, 1)\
-	RCT(_0X0_X40_31X,	OCH_G,		OCH_RG,		OCH_B3,		1, 0, 2,	4,  1, 3)\
-	RCT(_00X_X04_1X3,	OCH_B,		OCH_RB,		OCH_G3,		2, 0, 1,	4,  3, 1)\
-	RCT(_00X_0X4_X31,	OCH_B,		OCH_GB,		OCH_R3,		2, 1, 0,	4,  1, 3)
-#if 0
-	RCT(_211_4X0_40X,	OCH_Y211,	OCH_C4X0,	OCH_C40X,	0, 1, 2,	4,  4, 0,	1, 1, 0, 0)\
-	RCT(_211_4X0_31X,	OCH_Y211,	OCH_C4X0,	OCH_C31X,	0, 1, 2,	4,  4, 0,	1, 1, 0, 1)\
-	RCT(_211_3X1_40X,	OCH_Y211,	OCH_C3X1,	OCH_C40X,	0, 1, 2,	4,  4, 0,	1, 1, 1, 0)\
-	RCT(_310_4X0_40X,	OCH_Y310,	OCH_C4X0,	OCH_C40X,	0, 1, 2,	4,  4, 0,	1, 0, 0, 0)\
-	RCT(_310_4X0_31X,	OCH_Y310,	OCH_C4X0,	OCH_C31X,	0, 1, 2,	4,  4, 0,	1, 0, 0, 1)\
-	RCT(_310_3X1_40X,	OCH_Y310,	OCH_C3X1,	OCH_C40X,	0, 1, 2,	4,  4, 0,	1, 0, 1, 0)\
-	RCT(_301_4X0_40X,	OCH_Y301,	OCH_C4X0,	OCH_C40X,	0, 1, 2,	4,  4, 0,	0, 1, 0, 0)\
-	RCT(_301_4X0_31X,	OCH_Y301,	OCH_C4X0,	OCH_C31X,	0, 1, 2,	4,  4, 0,	0, 1, 0, 1)\
-	RCT(_301_3X1_40X,	OCH_Y301,	OCH_C3X1,	OCH_C40X,	0, 1, 2,	4,  4, 0,	0, 1, 1, 0)\
-	RCT(_121_04X_X40,	OCH_Y121,	OCH_C04X,	OCH_CX40,	1, 2, 0,	4,  4, 0,	1, 1, 0, 0)\
-	RCT(_121_04X_X31,	OCH_Y121,	OCH_C04X,	OCH_CX31,	1, 2, 0,	4,  4, 0,	1, 1, 0, 1)\
-	RCT(_121_13X_X40,	OCH_Y121,	OCH_C13X,	OCH_CX40,	1, 2, 0,	4,  4, 0,	1, 1, 1, 0)\
-	RCT(_031_04X_X40,	OCH_Y031,	OCH_C04X,	OCH_CX40,	1, 2, 0,	4,  4, 0,	0, 1, 0, 0)\
-	RCT(_031_04X_X31,	OCH_Y031,	OCH_C04X,	OCH_CX31,	1, 2, 0,	4,  4, 0,	0, 1, 0, 1)\
-	RCT(_031_13X_X40,	OCH_Y031,	OCH_C13X,	OCH_CX40,	1, 2, 0,	4,  4, 0,	0, 1, 1, 0)\
-	RCT(_130_40X_X40,	OCH_Y130,	OCH_C04X,	OCH_CX40,	1, 2, 0,	4,  4, 0,	1, 0, 0, 0)\
-	RCT(_130_40X_X31,	OCH_Y130,	OCH_C04X,	OCH_CX31,	1, 2, 0,	4,  4, 0,	1, 0, 0, 1)\
-	RCT(_130_31X_X40,	OCH_Y130,	OCH_C13X,	OCH_CX40,	1, 2, 0,	4,  4, 0,	1, 0, 1, 0)\
-	RCT(_112_X04_0X4,	OCH_Y112,	OCH_CX04,	OCH_C0X4,	2, 0, 1,	4,  4, 0,	1, 1, 0, 0)\
-	RCT(_112_X04_1X3,	OCH_Y112,	OCH_CX04,	OCH_C1X3,	2, 0, 1,	4,  4, 0,	1, 1, 0, 1)\
-	RCT(_112_X13_0X4,	OCH_Y112,	OCH_CX13,	OCH_C0X4,	2, 0, 1,	4,  4, 0,	1, 1, 1, 0)\
-	RCT(_013_X04_0X4,	OCH_Y013,	OCH_CX04,	OCH_C0X4,	2, 0, 1,	4,  4, 0,	0, 1, 0, 0)\
-	RCT(_013_X04_1X3,	OCH_Y013,	OCH_CX04,	OCH_C1X3,	2, 0, 1,	4,  4, 0,	0, 1, 0, 1)\
-	RCT(_013_X13_0X4,	OCH_Y013,	OCH_CX13,	OCH_C0X4,	2, 0, 1,	4,  4, 0,	0, 1, 1, 0)\
-	RCT(_103_X40_0X4,	OCH_Y103,	OCH_CX04,	OCH_C0X4,	2, 0, 1,	4,  4, 0,	1, 0, 0, 0)\
-	RCT(_103_X40_1X3,	OCH_Y103,	OCH_CX04,	OCH_C1X3,	2, 0, 1,	4,  4, 0,	1, 0, 0, 1)\
-	RCT(_103_X31_0X4,	OCH_Y103,	OCH_CX13,	OCH_C0X4,	2, 0, 1,	4,  4, 0,	1, 0, 1, 0)
-#endif
-#endif
-typedef enum _RCTIndex
-{
-#define RCT(LABEL, ...) RCT_##LABEL,
-	RCTLIST
-#undef  RCT
-	RCT_COUNT,
-} RCTIndex;
-static const uint8_t rct_combinations[RCT_COUNT][II_COUNT]=
-{
-#define RCT(LABEL, ...) {__VA_ARGS__},
-	RCTLIST
-#undef  RCT
+	RCTBITS=2,
+	RCTMAX=1<<RCTBITS,
+	RCTLEVELS=RCTMAX+1,//+zero
+	NRCTS=RCTLEVELS*RCTLEVELS*(RCTLEVELS+1)/2,
+	NPERMS=_countof(perms)/3,
 };
-static const char *rct_names[RCT_COUNT]=
+typedef struct _RCTInfo
 {
-#define RCT(LABEL, ...) #LABEL,
-	RCTLIST
-#undef  RCT
-};
-static int crct_analysis(FILE *f, int iw, int ih)
+	uint8_t pidx, uc0, vc0, vc1;
+} RCTInfo;
+static void print_rct(RCTInfo *rct, int tidx, int64_t score)
 {
-	int64_t counters[OCH_COUNT]={0};
-	int prev[OCH_COUNT]={0};
-	uint8_t *ptr=rdbuf+BUFSIZE;
-	long idx=ftell(f);
-
-	for(ptrdiff_t k=0, size=(ptrdiff_t)3*iw*ih;k<size;k+=3)
+	printf("[%7d]  RCT%c%c%c_%c_%c%c/%c  %16lld"
+		, tidx
+		, '0'+perms[rct->pidx*3+0]
+		, '0'+perms[rct->pidx*3+1]
+		, '0'+perms[rct->pidx*3+2]
+		, rct->uc0+(rct->uc0<9?'0':'A'-10)
+		, rct->vc0+(rct->vc0<9?'0':'A'-10)
+		, rct->vc1+(rct->vc1<9?'0':'A'-10)
+		, RCTMAX+(RCTMAX<9?'0':'A'-10)
+		, score
+	);
+}
+typedef struct _AnalysisCtrs
+{
+	int64_t yctr, uctrs[RCTLEVELS], vctrs[RCTLEVELS*(RCTLEVELS+1)/2+1];
+} AnalysisCtrs;
+static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
+{
+	enum
 	{
-		int r, g, b, rg, gb, br;
-
-		uint64_t data=acme_read(&ptr, 3, f);
-		r=data>> 0&255;
-		g=data>> 8&255;
-		b=data>>16&255;
-		rg=r-g;
-		gb=g-b;
-		br=b-r;
-		counters[0]+=abs(r -prev[0]);
-		counters[1]+=abs(g -prev[1]);
-		counters[2]+=abs(b -prev[2]);
-		counters[3]+=abs(rg-prev[3]);
-		counters[4]+=abs(gb-prev[4]);
-		counters[5]+=abs(br-prev[5]);
-		prev[0]=r;
-		prev[1]=g;
-		prev[2]=b;
-		prev[3]=rg;
-		prev[4]=gb;
-		prev[5]=br;
-#ifdef ENABLE_EXTENDED_RCT
-#define UPDATE(IDXA, A0, IDXB, B0, IDXC, C0)\
-	do\
-	{\
-		int a0=A0, b0=B0, c0=C0;\
-		counters[IDXA]+=abs(a0-prev[IDXA]);\
-		counters[IDXB]+=abs(b0-prev[IDXB]);\
-		counters[IDXC]+=abs(c0-prev[IDXC]);\
-		prev[IDXA]=a0;\
-		prev[IDXB]=b0;\
-		prev[IDXC]=c0;\
-	}while(0)
-		UPDATE(
-			OCH_CX31, rg+(gb>>2),//r-(3*g+b)/4 = r-g-(b-g)/4
-			OCH_C3X1, rg+(br>>2),//g-(3*r+b)/4 = g-r-(b-r)/4
-			OCH_C31X, br+(rg>>2) //b-(3*r+g)/4 = b-r-(g-r)/4
-		);
-		UPDATE(
-			OCH_CX13, br+(gb>>2),//r-(g+3*b)/4 = r-b-(g-b)/4
-			OCH_C1X3, gb+(br>>2),//g-(r+3*b)/4 = g-b-(r-b)/4
-			OCH_C13X, gb+(rg>>2) //b-(r+3*g)/4 = b-g-(r-g)/4
-		);
-		UPDATE(
-			OCH_CX22, (rg-br)>>1,//r-(g+b)/2 = (r-g + r-b)/2
-			OCH_C2X2, (gb-rg)>>1,//g-(r+b)/2 = (g-r + g-b)/2
-			OCH_C22X, (br-gb)>>1 //b-(r+g)/2 = (b-r + b-g)/2
-		);
-#undef  UPDATE
+		XPAD=8,
+		NCH=3,
+		NROWS=1,
+		NVAL=1,
+	};
+	AnalysisCtrs counters[NPERMS]={0};
+	uint8_t *const rdend=rdbuf+sizeof(uint64_t)+BUFSIZE, *rdptr=0;
+	long fidx=0;
+	int prev[3]={0}, rgb[3]={0}, yuv[3]={0};
+	int64_t bestscore=0;
+	RCTInfo rct={0};
+#ifdef PRINT_RCT
+	int it=0;
 #endif
+	int psize=0;
+	int16_t *pixels=0;
+	
+	rdptr=rdend;
+	fidx=ftell(fsrc);
+	psize=(iw+2*XPAD)*(int)sizeof(int16_t[NCH*NROWS*NVAL]);
+	pixels=(int16_t*)malloc(psize);
+	if(!pixels)
+	{
+		CRASH("Alloc error");
+		return;
 	}
-	fseek(f, idx, SEEK_SET);
+	memset(pixels, 0, psize);
+	for(int ky=0;ky<ih;++ky)
 	{
-		int bestrct=0;
-		int64_t minerr=0;
-		for(int kt=0;kt<RCT_COUNT;++kt)
+		int16_t *rows[]=
 		{
-			const uint8_t *rct=rct_combinations[kt];
-			int64_t currerr=
-				+counters[rct[0]]
-				+counters[rct[1]]
-				+counters[rct[2]]
-			;
-			if(!kt||minerr>currerr)
+			pixels+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,
+		};
+		for(int kx=0;kx<iw;++kx)
+		{
+			uint64_t data=*(uint64_t*)rdptr;
+			if(rdptr>=rdend)
 			{
-				minerr=currerr;
-				bestrct=kt;
+				fread(rdbuf+sizeof(uint64_t), 1, BUFSIZE, fsrc);
+				rdptr-=BUFSIZE;
+				data|=*(uint64_t*)rdptr;
+			}
+			rdptr+=3;
+			rgb[0]=(uint8_t)(data>>0*8);
+			rgb[1]=(uint8_t)(data>>1*8);
+			rgb[2]=(uint8_t)(data>>2*8);
+			yuv[0]=rgb[0]-prev[0];
+			yuv[1]=rgb[1]-prev[1];
+			yuv[2]=rgb[2]-prev[2];
+			prev[0]=rgb[0];
+			prev[1]=rgb[1];
+			prev[2]=rgb[2];
+			rgb[0]=yuv[0]-rows[0][0];
+			rgb[1]=yuv[1]-rows[0][1];
+			rgb[2]=yuv[2]-rows[0][2];
+			rows[0][0]=yuv[0];
+			rows[0][1]=yuv[1];
+			rows[0][2]=yuv[2];
+			rows[0]+=NROWS*NVAL*NCH;
+			rgb[0]<<=RCTBITS;
+			rgb[1]<<=RCTBITS;
+			rgb[2]<<=RCTBITS;
+			for(int kp=0;kp<NPERMS;++kp)
+			{
+				AnalysisCtrs *currctrs=counters+kp;
+				yuv[0]=rgb[perms[3*kp+0]];
+				yuv[1]=rgb[perms[3*kp+1]];
+				yuv[2]=rgb[perms[3*kp+2]];
+				currctrs->yctr+=abs(yuv[0]);
+				for(int kp1=0, idx=0;kp1<=RCTMAX;++kp1)
+				{
+					currctrs->uctrs[kp1]+=abs(yuv[1]-(kp1*yuv[0]>>RCTBITS));
+					for(int kp2=0;kp1+kp2<=RCTMAX;++kp2, ++idx)
+						currctrs->vctrs[idx]+=abs(yuv[2]-((kp1*yuv[0]+kp2*yuv[1])>>RCTBITS));
+				}
 			}
 		}
-		return bestrct;
 	}
+	fseek(fsrc, fidx, SEEK_SET);
+	free(pixels);
+	for(int kp=0;kp<NPERMS;++kp)
+	{
+		AnalysisCtrs *currctrs=counters+kp;
+		for(int uc0=0;uc0<=RCTMAX;++uc0)
+		{
+			for(int vc0=0, idx=0;vc0<=RCTMAX;++vc0)
+			{
+				for(int vc1=0;vc0+vc1<=RCTMAX;++vc1, ++idx)
+				{
+					int64_t score=currctrs->yctr+currctrs->uctrs[uc0]+currctrs->vctrs[idx];
+#ifdef PRINT_RCT
+					{
+						RCTInfo rct2={0};
+						rct2.pidx=kp;
+						rct2.uc0=uc0;
+						rct2.vc0=vc0;
+						rct2.vc1=vc1;
+						print_rct(&rct2, it++, score);
+						if(!bestscore||bestscore>score)
+							printf(" <-");
+						printf("\n");
+					}
+#endif
+					if(!bestscore||bestscore>score)
+					{
+						bestscore=score;
+						rct.pidx=kp;
+						rct.uc0=uc0;
+						rct.vc0=vc0;
+						rct.vc1=vc1;
+					}
+				}
+			}
+		}
+	}
+	memcpy(ret_rct, &rct, sizeof(*ret_rct));
 }
 #endif
 
 
-#ifdef USE_LUT
-typedef struct _CSymInfo
-{
-	uint16_t sym;
-	uint8_t nzeros, bypass;
-} CSymInfo;
-static CSymInfo csymtable[8][256];
-static int8_t dsymtable[256];
-#endif
+static uint16_t logtable[1<<DEPTH];
+static uint32_t enctable[DEPTH<<DEPTH];
 int c54_codec(int argc, char **argv)
 {
+	enum
+	{
+		XPAD=8,
+		NCH=3,
+		NROWS=4,
+		NVAL=3,
+	};
 	const uint16_t tag='5'|'4'<<8;
 
 	const char *srcfn=0, *dstfn=0;
@@ -612,20 +396,12 @@ int c54_codec(int argc, char **argv)
 	int16_t *pixels=0;
 	uint64_t cache=0;
 	int nbits=0;
-	uint8_t *rdptr=0, *wtptr=0;
-#ifdef ENABLE_CRCT
-	int bestrct=0, yidx=0, uidx=0, vidx=0, uc0=0, vc0=0, vc1=0;
-#endif
-#ifdef USE_L1
-	int32_t coeffs[3][NPREDS]={0}, p1=0;
-	int estim[NPREDS]={0};
-	int j=0;
-#endif
+	uint8_t *rdptr=0, *wtptr=0, *rdend=0, *wtend=0;
+	RCTInfo rct={0};
+	int ysh=0, ush=0, vsh=0;
+	int csums[3]={0};
 #ifdef LOUD
 	double t=0;
-#endif
-#ifdef PROFILER
-	void *prof_ctx=prof_start();
 #endif
 
 	if(argc!=3)
@@ -663,7 +439,7 @@ int c54_codec(int argc, char **argv)
 		c=fgetc(fsrc);
 		if(c!='\n')
 		{
-			CRASH("Unsupported PPM file");
+			CRASH("Unsupported file \"%s\"", srcfn);
 			return 1;
 		}
 		c=fgetc(fsrc);
@@ -707,7 +483,7 @@ int c54_codec(int argc, char **argv)
 			(uint64_t)'\n'<<8*4
 		))
 		{
-			CRASH("Unsupported PPM file");
+			CRASH("Unsupported file \"%s\"", srcfn);
 			return 1;
 		}
 	}
@@ -717,13 +493,11 @@ int c54_codec(int argc, char **argv)
 		ih=0;
 		fread(&iw, 1, 3, fsrc);
 		fread(&ih, 1, 3, fsrc);
-#ifdef ENABLE_CRCT
-		fread(&bestrct, 1, 1, fsrc);
-#endif
+		fread(&rct, 1, sizeof(rct), fsrc);
 	}
 	if(iw<1||ih<1)
 	{
-		CRASH("Unsupported source file");
+		CRASH("Unsupported file \"%s\"", srcfn);
 		return 1;
 	}
 	usize=(int64_t)3*iw*ih;
@@ -735,7 +509,7 @@ int c54_codec(int argc, char **argv)
 		return 1;
 	}
 	cache=0;
-	nbits=64;
+	nbits=0;
 	fdst=fopen(dstfn, "wb");
 	if(!fdst)
 	{
@@ -747,59 +521,54 @@ int c54_codec(int argc, char **argv)
 #ifdef ENABLE_GUIDE
 		guide_save(fsrc, iw, ih);
 #endif
-#ifdef ENABLE_CRCT
-		bestrct=crct_analysis(fsrc, iw, ih);
-#endif
+		crct_analysis(fsrc, iw, ih, &rct);
 		fwrite(&tag, 1, 2, fdst);
 		fwrite(&iw, 1, 3, fdst);
 		fwrite(&ih, 1, 3, fdst);
-#ifdef ENABLE_CRCT
-		fwrite(&bestrct, 1, 1, fdst);
-#endif
-#ifdef USE_LUT
-		for(int nbypass=0;nbypass<8;++nbypass)
-		{
-			for(int ks=0;ks<256;++ks)
-			{
-				CSymInfo *p=csymtable[nbypass]+ks;
-				int sym=ks-128;
-				sym=sym<<1^sym>>31;
-				p->sym=sym<<GRBITS;
-				p->nzeros=sym>>nbypass;
-				p->bypass=sym&((1<<nbypass)-1);
-			}
-		}
-#endif
+		fwrite(&rct, 1, sizeof(rct), fdst);
 	}
 	else
-	{
-		fread(&cache, 1, sizeof(uint64_t), fsrc);
-		nbits=0;
-
 		fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
-#ifdef USE_LUT
-		for(int k=0;k<256;++k)
-			dsymtable[k]=k>>1^-(k&1);
-#endif
-	}
-#ifdef ENABLE_CRCT
-	yidx=rct_combinations[bestrct][II_PERM_Y]*8;
-	uidx=rct_combinations[bestrct][II_PERM_U]*8;
-	vidx=rct_combinations[bestrct][II_PERM_V]*8;
-	uc0=rct_combinations[bestrct][II_COEFF_U_SUB_Y];
-	vc0=rct_combinations[bestrct][II_COEFF_V_SUB_Y];
-	vc1=rct_combinations[bestrct][II_COEFF_V_SUB_U];
-#endif
-#ifdef USE_L1
-	for(int kc=0;kc<3;++kc)
+	ysh=perms[rct.pidx*3+0]*8;
+	ush=perms[rct.pidx*3+1]*8;
+	vsh=perms[rct.pidx*3+2]*8;
+	for(int ks=0;ks<1<<DEPTH;++ks)
 	{
-		for(int kp=0;kp<NPREDS;++kp)
-			coeffs[kc][kp]=(1<<SHIFT)/NPREDS;
+		int val=31^LZCNT32(ks+1);
+		if(val>NCTX-1)
+			val=NCTX-1;
+		logtable[ks]=val;
 	}
-#endif
+	if(fwd)
+	{
+		for(int ks=0;ks<1<<DEPTH;++ks)
+			logtable[ks]<<=8;
+		for(int ks=0;ks<1<<DEPTH;++ks)
+		{
+			for(int kb=0;kb<DEPTH;++kb)
+			{
+				uint32_t code;
+				int nzeros, stopbit, nbypass, codelen;
+				
+				nbypass=kb;
+				nzeros=ks>>kb;
+				stopbit=nzeros<RLIMIT;
+				codelen=nzeros+1+kb;
+				if(nzeros>=RLIMIT)
+					nzeros=RLIMIT, stopbit=0, nbypass=DEPTH, codelen=RLIMIT+DEPTH;
+				code=(ks&((1<<nbypass)-1))<<(nzeros+stopbit)|stopbit<<nzeros;
+				enctable[kb<<DEPTH|ks]=code<<8|codelen;
+			}
+		}
+	}
 	memset(pixels, 0, psize);
-	rdptr=rdbuf+BUFSIZE;
-	wtptr=wtbuf;
+	rdptr=rdbuf+sizeof(uint64_t)+BUFSIZE;
+	wtptr=wtbuf+sizeof(uint64_t);
+	rdend=rdbuf+sizeof(uint64_t)+BUFSIZE;
+	wtend=wtbuf+sizeof(uint64_t)+BUFSIZE;
+	csums[0]=0;
+	csums[1]=rct.uc0;
+	csums[2]=rct.vc0+rct.vc1;
 	for(int ky=0;ky<ih;++ky)
 	{
 		int yuv[3]={0};
@@ -813,23 +582,20 @@ int c54_codec(int argc, char **argv)
 		};
 		for(int kx=0;kx<iw;++kx)
 		{
-#ifdef ENABLE_CRCT
-			int offset=0;
-#endif
+			int offset=0, csum=0;
 			if(fwd)
 			{
-				uint64_t data=acme_read(&rdptr, 3, fsrc);
-#ifdef ENABLE_CRCT
-				yuv[0]=data>>yidx&255;
-				yuv[1]=data>>uidx&255;
-				yuv[2]=data>>vidx&255;
-#else
-				yuv[0]=data>> 0&255;
-				yuv[1]=data>> 8&255;
-				yuv[2]=data>>16&255;
-				yuv[0]-=yuv[1];
-				yuv[2]-=yuv[1];
-#endif
+				uint64_t data=*(uint64_t*)rdptr;
+				if(rdptr+3>=rdend)
+				{
+					fread(rdbuf+sizeof(uint64_t), 1, BUFSIZE, fsrc);
+					rdptr-=BUFSIZE;
+					data|=*(uint64_t*)rdptr;
+				}
+				rdptr+=3;
+				yuv[0]=data>>ysh&255;
+				yuv[1]=data>>ush&255;
+				yuv[2]=data>>vsh&255;
 			}
 			for(int kc=0;kc<3;++kc)
 			{
@@ -840,193 +606,143 @@ int c54_codec(int argc, char **argv)
 					NW	=rows[1][0-1*NCH*NROWS*NVAL],
 					N	=rows[1][0+0*NCH*NROWS*NVAL],
 					NE	=rows[1][0+1*NCH*NROWS*NVAL],
+					NEE	=rows[1][0+2*NCH*NROWS*NVAL],
 					NEEE	=rows[1][0+3*NCH*NROWS*NVAL],
+					NEEEE	=rows[1][0+4*NCH*NROWS*NVAL],
+					WWWW	=rows[0][0-4*NCH*NROWS*NVAL],
 					WWW	=rows[0][0-3*NCH*NROWS*NVAL],
 					WW	=rows[0][0-2*NCH*NROWS*NVAL],
 					W	=rows[0][0-1*NCH*NROWS*NVAL],
-					eN	=rows[1][1+0*NCH*NROWS*NVAL],
-					eNE	=rows[1][1+1*NCH*NROWS*NVAL],
-					eNEE	=rows[1][1+2*NCH*NROWS*NVAL],
-					eNEEE	=rows[1][1+3*NCH*NROWS*NVAL],
-					eWW	=rows[0][1-2*NCH*NROWS*NVAL],
-					eW	=rows[0][1-1*NCH*NROWS*NVAL];
-				int nbypass;
-				int vmin, vmax;
-				int error, sym;
-				int nzeros, bypass;
-#ifdef ENABLE_CRCT
-				if(kc==1)
-					offset=uc0*yuv[0]>>2;
-				if(kc==2)
-					offset=(vc0*yuv[0]+vc1*yuv[1])>>2;
-#endif
+					
+					nNN	=rows[2][1+0*NCH*NROWS*NVAL],
+					nNNE	=rows[2][1+1*NCH*NROWS*NVAL],
+					nNNEE	=rows[2][1+2*NCH*NROWS*NVAL],
+					nNNEEE	=rows[2][1+3*NCH*NROWS*NVAL],
+					nNW	=rows[1][1-1*NCH*NROWS*NVAL],
+					nN	=rows[1][1+0*NCH*NROWS*NVAL],
+					nNE	=rows[1][1+1*NCH*NROWS*NVAL],
+					nNEE	=rows[1][1+2*NCH*NROWS*NVAL],
+					nNEEE	=rows[1][1+3*NCH*NROWS*NVAL],
+					nNEEEE	=rows[1][1+4*NCH*NROWS*NVAL],
+					nNEEEEE	=rows[1][1+5*NCH*NROWS*NVAL],
+					nWW	=rows[0][1-2*NCH*NROWS*NVAL],
+					nW	=rows[0][1-1*NCH*NROWS*NVAL];
+				int nbypass, sym, nzeros;
+
+				offset=0;
+				if(kc==1)offset=rct.uc0*yuv[0];
+				if(kc==2)offset=rct.vc0*yuv[0]+rct.vc1*yuv[1];
+				csum=csums[kc];
+				offset<<=4;
+				if(csum<4)
+					offset+=offset>>4;
+#if 1
 				(void)NNN;
 				(void)NN;
 				(void)NNE;
 				(void)NW;
 				(void)N;
 				(void)NE;
+				(void)NEE;
 				(void)NEEE;
+				(void)NEEEE;
+				(void)WWWW;
 				(void)WWW;
 				(void)WW;
 				(void)W;
-				(void)eN;
-				(void)eNE;
-				(void)eNEE;
-				(void)eNEEE;
-				(void)eWW;
-				(void)eW;
-				nbypass=FLOOR_LOG2((eW+(1<<GRBITS>>1))>>GRBITS);
-				if(nbypass<0)
-					nbypass=0;
-#ifdef USE_L1
-				p1=1<<SHIFT>>1;
-#define PRED(E) estim[j]=E; p1+=coeffs[kc][j]*estim[j]; ++j;
-				j=0;
-				PREDLIST;
-#undef  PRED
-				p1>>=SHIFT;
-				pred=p1;
-				vmax=N, vmin=W;
-				if(N<W)vmin=N, vmax=W;
-				if(vmin>NE)vmin=NE;
-				if(vmax<NE)vmax=NE;
-				if(vmin>NEEE)vmin=NEEE;
-				if(vmax<NEEE)vmax=NEEE;
-				CLAMP2(pred, vmin, vmax);
-#else
-				pred=N+W-NW;
-				vmax=N, vmin=W;
-				if(N<W)vmin=N, vmax=W;
-				CLAMP2(pred, vmin, vmax);
-				//pred=(N+W)>>1;
+
+				(void)nNN;
+				(void)nNNE;
+				(void)nNNEE;
+				(void)nNNEEE;
+				(void)nNW;
+				(void)nN;
+				(void)nNE;
+				(void)nNEE;
+				(void)nNEEE;
+				(void)nNEEEE;
+				(void)nNEEEEE;
+				(void)nWW;
+				(void)nW;
 #endif
-#ifdef ENABLE_CRCT
-				pred+=offset;
-				CLAMP2(pred, 0, 255);
-#endif
+				nbypass=logtable[nW];
+				enum
+				{
+					TOTALADD=4+RCTBITS,
+				};
+				//			-2
+				//		-4	10	2
+				//	-2	12	[?]
+				int p1=12*W+10*N-4*NW+2*NE-2*NN-2*WW;
+				{
+					int vmin, vmax;
+					vmax=N, vmin=W;
+					if(N<W)vmin=N, vmax=W;
+					if(vmin>NE)vmin=NE;
+					if(vmax<NE)vmax=NE;
+					if(vmin>NEEE)vmin=NEEE;
+					if(vmax<NEEE)vmax=NEEE;
+					vmin<<=4;
+					vmax<<=4;
+					CLAMP2(p1, vmin, vmax);
+				}
+				p1+=offset;
+				p1+=1<<TOTALADD>>1;
+				CLAMP2(p1, 0, 255<<TOTALADD);
+				pred=p1>>TOTALADD;
 				if(fwd)
 				{
-#ifdef USE_LUT
-					CSymInfo *p=csymtable[nbypass]+(uint8_t)(yuv[kc]-pred+128);
-					sym=p->sym;
-					nzeros=p->nzeros;
-					bypass=p->bypass;
-#else
-					error=(int8_t)(yuv[kc]-pred);
-					sym=error<<1^error>>31;
-					
-					nzeros=sym>>nbypass;
-					//bypass=_bextr_u32(sym, 0, nbypass);
-					bypass=sym&0x7FFFFFFF>>(31-nbypass);
-#endif
-					if(nzeros>=nbits)//fill the rest of cache with zeros, and flush
+					sym=(int8_t)(yuv[kc]-pred);
+					sym=sym<<1^sym>>31;
+					uint32_t code=enctable[nbypass|sym];
+					int codelen=(uint8_t)code;
+					code>>=8;
+					cache|=(uint64_t)code<<nbits;
+					nbits+=codelen;
+					*(uint64_t*)wtptr=cache;
+					if(wtptr+(nbits>>3)>=wtend)
 					{
-						nzeros-=nbits;
-						acme_write(&wtptr, sizeof(cache), fdst, cache);
-						//fwrite(&cache, 1, sizeof(cache), fdst);
-						cache=0;
-						while(nzeros>=64)//just flush zeros
-						{
-							nzeros-=64;
-							acme_write(&wtptr, sizeof(cache), fdst, cache);
-							//fwrite(&cache, 1, sizeof(cache), fdst);
-						}
-						nbits=64;
+						fwrite(wtbuf+sizeof(uint64_t), 1, BUFSIZE, fdst);
+						wtptr-=BUFSIZE;
+						*(uint64_t*)wtptr=cache;
 					}
-					//now there is room for zeros:  0 <= nzeros < nbits <= 64
-					nbits-=nzeros;//emit remaining zeros to cache
-
-					bypass|=1<<nbypass;//append 1 stop bit
-					++nbypass;
-					if(nbypass>=nbits)//cache would overflow:  fill, flush, and repeat
-					{
-						nbypass-=nbits;
-						cache|=(uint64_t)bypass>>nbypass;
-						bypass&=0x7FFFFFFF>>(31-nbypass);
-						acme_write(&wtptr, sizeof(cache), fdst, cache);
-						//fwrite(&cache, 1, sizeof(cache), fdst);
-						cache=0;
-						nbits=64;
-					}
-					//now there is room for bypass:  0 <= nbypass < nbits <= 64
-					if(nbypass)
-					{
-						nbits-=nbypass;//emit remaining bypass to cache
-						cache|=(uint64_t)bypass<<nbits;
-					}
+					cache>>=nbits&56;
+					wtptr+=nbits>>3;
+					nbits&=7;
 				}
 				else
 				{
-					sym=-nbits;
-					while(!cache)
+					cache|=*(uint64_t*)rdptr<<nbits;
+					if(rdptr+(nbits>>3^7)>=rdend)
 					{
-						sym+=64;
-						cache=acme_read(&rdptr, sizeof(cache), fsrc);
-						//fread(&cache, 1, sizeof(cache), fsrc);
+						fread(rdbuf+sizeof(uint64_t), 1, BUFSIZE, fsrc);
+						rdptr-=BUFSIZE;
+						cache|=*(uint64_t*)rdptr<<nbits;
 					}
-					nbits=(int)_lzcnt_u64(cache);
-					sym+=nbits;
-
-					sym<<=nbypass;
-					cache&=0x7FFFFFFFFFFFFFFF>>nbits;//remove stop bit
-					nbits+=nbypass+1;
-					if(nbits>=64)//nbits = nbits0+nbypass > N
-					{
-						//example: 000000[11 1]1010010	nbits=6, nbypass=3	6+3-8 = 1
-						nbits-=64;
-						sym|=(int)(cache<<nbits);
-						cache=acme_read(&rdptr, sizeof(cache), fsrc);
-						//fread(&cache, 1, sizeof(cache), fsrc);
-						nbypass=nbits;
-					}
-					if(nbypass)
-					{
-						sym|=(int)(cache>>(64-nbits));
-						cache&=0xFFFFFFFFFFFFFFFF>>nbits;//nbits=61 -> cache&=7;
-					}
-					
-#ifdef USE_LUT
-					error=dsymtable[sym];
-					sym<<=GRBITS;
-#else
-					error=sym>>1^-(sym&1);
-#endif
-					yuv[kc]=(uint8_t)(error+pred);
+					rdptr+=nbits>>3^7;
+					nbits|=56;
+					nzeros=(int)TZCNT64(cache);
+					sym=nzeros<<nbypass;
+					if(nzeros>RLIMIT-1)
+						nzeros=RLIMIT-1, nbypass=DEPTH, sym=0;
+					cache>>=nzeros+1;
+					sym|=(int)(cache&((1ULL<<nbypass)-1));
+					cache>>=nbypass;
+					nbits-=nzeros+1+nbypass;
+					yuv[kc]=(uint8_t)((sym>>1^sym<<31>>31)+pred);
 #ifdef ENABLE_GUIDE
-					int perm[]=
+					if(yuv[kc]!=g_image[3*(iw*ky+kx)+perms[rct.pidx*3+kc]])
 					{
-						rct_combinations[bestrct][II_PERM_Y],
-						rct_combinations[bestrct][II_PERM_U],
-						rct_combinations[bestrct][II_PERM_V],
-					};
-					if(yuv[kc]!=g_image[3*(iw*ky+kx)+perm[kc]])
-					{
-						CRASH("Guide");
+						printf("Y %d  X %d  C%d\n", ky, kx, kc);
+						CRASH("guide");
 						return 1;
 					}
 #endif
 				}
-#ifdef ENABLE_CRCT
-				rows[0][0]=yuv[kc]-offset;
-#else
-				rows[0][0]=yuv[kc];
-#endif
-#ifdef USE_L1
-				{
-					int e=(rows[0][0]>p1)-(rows[0][0]<p1);
-
-#define PRED(...) coeffs[kc][j]+=e*estim[j]; ++j;
-					j=0;
-					PREDLIST;
-#undef  PRED
-				}
-#endif
-#ifdef USE_LUT
-				rows[0][1]=(2*eW+sym+eNEEE)>>2;
-#else
-				rows[0][1]=(2*eW+(sym<<GRBITS)+eNEEE)>>2;
-#endif
+				rows[0][0]=(yuv[kc]<<RCTBITS)-(offset>>4);
+				//			8	12	8
+				//	20	[17]	?
+				rows[0][1]=(20*nW+17*sym+8*nNE+12*nNEE+8*nNEEE+9)>>6;
 				rows[0]+=NROWS*NVAL;
 				rows[1]+=NROWS*NVAL;
 				rows[2]+=NROWS*NVAL;
@@ -1034,28 +750,35 @@ int c54_codec(int argc, char **argv)
 			}
 			if(!fwd)
 			{
-#ifdef ENABLE_CRCT
-				acme_write(&wtptr, 3, fdst, (uint64_t)yuv[2]<<vidx|(uint64_t)yuv[1]<<uidx|(uint64_t)yuv[0]<<yidx);
-#else
-				yuv[2]+=yuv[1];
-				yuv[0]+=yuv[1];
-				acme_write(&wtptr, 3, fdst, (uint64_t)yuv[2]<<16|(uint64_t)yuv[1]<<8|yuv[0]);
-#endif
+				uint64_t data=(uint64_t)yuv[2]<<vsh|(uint64_t)yuv[1]<<ush|(uint64_t)yuv[0]<<ysh;
+				*(uint64_t*)wtptr=data;
+				if(wtptr+3>=wtend)
+				{
+					fwrite(wtbuf+sizeof(uint64_t), 1, BUFSIZE, fdst);
+					wtptr-=BUFSIZE;
+					*(uint64_t*)wtptr=data;
+				}
+				wtptr+=3;
 			}
 		}
 	}
 	if(fwd)
-		acme_write(&wtptr, sizeof(cache), fdst, cache);
-		//fwrite(&cache, 1, sizeof(cache), fdst);
+	{
+		*(uint64_t*)wtptr=cache;
+		if(wtptr>=wtend)
+		{
+			fwrite(wtbuf+sizeof(uint64_t), 1, BUFSIZE, fdst);
+			wtptr-=BUFSIZE;
+			*(uint64_t*)wtptr=cache;
+		}
+		++wtptr;
+	}
 
-	if(wtptr>wtbuf)
-		fwrite(wtbuf, 1, wtptr-wtbuf, fdst);
+	if(wtptr>wtbuf+sizeof(uint64_t))
+		fwrite(wtbuf+sizeof(uint64_t), 1, wtptr-(wtbuf+sizeof(uint64_t)), fdst);
 	free(pixels);
 	fclose(fsrc);
 	fclose(fdst);
-#ifdef PROFILER
-	prof_end(prof_ctx);
-#endif
 #ifdef LOUD
 	t=time_sec()-t;
 	if(fwd)
@@ -1079,12 +802,9 @@ int c54_codec(int argc, char **argv)
 		, t*1024*1024*1000/usize
 	);
 #endif
-#ifdef ENABLE_CRCT
-	(void)rct_names;
-	(void)och_names;
-#endif
 	(void)usize;
 	(void)csize;
 	(void)&time_sec;
+	(void)&print_rct;
 	return 0;
 }

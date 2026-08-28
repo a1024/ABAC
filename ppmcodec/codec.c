@@ -5,7 +5,7 @@
 #include<stdint.h>
 #include<stdio.h>
 
-	#define C60TEST2
+//	#define C60TEST2
 //	#define VIDEO_TEST
 //	#define LPCB_TEST
 //	#define RELEASE
@@ -70,10 +70,10 @@ int c50_codec(int argc, char **argv);//FELICS-like
 int c51_codec(int argc, char **argv);//chroma subsampling + DCT4 + adaptive quantization
 int c52_codec(int argc, char **argv);//multichannel-AC
 int c53_codec(int argc, char **argv);//bit coding, paq0f mixer
-int c54_codec(int argc, char **argv);//low memory
+int c54_codec(int argc, char **argv);//low memory Rice (better than c57)
 int c55_codec(int argc, char **argv);//16-bit
 int c56_codec(int argc, char **argv);//LZAC (synth)
-int c57_codec(int argc, char **argv);//fast Rice
+int c57_codec(int argc, char **argv);//blocky Rice
 int c58_codec(int argc, char **argv);//bit coding with plain histograms (c12)
 int c59_codec(int argc, char **argv);//near portable rapid
 int c60_codec(int argc, char **argv);//lossy wavelet FSE/AC
@@ -134,13 +134,13 @@ int c60_codec(int argc, char **argv);//lossy wavelet FSE/AC
 //	#define CODEC_EXT c51
 //	#define CODEC_EXT c52//CHECK ARGS
 //	#define CODEC_EXT c53
-//	#define CODEC_EXT c54
+	#define CODEC_EXT c54
 //	#define CODEC_EXT c55
 //	#define CODEC_EXT c56
 //	#define CODEC_EXT c57
 //	#define CODEC_EXT c58
 //	#define CODEC_EXT c59
-	#define CODEC_EXT c60
+//	#define CODEC_EXT c60
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -205,7 +205,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-DIV2K-ppm/0801.ppm"
 	//	"C:/dataset-DIV2K-ppm/0805.ppm"
 	//	"C:/dataset-DIV2K-ppm/0807.ppm"
-		"C:/dataset-DIV2K-ppm/0820.ppm"
+	//	"C:/dataset-DIV2K-ppm/0820.ppm"
 	//	"C:/dataset-DIV2K-ppm/0823.ppm"
 	//	"C:/dataset-DIV2K-ppm/0843.ppm"
 	//	"C:/dataset-DIV2K-ppm/0859.ppm"
@@ -244,7 +244,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-HUGE-ppm/space_huge.ppm"		//X
 	//	"C:/dataset-ic16-ppm/big_building.ppm"		//16-bit
 	//	"C:/dataset-ic8-ppm/big_building.ppm"
-	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+		"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_05.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_13.ppm"

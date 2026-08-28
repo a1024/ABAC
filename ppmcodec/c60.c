@@ -30,7 +30,7 @@
 	#define LOUD
 	#define ENABLE_GUIDE
 
-	#define C60TEST2
+//	#define C60TEST2
 //	#define C60TEST
 
 //	#define ANSVAL

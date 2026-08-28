@@ -24,11 +24,12 @@ else
 SRC_ZYDIS2 =
 endif
 
-ifeq ($(OS), Windows_NT)
-LIBS += -static
-else
-LIBS += -lm
-endif
+LIBS = -static -lm
+#ifeq ($(OS), Windows_NT)
+#LIBS += -static
+#else
+#LIBS += -lm
+#endif
 
 #SRC = c03.c codec.c util.c
 #SRC = c07.c codec.c util.c
@@ -266,7 +267,10 @@ c53:
 	gcc $(FLAGS) -fopt-info -Dc53_codec=main -mavx2 -mbmi -mlzcnt c53.c -o c53 $(LIBS)
 
 c54:
-	gcc $(FLAGS) -fopt-info -Dc54_codec=main -mavx2 -mlzcnt $(SRC_ZYDIS2) c54.c -o c54 $(LIBS)
+	clang -Wall -O3 -s -Dc54_codec=main -mavx2 -mlzcnt -static -lm c54.c -o c54
+
+c54-gcc:
+	gcc -Wall -O3 -s -fopt-info -Dc54_codec=main -mavx2 -mlzcnt -static -lm c54.c -o c54
 
 c55:
 	gcc $(FLAGS) -fopt-info -Dc55_codec=main -mavx2 -mlzcnt $(SRC_ZYDIS2) c55.c -o c55 $(LIBS)
