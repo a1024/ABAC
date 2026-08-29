@@ -1211,7 +1211,7 @@ static void print_rivals_v2(ArrayHandle besttestidxs, ArrayHandle testinfo, int 
 }
 static void print_summary(ArrayHandle besttestidxs, ArrayHandle testinfo, ptrdiff_t usize, int special, int printnotation)
 {
-	intptr_t minsize=0;
+	//intptr_t minsize=0;
 
 	if(printnotation)
 	{
@@ -1243,8 +1243,8 @@ static void print_summary(ArrayHandle besttestidxs, ArrayHandle testinfo, ptrdif
 		TestInfo *test=(TestInfo*)array_at(&testinfo, *idx);
 		if(k2==special)
 			printf("\n");
-		if(!minsize)
-			minsize=test->total.csize;
+		//if(!minsize)
+		//	minsize=test->total.csize;
 		printf("%10lld B  %14.6lf %14.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB  "
 			, test->total.csize
 			, test->total.etime
