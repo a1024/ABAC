@@ -1211,6 +1211,8 @@ static void print_rivals_v2(ArrayHandle besttestidxs, ArrayHandle testinfo, int 
 }
 static void print_summary(ArrayHandle besttestidxs, ArrayHandle testinfo, ptrdiff_t usize, int special, int printnotation)
 {
+	intptr_t minsize=0;
+
 	if(printnotation)
 	{
 		const double usize=800000;
@@ -1241,6 +1243,8 @@ static void print_summary(ArrayHandle besttestidxs, ArrayHandle testinfo, ptrdif
 		TestInfo *test=(TestInfo*)array_at(&testinfo, *idx);
 		if(k2==special)
 			printf("\n");
+		if(!minsize)
+			minsize=test->total.csize;
 		printf("%10lld B  %14.6lf %14.6lf sec  %12.6lf %12.6lf MB/s %8.2lf %8.2lf MB  "
 			, test->total.csize
 			, test->total.etime
@@ -1258,18 +1262,29 @@ static void print_summary(ArrayHandle besttestidxs, ArrayHandle testinfo, ptrdif
 			, test->datetime.minute
 			, test->datetime.second
 		);
-		if((unsigned)special<(unsigned)besttestidxs->count)
-		{
-			if(k2==special)
-				printf("  %X <- *", (k2+1)&15);
-			else if(k2<special)
-				printf("  %X     ", (k2+1)&15);
-			else
-				printf("  %X <- %X", (k2+1)&15, k2&15);
-		}
-		else
-			printf("  %X", (k2+1)&15);
-		printf(" %s\n", (char*)test->codecname->data);
+		printf("  f%12.2lf"
+			, (double)test->total.csize*(1./(1024*1024))+test->total.etime+test->total.dtime*2
+		);
+		//if((unsigned)special<(unsigned)besttestidxs->count)
+		//{
+		//	if(k2==special)
+		//		printf("  %X <- *", (k2+1)&15);
+		//	else if(k2<special)
+		//		printf("  %X     ", (k2+1)&15);
+		//	else
+		//		printf("  %X <- %X", (k2+1)&15, k2&15);
+		//}
+		//else
+		//	printf("  %X", (k2+1)&15);
+		printf(" %6.2lf%%  %s\n"
+			, 100.*test->total.csize/usize
+			, (char*)test->codecname->data
+		);
+		//printf(" %6.2lf%% %7.2lf%% %s\n"
+		//	, 100.*test->total.csize/usize
+		//	, 100.*test->total.csize/minsize
+		//	, (char*)test->codecname->data
+		//);
 		if(k2==special)
 			printf("\n");
 	}
