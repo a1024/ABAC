@@ -269,6 +269,9 @@ c53:
 c54:
 	gcc -Wall -O3 -s -fopt-info -Dc54_codec=main -mavx2 -mlzcnt -static -lm c54.c -o c54
 
+c54-x86:
+	gcc -Wall -O3 -s -fopt-info -Dc54_codec=main -static -lm c54.c -o c54-x86
+
 c54-clang:
 	clang -Wall -O3 -s -Dc54_codec=main -mavx2 -mlzcnt -static -lm c54.c -o c54
 

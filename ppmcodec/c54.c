@@ -269,7 +269,7 @@ static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 	int32_t size=0;
 	int rstr=0;
 	long fidx=0;
-	int32_t bestscore=0, bestscore2=0;
+	uint32_t bestscore=0, bestscore2=0;
 	RCTInfo rct={0};
 #ifdef PRINT_RCT
 	int it=0;
@@ -704,14 +704,114 @@ int c54_codec(int argc, char **argv)
 		int sym[3];
 		uint32_t code[3];
 
+		nbypass[0]=4;
+		nbypass[1]=4;
+		nbypass[2]=4;
 		if(fwd)
 		{
 			for(int kx=0;kx<iw;++kx)
 			{
+				//			-1
+				//		-2	+5	1
+				//	-1	+6	[?]
+#if 1
+				pred[0]=
+					+5*rows[1][0+(+0*NCH+0)*NROWS*NVAL]//N
+					+6*rows[0][0+(-1*NCH+0)*NROWS*NVAL]//W
+					-2*rows[1][0+(-1*NCH+0)*NROWS*NVAL]//NW
+					+1*rows[1][0+(+1*NCH+0)*NROWS*NVAL]//NE
+					-1*rows[2][0+(+0*NCH+0)*NROWS*NVAL]//NN
+					-1*rows[0][0+(-2*NCH+0)*NROWS*NVAL]//WW
+				;
+				pred[1]=
+					+5*rows[1][0+(+0*NCH+1)*NROWS*NVAL]//N
+					+6*rows[0][0+(-1*NCH+1)*NROWS*NVAL]//W
+					-2*rows[1][0+(-1*NCH+1)*NROWS*NVAL]//NW
+					+1*rows[1][0+(+1*NCH+1)*NROWS*NVAL]//NE
+					-1*rows[2][0+(+0*NCH+1)*NROWS*NVAL]//NN
+					-1*rows[0][0+(-2*NCH+1)*NROWS*NVAL]//WW
+				;
+				pred[2]=
+					+5*rows[1][0+(+0*NCH+2)*NROWS*NVAL]//N
+					+6*rows[0][0+(-1*NCH+2)*NROWS*NVAL]//W
+					-2*rows[1][0+(-1*NCH+2)*NROWS*NVAL]//NW
+					+1*rows[1][0+(+1*NCH+2)*NROWS*NVAL]//NE
+					-1*rows[2][0+(+0*NCH+2)*NROWS*NVAL]//NN
+					-1*rows[0][0+(-2*NCH+2)*NROWS*NVAL]//WW
+				;
+				pred[0]<<=1;
+				pred[1]<<=1;
+				pred[2]<<=1;
+#endif
+
+				//			-2
+				//		-4	10	2
+				//	-2	12	[?]
+#if 0
+				pred[0]=
+					+10*rows[1][0+(+0*NCH+0)*NROWS*NVAL]//N
+					+12*rows[0][0+(-1*NCH+0)*NROWS*NVAL]//W
+					- 4*rows[1][0+(-1*NCH+0)*NROWS*NVAL]//NW
+					+ 2*rows[1][0+(+1*NCH+0)*NROWS*NVAL]//NE
+					- 2*rows[2][0+(+0*NCH+0)*NROWS*NVAL]//NN
+					- 2*rows[0][0+(-2*NCH+0)*NROWS*NVAL]//WW
+				;
+				pred[1]=
+					+10*rows[1][0+(+0*NCH+1)*NROWS*NVAL]//N
+					+12*rows[0][0+(-1*NCH+1)*NROWS*NVAL]//W
+					- 4*rows[1][0+(-1*NCH+1)*NROWS*NVAL]//NW
+					+ 2*rows[1][0+(+1*NCH+1)*NROWS*NVAL]//NE
+					- 2*rows[2][0+(+0*NCH+1)*NROWS*NVAL]//NN
+					- 2*rows[0][0+(-2*NCH+1)*NROWS*NVAL]//WW
+				;
+				pred[2]=
+					+10*rows[1][0+(+0*NCH+2)*NROWS*NVAL]//N
+					+12*rows[0][0+(-1*NCH+2)*NROWS*NVAL]//W
+					- 4*rows[1][0+(-1*NCH+2)*NROWS*NVAL]//NW
+					+ 2*rows[1][0+(+1*NCH+2)*NROWS*NVAL]//NE
+					- 2*rows[2][0+(+0*NCH+2)*NROWS*NVAL]//NN
+					- 2*rows[0][0+(-2*NCH+2)*NROWS*NVAL]//WW
+				;
+#endif
+
+				//				-2
+				//			-5	10	2
+				//	1	-3	13	[?]
+#if 0
+				pred[0]=
+					+10*rows[1][0+(+0*NCH+0)*NROWS*NVAL]//N
+					+13*rows[0][0+(-1*NCH+0)*NROWS*NVAL]//W
+					- 5*rows[1][0+(-1*NCH+0)*NROWS*NVAL]//NW
+					+ 2*rows[1][0+(+1*NCH+0)*NROWS*NVAL]//NE
+					- 2*rows[2][0+(+0*NCH+0)*NROWS*NVAL]//NN
+					- 3*rows[0][0+(-2*NCH+0)*NROWS*NVAL]//WW
+					+   rows[0][0+(-3*NCH+0)*NROWS*NVAL]//WWW
+				;
+				pred[1]=
+					+10*rows[1][0+(+0*NCH+1)*NROWS*NVAL]//N
+					+13*rows[0][0+(-1*NCH+1)*NROWS*NVAL]//W
+					- 5*rows[1][0+(-1*NCH+1)*NROWS*NVAL]//NW
+					+ 2*rows[1][0+(+1*NCH+1)*NROWS*NVAL]//NE
+					- 2*rows[2][0+(+0*NCH+1)*NROWS*NVAL]//NN
+					- 3*rows[0][0+(-2*NCH+1)*NROWS*NVAL]//WW
+					+   rows[0][0+(-3*NCH+1)*NROWS*NVAL]//WWW
+				;
+				pred[2]=
+					+10*rows[1][0+(+0*NCH+2)*NROWS*NVAL]//N
+					+13*rows[0][0+(-1*NCH+2)*NROWS*NVAL]//W
+					- 5*rows[1][0+(-1*NCH+2)*NROWS*NVAL]//NW
+					+ 2*rows[1][0+(+1*NCH+2)*NROWS*NVAL]//NE
+					- 2*rows[2][0+(+0*NCH+2)*NROWS*NVAL]//NN
+					- 3*rows[0][0+(-2*NCH+2)*NROWS*NVAL]//WW
+					+   rows[0][0+(-3*NCH+2)*NROWS*NVAL]//WWW
+				;
+#endif
+
 				//					1/8
 				//					-2
 				//				-5	10	2	1/8
 				//	-2/8	1	-3	13	[?]
+#if 0
 				pred[0]=
 					+10*rows[1][0+(+0*NCH+0)*NROWS*NVAL]//N
 					+13*rows[0][0+(-1*NCH+0)*NROWS*NVAL]//W
@@ -721,9 +821,11 @@ int c54_codec(int argc, char **argv)
 					- 3*rows[0][0+(-2*NCH+0)*NROWS*NVAL]//WW
 					+   rows[0][0+(-3*NCH+0)*NROWS*NVAL]//WWW
 					+((
-						-2*rows[0][0+(-4*NCH+0)*NROWS*NVAL]//WWWW
-						+  rows[3][0+(+0*NCH+0)*NROWS*NVAL]//NNN
-						+  rows[1][0+(+2*NCH+0)*NROWS*NVAL]//NEE
+						-rows[0][0+(-4*NCH+0)*NROWS*NVAL]//WWWW
+						+rows[3][0+(+0*NCH+0)*NROWS*NVAL]//NNN
+					//	-2*rows[0][0+(-4*NCH+0)*NROWS*NVAL]//WWWW
+					//	+  rows[3][0+(+0*NCH+0)*NROWS*NVAL]//NNN
+					//	+  rows[1][0+(+2*NCH+0)*NROWS*NVAL]//NEE
 					)>>3);
 				pred[1]=
 					+10*rows[1][0+(+0*NCH+1)*NROWS*NVAL]//N
@@ -734,9 +836,11 @@ int c54_codec(int argc, char **argv)
 					- 3*rows[0][0+(-2*NCH+1)*NROWS*NVAL]//WW
 					+   rows[0][0+(-3*NCH+1)*NROWS*NVAL]//WWW
 					+((
-						-2*rows[0][0+(-4*NCH+1)*NROWS*NVAL]//WWWW
-						+  rows[3][0+(+0*NCH+1)*NROWS*NVAL]//NNN
-						+  rows[1][0+(+2*NCH+1)*NROWS*NVAL]//NEE
+						-rows[0][0+(-4*NCH+1)*NROWS*NVAL]//WWWW
+						+rows[3][0+(+0*NCH+1)*NROWS*NVAL]//NNN
+					//	-2*rows[0][0+(-4*NCH+1)*NROWS*NVAL]//WWWW
+					//	+  rows[3][0+(+0*NCH+1)*NROWS*NVAL]//NNN
+					//	+  rows[1][0+(+2*NCH+1)*NROWS*NVAL]//NEE
 					)>>3);
 				pred[2]=
 					+10*rows[1][0+(+0*NCH+2)*NROWS*NVAL]//N
@@ -747,10 +851,14 @@ int c54_codec(int argc, char **argv)
 					- 3*rows[0][0+(-2*NCH+2)*NROWS*NVAL]//WW
 					+   rows[0][0+(-3*NCH+2)*NROWS*NVAL]//WWW
 					+((
-						-2*rows[0][0+(-4*NCH+2)*NROWS*NVAL]//WWWW
-						+  rows[3][0+(+0*NCH+2)*NROWS*NVAL]//NNN
-						+  rows[1][0+(+2*NCH+2)*NROWS*NVAL]//NEE
+						-rows[0][0+(-4*NCH+2)*NROWS*NVAL]//WWWW
+						+rows[3][0+(+0*NCH+2)*NROWS*NVAL]//NNN
+					//	-2*rows[0][0+(-4*NCH+2)*NROWS*NVAL]//WWWW
+					//	+  rows[3][0+(+0*NCH+2)*NROWS*NVAL]//NNN
+					//	+  rows[1][0+(+2*NCH+2)*NROWS*NVAL]//NEE
 					)>>3);
+#endif
+
 #if 1
 				t[0]=vmax[0]=rows[1][0+(+0*NCH+0)*NROWS*NVAL]; t[0+3]=vmin[0]=rows[0][0+(-1*NCH+0)*NROWS*NVAL];//N W
 				t[1]=vmax[1]=rows[1][0+(+0*NCH+1)*NROWS*NVAL]; t[1+3]=vmin[1]=rows[0][0+(-1*NCH+1)*NROWS*NVAL];
@@ -785,11 +893,7 @@ int c54_codec(int argc, char **argv)
 				CLAMP(pred[0], vmin[0]-(1<<PREDADD>>1), vmax[0]+(1<<PREDADD>>1));
 				CLAMP(pred[1], vmin[1]-(1<<PREDADD>>1), vmax[1]+(1<<PREDADD>>1));
 				CLAMP(pred[2], vmin[2]-(1<<PREDADD>>1), vmax[2]+(1<<PREDADD>>1));
-#endif
-				nbypass[0]=logtable[rows[0][1+(-1*NCH+0)*NROWS*NVAL]];//nW
-				nbypass[1]=logtable[rows[0][1+(-1*NCH+1)*NROWS*NVAL]];
-				nbypass[2]=logtable[rows[0][1+(-1*NCH+2)*NROWS*NVAL]];
-				
+#endif				
 				data=*(uint32_t*)rdptr;
 				if(rdptr>=rdend)
 				{
@@ -848,21 +952,21 @@ int c54_codec(int argc, char **argv)
 				rows[0][0+(+0*NCH+2)*NROWS*NVAL]=(yuv[2]<<RCTBITS)-offset[2];
 				//			8	12	8
 				//	20	[17]	?
-				rows[0][1+(+0*NCH+0)*NROWS*NVAL]=(
+				nbypass[0]=rows[0][1+(+0*NCH+0)*NROWS*NVAL]=(
 					+20*rows[0][1+(-1*NCH+0)*NROWS*NVAL]//nW
 					+17*sym[0]
 					+ 8*rows[1][1+(+1*NCH+0)*NROWS*NVAL]//nNE
 					+12*rows[1][1+(+2*NCH+0)*NROWS*NVAL]//nNEE
 					+ 8*rows[1][1+(+3*NCH+0)*NROWS*NVAL]//nNEEE
 				+9)>>6;
-				rows[0][1+(+0*NCH+1)*NROWS*NVAL]=(
+				nbypass[1]=rows[0][1+(+0*NCH+1)*NROWS*NVAL]=(
 					+20*rows[0][1+(-1*NCH+1)*NROWS*NVAL]//nW
 					+17*sym[1]
 					+ 8*rows[1][1+(+1*NCH+1)*NROWS*NVAL]//nNE
 					+12*rows[1][1+(+2*NCH+1)*NROWS*NVAL]//nNEE
 					+ 8*rows[1][1+(+3*NCH+1)*NROWS*NVAL]//nNEEE
 				+9)>>6;
-				rows[0][1+(+0*NCH+2)*NROWS*NVAL]=(
+				nbypass[2]=rows[0][1+(+0*NCH+2)*NROWS*NVAL]=(
 					+20*rows[0][1+(-1*NCH+2)*NROWS*NVAL]//nW
 					+17*sym[2]
 					+ 8*rows[1][1+(+1*NCH+2)*NROWS*NVAL]//nNE
@@ -873,18 +977,118 @@ int c54_codec(int argc, char **argv)
 				rows[1]+=NCH*NROWS*NVAL;
 				rows[2]+=NCH*NROWS*NVAL;
 				rows[3]+=NCH*NROWS*NVAL;
+				nbypass[0]=logtable[nbypass[0]];//next nW
+				nbypass[1]=logtable[nbypass[1]];
+				nbypass[2]=logtable[nbypass[2]];
 			}
 		}
-		else
+		else//dec
 		{
 			int nzeros;
 
 			for(int kx=0;kx<iw;++kx)
 			{
+				//			-1
+				//		-2	+5	1
+				//	-1	+6	[?]
+#if 1
+				pred[0]=
+					+5*rows[1][0+(+0*NCH+0)*NROWS*NVAL]//N
+					+6*rows[0][0+(-1*NCH+0)*NROWS*NVAL]//W
+					-2*rows[1][0+(-1*NCH+0)*NROWS*NVAL]//NW
+					+1*rows[1][0+(+1*NCH+0)*NROWS*NVAL]//NE
+					-1*rows[2][0+(+0*NCH+0)*NROWS*NVAL]//NN
+					-1*rows[0][0+(-2*NCH+0)*NROWS*NVAL]//WW
+				;
+				pred[1]=
+					+5*rows[1][0+(+0*NCH+1)*NROWS*NVAL]//N
+					+6*rows[0][0+(-1*NCH+1)*NROWS*NVAL]//W
+					-2*rows[1][0+(-1*NCH+1)*NROWS*NVAL]//NW
+					+1*rows[1][0+(+1*NCH+1)*NROWS*NVAL]//NE
+					-1*rows[2][0+(+0*NCH+1)*NROWS*NVAL]//NN
+					-1*rows[0][0+(-2*NCH+1)*NROWS*NVAL]//WW
+				;
+				pred[2]=
+					+5*rows[1][0+(+0*NCH+2)*NROWS*NVAL]//N
+					+6*rows[0][0+(-1*NCH+2)*NROWS*NVAL]//W
+					-2*rows[1][0+(-1*NCH+2)*NROWS*NVAL]//NW
+					+1*rows[1][0+(+1*NCH+2)*NROWS*NVAL]//NE
+					-1*rows[2][0+(+0*NCH+2)*NROWS*NVAL]//NN
+					-1*rows[0][0+(-2*NCH+2)*NROWS*NVAL]//WW
+				;
+				pred[0]<<=1;
+				pred[1]<<=1;
+				pred[2]<<=1;
+#endif
+
+				//			-2
+				//		-4	10	2
+				//	-2	12	[?]
+#if 0
+				pred[0]=
+					+10*rows[1][0+(+0*NCH+0)*NROWS*NVAL]//N
+					+12*rows[0][0+(-1*NCH+0)*NROWS*NVAL]//W
+					- 4*rows[1][0+(-1*NCH+0)*NROWS*NVAL]//NW
+					+ 2*rows[1][0+(+1*NCH+0)*NROWS*NVAL]//NE
+					- 2*rows[2][0+(+0*NCH+0)*NROWS*NVAL]//NN
+					- 2*rows[0][0+(-2*NCH+0)*NROWS*NVAL]//WW
+				;
+				pred[1]=
+					+10*rows[1][0+(+0*NCH+1)*NROWS*NVAL]//N
+					+12*rows[0][0+(-1*NCH+1)*NROWS*NVAL]//W
+					- 4*rows[1][0+(-1*NCH+1)*NROWS*NVAL]//NW
+					+ 2*rows[1][0+(+1*NCH+1)*NROWS*NVAL]//NE
+					- 2*rows[2][0+(+0*NCH+1)*NROWS*NVAL]//NN
+					- 2*rows[0][0+(-2*NCH+1)*NROWS*NVAL]//WW
+				;
+				pred[2]=
+					+10*rows[1][0+(+0*NCH+2)*NROWS*NVAL]//N
+					+12*rows[0][0+(-1*NCH+2)*NROWS*NVAL]//W
+					- 4*rows[1][0+(-1*NCH+2)*NROWS*NVAL]//NW
+					+ 2*rows[1][0+(+1*NCH+2)*NROWS*NVAL]//NE
+					- 2*rows[2][0+(+0*NCH+2)*NROWS*NVAL]//NN
+					- 2*rows[0][0+(-2*NCH+2)*NROWS*NVAL]//WW
+				;
+#endif
+
+				//				-2
+				//			-5	10	2
+				//	1	-3	13	[?]
+#if 0
+				pred[0]=
+					+10*rows[1][0+(+0*NCH+0)*NROWS*NVAL]//N
+					+13*rows[0][0+(-1*NCH+0)*NROWS*NVAL]//W
+					- 5*rows[1][0+(-1*NCH+0)*NROWS*NVAL]//NW
+					+ 2*rows[1][0+(+1*NCH+0)*NROWS*NVAL]//NE
+					- 2*rows[2][0+(+0*NCH+0)*NROWS*NVAL]//NN
+					- 3*rows[0][0+(-2*NCH+0)*NROWS*NVAL]//WW
+					+   rows[0][0+(-3*NCH+0)*NROWS*NVAL]//WWW
+				;
+				pred[1]=
+					+10*rows[1][0+(+0*NCH+1)*NROWS*NVAL]//N
+					+13*rows[0][0+(-1*NCH+1)*NROWS*NVAL]//W
+					- 5*rows[1][0+(-1*NCH+1)*NROWS*NVAL]//NW
+					+ 2*rows[1][0+(+1*NCH+1)*NROWS*NVAL]//NE
+					- 2*rows[2][0+(+0*NCH+1)*NROWS*NVAL]//NN
+					- 3*rows[0][0+(-2*NCH+1)*NROWS*NVAL]//WW
+					+   rows[0][0+(-3*NCH+1)*NROWS*NVAL]//WWW
+				;
+				pred[2]=
+					+10*rows[1][0+(+0*NCH+2)*NROWS*NVAL]//N
+					+13*rows[0][0+(-1*NCH+2)*NROWS*NVAL]//W
+					- 5*rows[1][0+(-1*NCH+2)*NROWS*NVAL]//NW
+					+ 2*rows[1][0+(+1*NCH+2)*NROWS*NVAL]//NE
+					- 2*rows[2][0+(+0*NCH+2)*NROWS*NVAL]//NN
+					- 3*rows[0][0+(-2*NCH+2)*NROWS*NVAL]//WW
+					+   rows[0][0+(-3*NCH+2)*NROWS*NVAL]//WWW
+				;
+#endif
+
 				//					1/8
 				//					-2
 				//				-5	10	2	1/8
 				//	-2/8	1	-3	13	[?]
+#if 0
 				pred[0]=
 					+10*rows[1][0+(+0*NCH+0)*NROWS*NVAL]//N
 					+13*rows[0][0+(-1*NCH+0)*NROWS*NVAL]//W
@@ -894,9 +1098,11 @@ int c54_codec(int argc, char **argv)
 					- 3*rows[0][0+(-2*NCH+0)*NROWS*NVAL]//WW
 					+   rows[0][0+(-3*NCH+0)*NROWS*NVAL]//WWW
 					+((
-						-2*rows[0][0+(-4*NCH+0)*NROWS*NVAL]//WWWW
-						+  rows[3][0+(+0*NCH+0)*NROWS*NVAL]//NNN
-						+  rows[1][0+(+2*NCH+0)*NROWS*NVAL]//NEE
+						-rows[0][0+(-4*NCH+0)*NROWS*NVAL]//WWWW
+						+rows[3][0+(+0*NCH+0)*NROWS*NVAL]//NNN
+					//	-2*rows[0][0+(-4*NCH+0)*NROWS*NVAL]//WWWW
+					//	+  rows[3][0+(+0*NCH+0)*NROWS*NVAL]//NNN
+					//	+  rows[1][0+(+2*NCH+0)*NROWS*NVAL]//NEE
 					)>>3);
 				pred[1]=
 					+10*rows[1][0+(+0*NCH+1)*NROWS*NVAL]//N
@@ -907,9 +1113,11 @@ int c54_codec(int argc, char **argv)
 					- 3*rows[0][0+(-2*NCH+1)*NROWS*NVAL]//WW
 					+   rows[0][0+(-3*NCH+1)*NROWS*NVAL]//WWW
 					+((
-						-2*rows[0][0+(-4*NCH+1)*NROWS*NVAL]//WWWW
-						+  rows[3][0+(+0*NCH+1)*NROWS*NVAL]//NNN
-						+  rows[1][0+(+2*NCH+1)*NROWS*NVAL]//NEE
+						-rows[0][0+(-4*NCH+1)*NROWS*NVAL]//WWWW
+						+rows[3][0+(+0*NCH+1)*NROWS*NVAL]//NNN
+					//	-2*rows[0][0+(-4*NCH+1)*NROWS*NVAL]//WWWW
+					//	+  rows[3][0+(+0*NCH+1)*NROWS*NVAL]//NNN
+					//	+  rows[1][0+(+2*NCH+1)*NROWS*NVAL]//NEE
 					)>>3);
 				pred[2]=
 					+10*rows[1][0+(+0*NCH+2)*NROWS*NVAL]//N
@@ -920,10 +1128,14 @@ int c54_codec(int argc, char **argv)
 					- 3*rows[0][0+(-2*NCH+2)*NROWS*NVAL]//WW
 					+   rows[0][0+(-3*NCH+2)*NROWS*NVAL]//WWW
 					+((
-						-2*rows[0][0+(-4*NCH+2)*NROWS*NVAL]//WWWW
-						+  rows[3][0+(+0*NCH+2)*NROWS*NVAL]//NNN
-						+  rows[1][0+(+2*NCH+2)*NROWS*NVAL]//NEE
+						-rows[0][0+(-4*NCH+2)*NROWS*NVAL]//WWWW
+						+rows[3][0+(+0*NCH+2)*NROWS*NVAL]//NNN
+					//	-2*rows[0][0+(-4*NCH+2)*NROWS*NVAL]//WWWW
+					//	+  rows[3][0+(+0*NCH+2)*NROWS*NVAL]//NNN
+					//	+  rows[1][0+(+2*NCH+2)*NROWS*NVAL]//NEE
 					)>>3);
+#endif
+
 #if 1
 				t[0]=vmax[0]=rows[1][0+(+0*NCH+0)*NROWS*NVAL]; t[0+3]=vmin[0]=rows[0][0+(-1*NCH+0)*NROWS*NVAL];//N W
 				t[1]=vmax[1]=rows[1][0+(+0*NCH+1)*NROWS*NVAL]; t[1+3]=vmin[1]=rows[0][0+(-1*NCH+1)*NROWS*NVAL];
@@ -959,9 +1171,6 @@ int c54_codec(int argc, char **argv)
 				CLAMP(pred[1], vmin[1]-(1<<PREDADD>>1), vmax[1]+(1<<PREDADD>>1));
 				CLAMP(pred[2], vmin[2]-(1<<PREDADD>>1), vmax[2]+(1<<PREDADD>>1));
 #endif
-				nbypass[0]=logtable[rows[0][1+(-1*NCH+0)*NROWS*NVAL]];//nW
-				nbypass[1]=logtable[rows[0][1+(-1*NCH+1)*NROWS*NVAL]];
-				nbypass[2]=logtable[rows[0][1+(-1*NCH+2)*NROWS*NVAL]];
 				
 				offset[0]=0;
 				pred[0]=(pred[0]+offset[0]+((1<<TOTALADD>>1)+2))>>TOTALADD;
@@ -1077,21 +1286,21 @@ int c54_codec(int argc, char **argv)
 				rows[0][0+(+0*NCH+2)*NROWS*NVAL]=(yuv[2]<<RCTBITS)-offset[2];
 				//			8	12	8
 				//	20	[17]	?
-				rows[0][1+(+0*NCH+0)*NROWS*NVAL]=(
+				nbypass[0]=rows[0][1+(+0*NCH+0)*NROWS*NVAL]=(
 					+20*rows[0][1+(-1*NCH+0)*NROWS*NVAL]//nW
 					+17*sym[0]
 					+ 8*rows[1][1+(+1*NCH+0)*NROWS*NVAL]//nNE
 					+12*rows[1][1+(+2*NCH+0)*NROWS*NVAL]//nNEE
 					+ 8*rows[1][1+(+3*NCH+0)*NROWS*NVAL]//nNEEE
 				+9)>>6;
-				rows[0][1+(+0*NCH+1)*NROWS*NVAL]=(
+				nbypass[1]=rows[0][1+(+0*NCH+1)*NROWS*NVAL]=(
 					+20*rows[0][1+(-1*NCH+1)*NROWS*NVAL]//nW
 					+17*sym[1]
 					+ 8*rows[1][1+(+1*NCH+1)*NROWS*NVAL]//nNE
 					+12*rows[1][1+(+2*NCH+1)*NROWS*NVAL]//nNEE
 					+ 8*rows[1][1+(+3*NCH+1)*NROWS*NVAL]//nNEEE
 				+9)>>6;
-				rows[0][1+(+0*NCH+2)*NROWS*NVAL]=(
+				nbypass[2]=rows[0][1+(+0*NCH+2)*NROWS*NVAL]=(
 					+20*rows[0][1+(-1*NCH+2)*NROWS*NVAL]//nW
 					+17*sym[2]
 					+ 8*rows[1][1+(+1*NCH+2)*NROWS*NVAL]//nNE
@@ -1102,6 +1311,9 @@ int c54_codec(int argc, char **argv)
 				rows[1]+=NCH*NROWS*NVAL;
 				rows[2]+=NCH*NROWS*NVAL;
 				rows[3]+=NCH*NROWS*NVAL;
+				nbypass[0]=logtable[nbypass[0]];//next nW
+				nbypass[1]=logtable[nbypass[1]];
+				nbypass[2]=logtable[nbypass[2]];
 			}
 		}
 #endif
