@@ -44,8 +44,8 @@ int main(int argc, char **argv)
 	}
 	const char *fn1=argv[1], *fn2=argv[2];
 	ptrdiff_t len1=0, len2=0;
-	uint16_t *src1=(uint16_t*)file_load(fn1, &len1);
-	uint16_t *src2=(uint16_t*)file_load(fn2, &len2);
+	int16_t *src1=(int16_t*)file_load(fn1, &len1);
+	int16_t *src2=(int16_t*)file_load(fn2, &len2);
 	ptrdiff_t len=(len1<len2?len1:len2)/2;
 	int64_t besterror=0;
 	int bestshift=0;
@@ -76,7 +76,7 @@ int main(int argc, char **argv)
 		}
 	}
 	double rmse=sqrt((double)besterror/len);
-	double psnr=-20*log10(rmse/0x7FFF);
+	double psnr=-20*log10(rmse*(1./0x7FFF));
 	printf("RMSE %12.6lf  PSNR %12.6lf  phase shift %d\n", rmse, psnr, bestshift);
 	free(src1);
 	free(src2);

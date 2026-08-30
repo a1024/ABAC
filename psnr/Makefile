@@ -1,24 +1,21 @@
 
-ifeq ($(OS), Windows_NT)
-LIBS += -static
-else
-LIBS += -lm
-endif
-
 hist:
-	gcc -Wall -O3 -s hist.c -o hist $(LIBS)
+	gcc -Wall -O3 -s -static hist.c -o hist -lm
+
+imgen:
+	gcc -Wall -O3 -s -static imgen.c -o imgen -lm
 
 psnr:
-	gcc -Wall -O3 -s psnr.c -o psnr $(LIBS)
+	gcc -Wall -O3 -s -static psnr.c -o psnr -lm
 
 ssim:
-	gcc -Wall -O3 -s ssim.c -o ssim $(LIBS)
+	gcc -Wall -O3 -s -static ssim.c -o ssim -lm
 
 wavpsnr:
-	gcc -Wall -O3 -s wavpsnr.c -o wavpsnr $(LIBS)
+	gcc -Wall -O3 -s -static wavpsnr.c -o wavpsnr -lm
 
 diff:
-	gcc -Wall -O3 -s diff.c -o diff $(LIBS)
+	gcc -Wall -O3 -s -static diff.c -o diff -lm
 
 chism:
-	gcc -Wall -O3 -mavx2 -mbmi -mlzcnt -s chism.c -o chism $(LIBS)
+	gcc -Wall -O3 -mavx2 -mbmi -mlzcnt -s -static chism.c -o chism -lm
