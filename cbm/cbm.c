@@ -1345,8 +1345,8 @@ int main(int argc, char **argv)
 	codecname=argc<3?0:argv[2];
 	flags=argc==4?atoi(argv[3]):CMDFLAG_VERIFY_BITEXACT;
 #else
-	datasetname="fivek";
-	codecname="qlic2";
+	datasetname="gdcc";
+	codecname="qic";
 	//datasetname="bandcamp";
 	//codecname="aupk01";
 #endif
@@ -1875,7 +1875,7 @@ dec command template
 	}
 	TestInfo *selfrival=0;
 	TestInfo *currtest=(TestInfo*)ARRAY_APPEND(testinfo, 0, 1, 1, 0);
-	if(testinfo->count)
+	if(testinfo->count>1)
 	{
 		for(int k=0;k<(int)besttestidxs->count;++k)
 		{

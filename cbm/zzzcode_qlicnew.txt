@@ -1,0 +1,2 @@
+qlicnew pack *.png *.qlic
+qlicnew unpack *.qlic *.png
