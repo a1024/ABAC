@@ -28,12 +28,15 @@
 
 #ifdef _MSC_VER
 	#define LOUD
-//	#define PRINT_RCT
-//	#define GETPRANGE
+	#define PRINT_RCT
 
 	#define ENABLE_GUIDE
 //	#define FIFOVAL
 #endif
+
+
+//	#define ENABLE_LUMA_UPDATE	//X  bad
+//	#define TEST_LUMA_UPDATE	//X  bad
 
 
 enum
@@ -242,36 +245,35 @@ static void print_rct(RCTInfo *rct)
 		, rct->vc1+(rct->vc1<9?'0':'A'-10)
 		, RCTMAX+(RCTMAX<9?'0':'A'-10)
 	);
-	//printf("[%7d]  RCT%c%c%c_%c_%c%c/%c  %16lld"
-	//	, tidx
-	//	, '0'+perms[rct->pidx*3+0]
-	//	, '0'+perms[rct->pidx*3+1]
-	//	, '0'+perms[rct->pidx*3+2]
-	//	, rct->uc0+(rct->uc0<9?'0':'A'-10)
-	//	, rct->vc0+(rct->vc0<9?'0':'A'-10)
-	//	, rct->vc1+(rct->vc1<9?'0':'A'-10)
-	//	, RCTMAX+(RCTMAX<9?'0':'A'-10)
-	//	, score
-	//);
 }
 typedef struct _AnalysisCtrs
 {
-	int32_t yctr, uctrs[RCTLEVELS], vctrs[RCTLEVELS*(RCTLEVELS+1)/2+1];
+	uint32_t yctrs[
+#if defined ENABLE_LUMA_UPDATE
+		RCTLEVELS*(RCTLEVELS+1)/2
+#else
+		1
+#endif
+	][
+#if defined ENABLE_LUMA_UPDATE
+		RCTLEVELS*(RCTLEVELS+1)/2
+#else
+		1
+#endif
+	], uctrs[RCTLEVELS], vctrs[RCTLEVELS*(RCTLEVELS+1)/2];
 } AnalysisCtrs;
 static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 {
-	//strided analysis
-#if 1
 	enum
 	{
-		STRIDE=7,
+		STRIDE=11,
 	};
-	AnalysisCtrs counters[NPERMS]={0}, counters2[NPERMS]={0};
+	AnalysisCtrs counters[NPERMS]={0};
 	uint8_t *image=0, *imptr=0;
 	int32_t size=0;
 	int rstr=0;
 	long fidx=0;
-	uint32_t bestscore=0, bestscore2=0;
+	uint32_t bestscore=0;
 	RCTInfo rct={0};
 #ifdef PRINT_RCT
 	int it=0;
@@ -309,153 +311,124 @@ static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 					rgb[perms[3*kp+1]],
 					rgb[perms[3*kp+2]],
 				};
-				currctrs->yctr+=abs(yuv[0]);
+#if defined ENABLE_LUMA_UPDATE
 				for(int kp1=0, idx=0;kp1<=RCTMAX;++kp1)
 				{
-					currctrs->uctrs[kp1]+=abs(yuv[1]-(kp1*yuv[0]>>RCTBITS));
+					int u=yuv[1]-(kp1*yuv[0]>>RCTBITS);
+					currctrs->uctrs[kp1]+=abs(u);
 					for(int kp2=0;kp1+kp2<=RCTMAX;++kp2, ++idx)
-						currctrs->vctrs[idx]+=abs(yuv[2]-((kp1*yuv[0]+kp2*yuv[1])>>RCTBITS));
+					{
+						int v=yuv[2]-((kp1*yuv[0]+kp2*yuv[1])>>RCTBITS);
+						currctrs->vctrs[idx]+=abs(v);
+						for(int kp3=0, idx2=0;kp3<=RCTMAX;++kp3)
+						{
+							for(int kp4=0;kp3+kp4<=RCTMAX;++kp4, ++idx2)
+							{
+								int y=yuv[0]+((kp3*u+kp4*v+(1<<RCTBITS))>>(RCTBITS+1));
+							//	y<<=32-(8+RCTBITS);
+							//	y>>=32-(8+RCTBITS);
+								currctrs->yctrs[idx][idx2]+=abs(y);
+							}
+						}
+					}
 				}
+#else
+				currctrs->yctrs[0][0]+=abs(yuv[0]);
+				for(int kp1=0, idx=0;kp1<=RCTMAX;++kp1)
+				{
+					int u=yuv[1]-(kp1*yuv[0]>>RCTBITS);
+					currctrs->uctrs[kp1]+=abs(u);
+					for(int kp2=0;kp1+kp2<=RCTMAX;++kp2, ++idx)
+					{
+						int v=yuv[2]-((kp1*yuv[0]+kp2*yuv[1])>>RCTBITS);
+						currctrs->vctrs[idx]+=abs(v);
+					}
+				}
+#endif
 			}
-		}
-		for(int k=0;k<sizeof(counters)/(sizeof(uint32_t));++k)
-		{
-			uint32_t *src=((uint32_t*)counters)+k, *dst=((uint32_t*)counters2)+k;
-			*dst+=*src>>16;
-			*src&=0xFFFF;
 		}
 	}
 	free(image);
 	fseek(fsrc, fidx, SEEK_SET);
-#endif
-
-	//buffered analysis	slow
-#if 0
-	enum
-	{
-		XPAD=8,
-		NCH=3,
-		NROWS=1,
-		NVAL=1,
-	};
-	AnalysisCtrs counters[NPERMS]={0};
-	uint8_t *const rdend=rdbuf+sizeof(uint32_t)+BUFSIZE, *rdptr=0;
-	long fidx=0;
-	int prev[3]={0}, rgb[3]={0}, yuv[3]={0};
-	int64_t bestscore=0;
-	RCTInfo rct={0};
-#ifdef PRINT_RCT
-	int it=0;
-#endif
-	int psize=0;
-	int16_t *pixels=0;
 	
-	rdptr=rdend;
-	fidx=ftell(fsrc);
-	psize=(iw+2*XPAD)*(int)sizeof(int16_t[NCH*NROWS*NVAL]);
-	pixels=(int16_t*)malloc(psize);
-	if(!pixels)
+#ifdef PRINT_RCT
+	printf("Y:\n");
+	for(int k=0;k<RCTLEVELS*(RCTLEVELS+1)/2;++k)
 	{
-		CRASH("Alloc error");
-		return;
-	}
-	memset(pixels, 0, psize);
-	for(int ky=0;ky<ih;++ky)
-	{
-		int16_t *rows[]=
+		for(int k2=0;k2<RCTLEVELS*(RCTLEVELS+1)/2;++k2)
 		{
-			pixels+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,
-		};
-		for(int kx=0;kx<iw;++kx)
-		{
-			uint32_t data=*(uint32_t*)rdptr;
-			if(rdptr>=rdend)
-			{
-				fread(rdbuf+sizeof(uint32_t), 1, BUFSIZE, fsrc);
-				rdptr-=BUFSIZE;
-				data|=*(uint32_t*)rdptr;
-			}
-			rdptr+=3;
-			rgb[0]=(uint8_t)(data>>0*8);
-			rgb[1]=(uint8_t)(data>>1*8);
-			rgb[2]=(uint8_t)(data>>2*8);
-			yuv[0]=rgb[0]-prev[0];
-			yuv[1]=rgb[1]-prev[1];
-			yuv[2]=rgb[2]-prev[2];
-			prev[0]=rgb[0];
-			prev[1]=rgb[1];
-			prev[2]=rgb[2];
-			rgb[0]=yuv[0]-rows[0][0];
-			rgb[1]=yuv[1]-rows[0][1];
-			rgb[2]=yuv[2]-rows[0][2];
-			rows[0][0]=yuv[0];
-			rows[0][1]=yuv[1];
-			rows[0][2]=yuv[2];
-			rows[0]+=NROWS*NVAL*NCH;
-			rgb[0]<<=RCTBITS;
-			rgb[1]<<=RCTBITS;
-			rgb[2]<<=RCTBITS;
 			for(int kp=0;kp<NPERMS;++kp)
-			{
-				AnalysisCtrs *currctrs=counters+kp;
-				yuv[0]=rgb[perms[3*kp+0]];
-				yuv[1]=rgb[perms[3*kp+1]];
-				yuv[2]=rgb[perms[3*kp+2]];
-				currctrs->yctr+=abs(yuv[0]);
-				for(int kp1=0, idx=0;kp1<=RCTMAX;++kp1)
-				{
-					currctrs->uctrs[kp1]+=abs(yuv[1]-(kp1*yuv[0]>>RCTBITS));
-					for(int kp2=0;kp1+kp2<=RCTMAX;++kp2, ++idx)
-						currctrs->vctrs[idx]+=abs(yuv[2]-((kp1*yuv[0]+kp2*yuv[1])>>RCTBITS));
-				}
-			}
+				printf("  %12u", counters[kp].yctrs[k][k2]);
+			printf("\n");
 		}
+		printf("\n");
 	}
-	fseek(fsrc, fidx, SEEK_SET);
-	free(pixels);
+	printf("U:\n");
+	for(int k=0;k<RCTLEVELS;++k)
+	{
+		for(int kp=0;kp<NPERMS;++kp)
+			printf("  %12u", counters[kp].uctrs[k]);
+		printf("\n");
+	}
+	printf("V:\n");
+	for(int k=0;k<RCTLEVELS*(RCTLEVELS+1)/2;++k)
+	{
+		for(int kp=0;kp<NPERMS;++kp)
+			printf("  %12u", counters[kp].vctrs[k]);
+		printf("\n");
+	}
 #endif
-
 	for(int kp=0;kp<NPERMS;++kp)
 	{
 		AnalysisCtrs *currctrs=counters+kp;
-		AnalysisCtrs *currctrs2=counters2+kp;
 		for(int uc0=0;uc0<=RCTMAX;++uc0)
 		{
 			for(int vc0=0, idx=0;vc0<=RCTMAX;++vc0)
 			{
 				for(int vc1=0;vc0+vc1<=RCTMAX;++vc1, ++idx)
 				{
-					uint32_t score=currctrs->yctr+currctrs->uctrs[uc0]+currctrs->vctrs[idx];
-					uint32_t score2=currctrs2->yctr+currctrs2->uctrs[uc0]+currctrs2->vctrs[idx]+(score>>16);
-
-					score&=0xFFFF;
-#ifdef PRINT_RCT
+					for(int yc0=0, idx2=0;yc0<=RCTMAX;++yc0)
 					{
-						RCTInfo rct2={0};
-						rct2.pidx=kp;
-						rct2.uc0=uc0;
-						rct2.vc0=vc0;
-						rct2.vc1=vc1;
-						++it;
-						print_rct(&rct2);
-						if(!bestscore||bestscore>score)
-							printf(" <-");
-						printf("\n");
-					}
+						for(int yc1=0;yc0+yc1<=RCTMAX;++yc1, ++idx2)
+						{
+#if defined ENABLE_LUMA_UPDATE
+							uint32_t score=currctrs->yctrs[idx][idx2]+currctrs->uctrs[uc0]+currctrs->vctrs[idx];
+#else
+							uint32_t score=currctrs->yctrs[0][0]+currctrs->uctrs[uc0]+currctrs->vctrs[idx];
 #endif
-					if((!bestscore2&&!bestscore)||bestscore2>score2||(bestscore2==score2&&bestscore>score))
-					{
-						bestscore2=score2;
-						bestscore=score;
-						rct.pidx=kp;
-						rct.uc0=uc0;
-						rct.vc0=vc0;
-						rct.vc1=vc1;
+#ifdef PRINT_RCT
+							++it;
+#endif
+							if(!bestscore||bestscore>score)
+							{
+								bestscore=score;
+								rct.pidx=kp;
+								rct.uc0=uc0;
+								rct.vc0=vc0;
+								rct.vc1=vc1;
+							//	rct.yc0=yc0;
+							//	rct.yc1=yc1;
+#ifdef PRINT_RCT
+								printf("%5d  ", it);
+								print_rct(&rct);
+								printf("  %10d  =  %10d + %10d + %10d\n"
+									, score
+									, currctrs->yctrs[idx][idx2]
+									, currctrs->uctrs[uc0]
+									, currctrs->vctrs[idx]
+								);
+#endif
+							}
+						}
 					}
 				}
 			}
 		}
 	}
+#ifdef PRINT_RCT
+	print_rct(&rct);
+	printf("\n");
+#endif
 	memcpy(ret_rct, &rct, sizeof(*ret_rct));
 }
 #endif
@@ -466,19 +439,19 @@ static uint32_t enctable[DEPTH<<DEPTH];
 static uint8_t signpack[1<<DEPTH];
 //static uint8_t clamptable[1024];
 static uint8_t rdbuf[BUFSIZE+sizeof(uint32_t[2])], wtbuf[BUFSIZE+sizeof(uint32_t[2])];
-int c54_codec(int argc, char **argv)
+int c61_codec(int argc, char **argv)
 {
 	enum
 	{
 		XPAD=8,
 		NCH=3,
 		NROWS=4,
-		NVAL=2,
+		NVAL=3,
 
 		PREDADD=4,
 		TOTALADD=PREDADD+RCTBITS,
 	};
-	const uint16_t tag='5'|'4'<<8;
+	const uint16_t tag='6'|'1'<<8;
 
 	const char *srcfn=0, *dstfn=0;
 	FILE *fsrc=0, *fdst=0;
@@ -496,9 +469,6 @@ int c54_codec(int argc, char **argv)
 	int ysh=0, ush=0, vsh=0;
 #ifdef LOUD
 	double t=0;
-#endif
-#ifdef GETPRANGE
-	int pmin=255, pmax=0;
 #endif
 	
 	if(argc!=3)
@@ -672,7 +642,7 @@ int c54_codec(int argc, char **argv)
 		}
 		for(int ks=0;ks<1<<DEPTH;++ks)//s->u
 		{
-			int sym=ks-128;
+			int sym=ks-(1<<DEPTH>>1);
 			signpack[ks]=sym<<1^sym>>31;
 		}
 	}
@@ -712,7 +682,7 @@ int c54_codec(int argc, char **argv)
 #if 1
 		uint32_t data;
 		int nbypass[3], pred[3], offset[3];
-		int vmin[3], vmax[3], t[6];
+		//int vmin[3], vmax[3], t[6];
 		int sym[3];
 		uint32_t code[3];
 		
@@ -720,7 +690,7 @@ int c54_codec(int argc, char **argv)
 		//					-2
 		//				-5	10	2	1/8
 		//	-2/8	1	-3	13	[?]
-#if 1
+#if 0
 #define PREDICT(CH) pred[CH]=\
 	+10*rows[1][0+(+0*NCH+CH)*NROWS*NVAL]\
 	+13*rows[0][0+(-1*NCH+CH)*NROWS*NVAL]\
@@ -754,6 +724,20 @@ int c54_codec(int argc, char **argv)
 		-rows[0][0+(-4*NCH+CH)*NROWS*NVAL]\
 		+rows[3][0+(+0*NCH+CH)*NROWS*NVAL]\
 	)>>3)
+
+#endif
+		
+		//				-2
+		//			-5	10	2
+		//	1	-3	13	[?]			opt
+#if 1
+#define PREDICT(CH) pred[CH]=\
+	+ 5*rows[1][2+(+0*NCH+CH)*NROWS*NVAL]\
+	+11*rows[0][0+(-1*NCH+CH)*NROWS*NVAL]\
+	+ 1*rows[0][2+(-1*NCH+CH)*NROWS*NVAL]\
+	+ 2*rows[1][0+(+1*NCH+CH)*NROWS*NVAL]\
+	- 2*rows[2][0+(+0*NCH+CH)*NROWS*NVAL]\
+	- 1*rows[0][2+(-2*NCH+CH)*NROWS*NVAL]\
 
 #endif
 		
@@ -801,6 +785,17 @@ int c54_codec(int argc, char **argv)
 
 #endif
 		
+		//	-2	+3
+		//	+3	[?]
+#if 0
+#define PREDICT(CH) pred[CH]=(\
+		+3*rows[1][0+(+0*NCH+CH)*NROWS*NVAL]\
+		+3*rows[0][0+(-1*NCH+CH)*NROWS*NVAL]\
+		-2*rows[1][0+(-1*NCH+CH)*NROWS*NVAL]\
+	)<<2
+
+#endif
+		
 		//			8	12	8
 		//	20	[17]	?
 #if 1
@@ -817,14 +812,14 @@ int c54_codec(int argc, char **argv)
 		nbypass[0]=4;
 		nbypass[1]=4;
 		nbypass[2]=4;
+		PREDICT(0);
+		PREDICT(1);
+		PREDICT(2);
 		if(fwd)
 		{
 			for(int kx=0;kx<iw;++kx)
 			{
-				PREDICT(0);
-				PREDICT(1);
-				PREDICT(2);
-#if 1
+#if 0
 				t[0]=vmax[0]=rows[1][0+(+0*NCH+0)*NROWS*NVAL]; t[0+3]=vmin[0]=rows[0][0+(-1*NCH+0)*NROWS*NVAL];//N W
 				t[1]=vmax[1]=rows[1][0+(+0*NCH+1)*NROWS*NVAL]; t[1+3]=vmin[1]=rows[0][0+(-1*NCH+1)*NROWS*NVAL];
 				t[2]=vmax[2]=rows[1][0+(+0*NCH+2)*NROWS*NVAL]; t[2+3]=vmin[2]=rows[0][0+(-1*NCH+2)*NROWS*NVAL];
@@ -879,14 +874,6 @@ int c54_codec(int argc, char **argv)
 				pred[0]=(pred[0]+offset[0]+((1<<TOTALADD>>1)+2))>>TOTALADD;
 				pred[1]=(pred[1]+offset[1]+((1<<TOTALADD>>1)+2))>>TOTALADD;
 				pred[2]=(pred[2]+offset[2]+((1<<TOTALADD>>1)+2))>>TOTALADD;
-#ifdef GETPRANGE
-				if(pmin>pred[0])pmin=pred[0];
-				if(pmin>pred[1])pmin=pred[1];
-				if(pmin>pred[2])pmin=pred[2];
-				if(pmax<pred[0])pmax=pred[0];
-				if(pmax<pred[1])pmax=pred[1];
-				if(pmax<pred[2])pmax=pred[2];
-#endif
 				//pred[0]=(clamptable+(_countof(clamptable)*3>>3))[pred[0]];
 				//pred[1]=(clamptable+(_countof(clamptable)*3>>3))[pred[1]];
 				//pred[2]=(clamptable+(_countof(clamptable)*3>>3))[pred[2]];
@@ -897,12 +884,24 @@ int c54_codec(int argc, char **argv)
 				sym[0]=(int8_t)(yuv[0]-pred[0]);
 				sym[1]=(int8_t)(yuv[1]-pred[1]);
 				sym[2]=(int8_t)(yuv[2]-pred[2]);
-				code[0]=(enctable+128)[(nbypass[0]<<DEPTH)+sym[0]];
-				code[1]=(enctable+128)[(nbypass[1]<<DEPTH)+sym[1]];
-				code[2]=(enctable+128)[(nbypass[2]<<DEPTH)+sym[2]];
-				sym[0]=(signpack+128)[sym[0]];
-				sym[1]=(signpack+128)[sym[1]];
-				sym[2]=(signpack+128)[sym[2]];
+				
+#if defined ENABLE_LUMA_UPDATE || defined TEST_LUMA_UPDATE
+				sym[1]-=(sym[0]+(1<<5>>1))>>5;		sym[1]=(int8_t)sym[1];
+				sym[2]-=(sym[0]+(1<<5>>1))>>5;		sym[2]=(int8_t)sym[2];
+				sym[0]+=(sym[1]+sym[2]+(1<<6>>1))>>6;	sym[0]=(int8_t)sym[0];
+
+			//	sym[0]-=(rct.uc0*sym[1]+(rct.vc0+rct.vc1)*sym[2]+16)>>5;//
+			//	sym[0]+=(3*sym[1]+sym[2]+16)>>5;
+			//	sym[0]+=(rct.yc0*sym[1]+rct.yc1*sym[2]+(1<<RCTBITS))>>(RCTBITS+1);//
+			//	sym[0]=(int8_t)sym[0];
+#endif
+
+				code[0]=(enctable+(1<<DEPTH>>1))[(nbypass[0]<<DEPTH)+sym[0]];
+				code[1]=(enctable+(1<<DEPTH>>1))[(nbypass[1]<<DEPTH)+sym[1]];
+				code[2]=(enctable+(1<<DEPTH>>1))[(nbypass[2]<<DEPTH)+sym[2]];
+				sym[0]=(signpack+(1<<DEPTH>>1))[sym[0]];
+				sym[1]=(signpack+(1<<DEPTH>>1))[sym[1]];
+				sym[2]=(signpack+(1<<DEPTH>>1))[sym[2]];
 
 				for(int kc=0;kc<3;++kc)
 				{
@@ -926,10 +925,16 @@ int c54_codec(int argc, char **argv)
 				UPDATE(0);
 				UPDATE(1);
 				UPDATE(2);
+				rows[0][2+(+0*NCH+0)*NROWS*NVAL]=2*rows[0][0+(+0*NCH+0)*NROWS*NVAL]-rows[0][0+(-1*NCH+0)*NROWS*NVAL];
+				rows[0][2+(+0*NCH+1)*NROWS*NVAL]=2*rows[0][0+(+0*NCH+1)*NROWS*NVAL]-rows[0][0+(-1*NCH+1)*NROWS*NVAL];
+				rows[0][2+(+0*NCH+2)*NROWS*NVAL]=2*rows[0][0+(+0*NCH+2)*NROWS*NVAL]-rows[0][0+(-1*NCH+2)*NROWS*NVAL];
 				rows[0]+=NCH*NROWS*NVAL;
 				rows[1]+=NCH*NROWS*NVAL;
 				rows[2]+=NCH*NROWS*NVAL;
 				rows[3]+=NCH*NROWS*NVAL;
+				PREDICT(0);
+				PREDICT(1);
+				PREDICT(2);
 				nbypass[0]=logtable[nbypass[0]];//next nW
 				nbypass[1]=logtable[nbypass[1]];
 				nbypass[2]=logtable[nbypass[2]];
@@ -941,10 +946,7 @@ int c54_codec(int argc, char **argv)
 
 			for(int kx=0;kx<iw;++kx)
 			{
-				PREDICT(0);
-				PREDICT(1);
-				PREDICT(2);
-#if 1
+#if 0
 				t[0]=vmax[0]=rows[1][0+(+0*NCH+0)*NROWS*NVAL]; t[0+3]=vmin[0]=rows[0][0+(-1*NCH+0)*NROWS*NVAL];//N W
 				t[1]=vmax[1]=rows[1][0+(+0*NCH+1)*NROWS*NVAL]; t[1+3]=vmin[1]=rows[0][0+(-1*NCH+1)*NROWS*NVAL];
 				t[2]=vmax[2]=rows[1][0+(+0*NCH+2)*NROWS*NVAL]; t[2+3]=vmin[2]=rows[0][0+(-1*NCH+2)*NROWS*NVAL];
@@ -1000,12 +1002,29 @@ int c54_codec(int argc, char **argv)
 					cache>>=nbypass[kc];
 					nbits-=nzeros+1+nbypass[kc];
 				}
+				UPDATE(0);
+				UPDATE(1);
+				UPDATE(2);
+				sym[0]=(int8_t)signpack[sym[0]];
+				sym[1]=(int8_t)signpack[sym[1]];
+				sym[2]=(int8_t)signpack[sym[2]];
+				
+#if defined ENABLE_LUMA_UPDATE || defined TEST_LUMA_UPDATE
+				sym[0]-=(sym[1]+sym[2]+(1<<6>>1))>>6;		sym[0]=(int8_t)sym[0];
+				sym[2]+=(sym[0]+(1<<5>>1))>>5;			sym[2]=(int8_t)sym[2];
+				sym[1]+=(sym[0]+(1<<5>>1))>>5;			sym[1]=(int8_t)sym[1];
+
+			//	sym[0]+=(rct.uc0*sym[1]+(rct.vc0+rct.vc1)*sym[2]+16)>>5;//
+			//	sym[0]-=(3*sym[1]+sym[2]+16)>>5;
+			//	sym[0]-=(rct.yc0*sym[1]+rct.yc1*sym[2]+(1<<RCTBITS))>>(RCTBITS+1);
+			//	sym[0]=(int8_t)sym[0];
+#endif
 
 				offset[0]=0;
 				pred[0]=(pred[0]+offset[0]+((1<<TOTALADD>>1)+2))>>TOTALADD;
 				//pred[0]=(clamptable+(_countof(clamptable)*3>>3))[pred[0]];
 				CLAMP(pred[0], 0, 255);
-				yuv[0]=(uint8_t)(signpack[sym[0]]+pred[0]);
+				yuv[0]=(uint8_t)(sym[0]+pred[0]);
 #ifdef ENABLE_GUIDE
 				if(yuv[0]!=g_image[3*(iw*ky+kx)+perms[rct.pidx*3+0]])
 				{
@@ -1020,7 +1039,7 @@ int c54_codec(int argc, char **argv)
 				pred[1]=(pred[1]+offset[1]+((1<<TOTALADD>>1)+2))>>TOTALADD;
 				//pred[1]=(clamptable+(_countof(clamptable)*3>>3))[pred[1]];
 				CLAMP(pred[1], 0, 255);
-				yuv[1]=(uint8_t)(signpack[sym[1]]+pred[1]);
+				yuv[1]=(uint8_t)(sym[1]+pred[1]);
 #ifdef ENABLE_GUIDE
 				if(yuv[1]!=g_image[3*(iw*ky+kx)+perms[rct.pidx*3+1]])
 				{
@@ -1035,7 +1054,7 @@ int c54_codec(int argc, char **argv)
 				pred[2]=(pred[2]+offset[2]+((1<<TOTALADD>>1)+2))>>TOTALADD;
 				//pred[2]=(clamptable+(_countof(clamptable)*3>>3))[pred[2]];
 				CLAMP(pred[2], 0, 255);
-				yuv[2]=(uint8_t)(signpack[sym[2]]+pred[2]);
+				yuv[2]=(uint8_t)(sym[2]+pred[2]);
 #ifdef ENABLE_GUIDE
 				if(yuv[2]!=g_image[3*(iw*ky+kx)+perms[rct.pidx*3+2]])
 				{
@@ -1056,13 +1075,16 @@ int c54_codec(int argc, char **argv)
 				rows[0][0+(+0*NCH+0)*NROWS*NVAL]=(yuv[0]<<RCTBITS)-((offset[0]-7)>>PREDADD);
 				rows[0][0+(+0*NCH+1)*NROWS*NVAL]=(yuv[1]<<RCTBITS)-((offset[1]-7)>>PREDADD);
 				rows[0][0+(+0*NCH+2)*NROWS*NVAL]=(yuv[2]<<RCTBITS)-((offset[2]-7)>>PREDADD);
-				UPDATE(0);
-				UPDATE(1);
-				UPDATE(2);
+				rows[0][2+(+0*NCH+0)*NROWS*NVAL]=2*rows[0][0+(+0*NCH+0)*NROWS*NVAL]-rows[0][0+(-1*NCH+0)*NROWS*NVAL];
+				rows[0][2+(+0*NCH+1)*NROWS*NVAL]=2*rows[0][0+(+0*NCH+1)*NROWS*NVAL]-rows[0][0+(-1*NCH+1)*NROWS*NVAL];
+				rows[0][2+(+0*NCH+2)*NROWS*NVAL]=2*rows[0][0+(+0*NCH+2)*NROWS*NVAL]-rows[0][0+(-1*NCH+2)*NROWS*NVAL];
 				rows[0]+=NCH*NROWS*NVAL;
 				rows[1]+=NCH*NROWS*NVAL;
 				rows[2]+=NCH*NROWS*NVAL;
 				rows[3]+=NCH*NROWS*NVAL;
+				PREDICT(0);
+				PREDICT(1);
+				PREDICT(2);
 				nbypass[0]=logtable[nbypass[0]];//next nW
 				nbypass[1]=logtable[nbypass[1]];
 				nbypass[2]=logtable[nbypass[2]];
@@ -1179,8 +1201,8 @@ int c54_codec(int argc, char **argv)
 				if(fwd)
 				{
 					sym=(int8_t)(yuv[kc]-pred);
-					code=enctable[nbypass<<DEPTH|(sym+128)];
-					sym=(signpack+128)[sym];
+					code=(enctable+(1<<DEPTH>>1))[(nbypass<<DEPTH)+sym];
+					sym=(signpack+(1<<DEPTH>>1))[sym];
 					//sym=sym<<1^sym>>31;
 					cache|=code>>8<<nbits;
 					nbits+=(uint8_t)code;
@@ -1276,9 +1298,6 @@ int c54_codec(int argc, char **argv)
 		struct stat info={0};
 		stat(dstfn, &info);
 		csize=info.st_size;
-#ifdef GETPRANGE
-		printf("%d ~ %d\n", pmin, pmax);
-#endif
 		printf("CWH=3*%d*%d  \"%s\"\n", iw, ih, srcfn);
 		printf("%10td->%10td  %8.4lf%%  %12.6lf:1  BPD %12.6lf\n"
 			, usize

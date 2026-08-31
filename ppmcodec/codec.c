@@ -77,6 +77,7 @@ int c57_codec(int argc, char **argv);//low mem Rice (32-bit)
 int c58_codec(int argc, char **argv);//bit coding with plain histograms (c12)
 int c59_codec(int argc, char **argv);//near portable rapid
 int c60_codec(int argc, char **argv);//lossy wavelet FSE/AC
+int c61_codec(int argc, char **argv);//imagezero
 #endif
 
 
@@ -134,13 +135,14 @@ int c60_codec(int argc, char **argv);//lossy wavelet FSE/AC
 //	#define CODEC_EXT c51
 //	#define CODEC_EXT c52//CHECK ARGS
 //	#define CODEC_EXT c53
-	#define CODEC_EXT c54
+//	#define CODEC_EXT c54
 //	#define CODEC_EXT c55
 //	#define CODEC_EXT c56
 //	#define CODEC_EXT c57
 //	#define CODEC_EXT c58
 //	#define CODEC_EXT c59
 //	#define CODEC_EXT c60
+	#define CODEC_EXT c61
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
