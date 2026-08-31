@@ -45,7 +45,7 @@ enum
 
 	NCTX=7,
 	DEPTH=8,
-	RLIMIT=13,//<=16
+	RLIMIT=15,//DEPTH + RLIMIT <= 24
 };
 
 #if 1
@@ -729,7 +729,7 @@ int c61_codec(int argc, char **argv)
 		
 		//				-2
 		//			-5	10	2
-		//	1	-3	13	[?]			opt
+		//	1	-3	13	[?]			slightly optimized
 #if 1
 #define PREDICT(CH) pred[CH]=\
 	+ 5*rows[1][2+(+0*NCH+CH)*NROWS*NVAL]\
@@ -815,6 +815,9 @@ int c61_codec(int argc, char **argv)
 		PREDICT(0);
 		PREDICT(1);
 		PREDICT(2);
+	//	pred[0]=rows[1][0+(+0*NCH+0)*NROWS*NVAL]<<PREDADD;//X  worse
+	//	pred[1]=rows[1][0+(+0*NCH+1)*NROWS*NVAL]<<PREDADD;
+	//	pred[2]=rows[1][0+(+0*NCH+2)*NROWS*NVAL]<<PREDADD;
 		if(fwd)
 		{
 			for(int kx=0;kx<iw;++kx)

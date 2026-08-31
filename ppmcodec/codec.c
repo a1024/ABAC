@@ -70,10 +70,10 @@ int c50_codec(int argc, char **argv);//FELICS-like
 int c51_codec(int argc, char **argv);//chroma subsampling + DCT4 + adaptive quantization
 int c52_codec(int argc, char **argv);//multichannel-AC
 int c53_codec(int argc, char **argv);//bit coding, paq0f mixer
-int c54_codec(int argc, char **argv);//low mem Rice
+int c54_codec(int argc, char **argv);//low mem Rice (32-bit)
 int c55_codec(int argc, char **argv);//16-bit
 int c56_codec(int argc, char **argv);//LZAC (synth)
-int c57_codec(int argc, char **argv);//low mem Rice (32-bit)
+int c57_codec(int argc, char **argv);//low mem Rice
 int c58_codec(int argc, char **argv);//bit coding with plain histograms (c12)
 int c59_codec(int argc, char **argv);//near portable rapid
 int c60_codec(int argc, char **argv);//lossy wavelet FSE/AC
