@@ -28,15 +28,14 @@
 
 #ifdef _MSC_VER
 	#define LOUD
-	#define PRINT_RCT
+//	#define PRINT_RCT
 
 	#define ENABLE_GUIDE
 //	#define FIFOVAL
 #endif
 
 
-//	#define ENABLE_LUMA_UPDATE	//X  bad
-//	#define TEST_LUMA_UPDATE	//X  bad
+//	#define USE_CLAMPTABLE//X  slower
 
 
 enum
@@ -383,7 +382,9 @@ static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 static uint8_t logtable[1<<DEPTH];
 static uint32_t enctable[DEPTH<<DEPTH];
 static uint8_t signpack[1<<DEPTH];
-//static uint8_t clamptable[1024];
+#ifdef USE_CLAMPTABLE
+static uint8_t clamptable[1024];
+#endif
 static uint8_t rdbuf[BUFSIZE+sizeof(uint32_t[2])], wtbuf[BUFSIZE+sizeof(uint32_t[2])];
 int c61_codec(int argc, char **argv)
 {
@@ -392,7 +393,7 @@ int c61_codec(int argc, char **argv)
 		XPAD=8,
 		NCH=4,
 		NROWS=2,
-		NVAL=4,
+		NVAL=3,
 
 		PREDADD=4,
 		TOTALADD=PREDADD+RCTBITS,
@@ -554,16 +555,17 @@ int c61_codec(int argc, char **argv)
 	for(int ks=0;ks<1<<DEPTH;++ks)
 	{
 		int val=31^LZCNT32(ks+1);
-		if(val>NCTX-1)
-			val=NCTX-1;
+		if(val>NCTX-1)val=NCTX-1;
 		logtable[ks]=val;
 	}
-	//for(int k=0;k<_countof(clamptable);++k)
-	//{
-	//	int val=k-(_countof(clamptable)*3>>3);
-	//	CLAMP(val, 0, 255);
-	//	clamptable[k]=val;
-	//}
+#ifdef USE_CLAMPTABLE
+	for(int k=0;k<_countof(clamptable);++k)
+	{
+		int val=k-(_countof(clamptable)*3>>3);
+		CLAMP(val, 0, 255);
+		clamptable[k]=val;
+	}
+#endif
 	if(fwd)
 	{
 		//for(int ks=0;ks<1<<DEPTH;++ks)
@@ -675,7 +677,7 @@ int c61_codec(int argc, char **argv)
 		
 		//				-2
 		//			-5	10	2
-		//	1	-3	13	[?]			264.046491   214.654919 MB/s
+		//	1	-3	13	[?]			273.892616   265.253549 MB/s
 #if 1
 #define PREDICT(CH) pred[CH]=\
 	+8*(+rows[1][0+(+0*NCH+CH)*NROWS*NVAL]+rows[0][0+(-1*NCH+CH)*NROWS*NVAL])\
@@ -691,25 +693,6 @@ int c61_codec(int argc, char **argv)
 		
 		//				-2
 		//			-5	10	2
-		//	1	-3	13	[?]			254.037084   211.666218 MB/s		peak 257.035017   214.905455 MB/s
-#if 0
-#define PREDICT(CH) pred[CH]=\
-	+ 5*rows[1][2+(+0*NCH+CH)*NROWS*NVAL]\
-	+11*rows[0][0+(-1*NCH+CH)*NROWS*NVAL]\
-	+ 1*rows[0][2+(-1*NCH+CH)*NROWS*NVAL]\
-	+ 2*rows[1][0+(+1*NCH+CH)*NROWS*NVAL]\
-	- 2*rows[2][0+(+0*NCH+CH)*NROWS*NVAL]\
-	- 1*rows[0][2+(-2*NCH+CH)*NROWS*NVAL]\
-
-#define UPDATE_AUX(CH) rows[0][2+(+0*NCH+CH)*NROWS*NVAL]=\
-	2*rows[0][0+(+0*NCH+CH)*NROWS*NVAL]-rows[0][0+(-1*NCH+CH)*NROWS*NVAL]\
-
-#define UPDATE_AUX2(...)
-
-#endif
-		
-		//				-2
-		//			-5	10	2
 		//	1	-3	13	[?]			252.824410   209.942417 MB/s
 #if 0
 #define PREDICT(CH) pred[CH]=\
@@ -718,7 +701,7 @@ int c61_codec(int argc, char **argv)
 	- 5*rows[1][0+(-1*NCH+CH)*NROWS*NVAL]\
 	- 3*rows[0][0+(-2*NCH+CH)*NROWS*NVAL]\
 	+ 2*rows[1][0+(+1*NCH+CH)*NROWS*NVAL]\
-	- 2*rows[2][0+(+0*NCH+CH)*NROWS*NVAL]\
+	- 2*rows[0][0+(+0*NCH+CH)*NROWS*NVAL]\
 	+ 1*rows[0][0+(-3*NCH+CH)*NROWS*NVAL]\
 
 #define UPDATE_AUX(...)
@@ -835,6 +818,24 @@ int c61_codec(int argc, char **argv)
 		//			8	12	8
 		//	20	[17]	?
 #if 1
+#define UPDATE(CH)\
+	do\
+	{\
+		int W=rows[0][1+(-1*NCH+CH)*NROWS*NVAL], NEE=rows[1][1+(+2*NCH+CH)*NROWS*NVAL];\
+		\
+		nbypass[CH]=rows[0][1+(+0*NCH+CH)*NROWS*NVAL]=(\
+			+16*(W+sym[CH])\
+			+ 8*(rows[1][1+(+1*NCH+CH)*NROWS*NVAL]+NEE+rows[1][1+(+3*NCH+CH)*NROWS*NVAL])\
+			+ 4*(W+NEE)\
+			+sym[CH]\
+		+9)>>6;\
+	}while(0)
+
+#endif
+		
+		//			8	12	8
+		//	20	[17]	?
+#if 0
 #define UPDATE(CH) nbypass[CH]=\
 	rows[0][1+(+0*NCH+CH)*NROWS*NVAL]=(\
 		+20*rows[0][1+(-1*NCH+CH)*NROWS*NVAL]\
@@ -878,12 +879,15 @@ int c61_codec(int argc, char **argv)
 				pred[0]=(pred[0]+offset[0]+((1<<TOTALADD>>1)+2))>>TOTALADD;
 				pred[1]=(pred[1]+offset[1]+((1<<TOTALADD>>1)+2))>>TOTALADD;
 				pred[2]=(pred[2]+offset[2]+((1<<TOTALADD>>1)+2))>>TOTALADD;
-				//pred[0]=(clamptable+(_countof(clamptable)*3>>3))[pred[0]];
-				//pred[1]=(clamptable+(_countof(clamptable)*3>>3))[pred[1]];
-				//pred[2]=(clamptable+(_countof(clamptable)*3>>3))[pred[2]];
+#ifdef USE_CLAMPTABLE
+				pred[0]=(clamptable+(_countof(clamptable)*3>>3))[pred[0]];
+				pred[1]=(clamptable+(_countof(clamptable)*3>>3))[pred[1]];
+				pred[2]=(clamptable+(_countof(clamptable)*3>>3))[pred[2]];
+#else
 				CLAMP(pred[0], 0, 255);
 				CLAMP(pred[1], 0, 255);
 				CLAMP(pred[2], 0, 255);
+#endif
 
 				sym[0]=(int8_t)(yuv[0]-pred[0]);
 				sym[1]=(int8_t)(yuv[1]-pred[1]);
@@ -972,8 +976,11 @@ int c61_codec(int argc, char **argv)
 
 				offset[0]=0;
 				pred[0]=(pred[0]+offset[0]+((1<<TOTALADD>>1)+2))>>TOTALADD;
-				//pred[0]=(clamptable+(_countof(clamptable)*3>>3))[pred[0]];
+#ifdef USE_CLAMPTABLE
+				pred[0]=(clamptable+(_countof(clamptable)*3>>3))[pred[0]];
+#else
 				CLAMP(pred[0], 0, 255);
+#endif
 				yuv[0]=(uint8_t)(sym[0]+pred[0]);
 #ifdef ENABLE_GUIDE
 				if(yuv[0]!=g_image[3*(iw*ky+kx)+perms[rct.pidx*3+0]])
@@ -987,8 +994,11 @@ int c61_codec(int argc, char **argv)
 				offset[1]=c0[1]*yuv[0];
 				if(c0[1]<1<<TOTALADD)offset[1]-=offset[1]>>6;
 				pred[1]=(pred[1]+offset[1]+((1<<TOTALADD>>1)+2))>>TOTALADD;
-				//pred[1]=(clamptable+(_countof(clamptable)*3>>3))[pred[1]];
+#ifdef USE_CLAMPTABLE
+				pred[1]=(clamptable+(_countof(clamptable)*3>>3))[pred[1]];
+#else
 				CLAMP(pred[1], 0, 255);
+#endif
 				yuv[1]=(uint8_t)(sym[1]+pred[1]);
 #ifdef ENABLE_GUIDE
 				if(yuv[1]!=g_image[3*(iw*ky+kx)+perms[rct.pidx*3+1]])
@@ -1002,8 +1012,11 @@ int c61_codec(int argc, char **argv)
 				offset[2]=c0[2]*yuv[0]+c1[2]*yuv[1];
 				if(c0[2]+c1[2]<1<<TOTALADD)offset[2]-=offset[2]>>6;
 				pred[2]=(pred[2]+offset[2]+((1<<TOTALADD>>1)+2))>>TOTALADD;
-				//pred[2]=(clamptable+(_countof(clamptable)*3>>3))[pred[2]];
+#ifdef USE_CLAMPTABLE
+				pred[2]=(clamptable+(_countof(clamptable)*3>>3))[pred[2]];
+#else
 				CLAMP(pred[2], 0, 255);
+#endif
 				yuv[2]=(uint8_t)(sym[2]+pred[2]);
 #ifdef ENABLE_GUIDE
 				if(yuv[2]!=g_image[3*(iw*ky+kx)+perms[rct.pidx*3+2]])
