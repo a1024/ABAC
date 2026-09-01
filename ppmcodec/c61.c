@@ -393,7 +393,7 @@ int c61_codec(int argc, char **argv)
 		XPAD=8,
 		NCH=4,
 		NROWS=2,
-		NVAL=3,
+		NVAL=4,
 
 		PREDADD=4,
 		TOTALADD=PREDADD+RCTBITS,
@@ -515,7 +515,7 @@ int c61_codec(int argc, char **argv)
 	}
 	usize=(int64_t)3*iw*ih;
 	psize=(iw+2*XPAD)*(int)sizeof(Pixel_t[NCH*NROWS*NVAL]);
-	pixels=(Pixel_t*)malloc(psize);
+	pixels=(Pixel_t*)_mm_malloc(psize, 32);
 	if(!pixels)
 	{
 		CRASH("Alloc error");
@@ -1254,7 +1254,7 @@ int c61_codec(int argc, char **argv)
 
 	if(wtptr>wtbuf+sizeof(uint32_t))
 		fwrite(wtbuf+sizeof(uint32_t), 1, wtptr-(wtbuf+sizeof(uint32_t)), fdst);
-	free(pixels);
+	_mm_free(pixels);
 	fclose(fsrc);
 	fclose(fdst);
 #ifdef LOUD
