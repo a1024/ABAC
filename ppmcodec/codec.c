@@ -77,7 +77,7 @@ int c57_codec(int argc, char **argv);//low mem Rice
 int c58_codec(int argc, char **argv);//bit coding with plain histograms (c12)
 int c59_codec(int argc, char **argv);//near portable rapid
 int c60_codec(int argc, char **argv);//lossy wavelet FSE/AC
-int c61_codec(int argc, char **argv);//imagezero
+int c61_codec(int argc, char **argv);//experiments on c54
 #endif
 
 

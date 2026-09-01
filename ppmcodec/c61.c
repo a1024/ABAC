@@ -248,19 +248,7 @@ static void print_rct(RCTInfo *rct)
 }
 typedef struct _AnalysisCtrs
 {
-	uint32_t yctrs[
-#if defined ENABLE_LUMA_UPDATE
-		RCTLEVELS*(RCTLEVELS+1)/2
-#else
-		1
-#endif
-	][
-#if defined ENABLE_LUMA_UPDATE
-		RCTLEVELS*(RCTLEVELS+1)/2
-#else
-		1
-#endif
-	], uctrs[RCTLEVELS], vctrs[RCTLEVELS*(RCTLEVELS+1)/2];
+	uint32_t yctr, uctrs[RCTLEVELS], vctrs[RCTLEVELS*(RCTLEVELS+1)/2];
 } AnalysisCtrs;
 static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 {
@@ -311,29 +299,7 @@ static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 					rgb[perms[3*kp+1]],
 					rgb[perms[3*kp+2]],
 				};
-#if defined ENABLE_LUMA_UPDATE
-				for(int kp1=0, idx=0;kp1<=RCTMAX;++kp1)
-				{
-					int u=yuv[1]-(kp1*yuv[0]>>RCTBITS);
-					currctrs->uctrs[kp1]+=abs(u);
-					for(int kp2=0;kp1+kp2<=RCTMAX;++kp2, ++idx)
-					{
-						int v=yuv[2]-((kp1*yuv[0]+kp2*yuv[1])>>RCTBITS);
-						currctrs->vctrs[idx]+=abs(v);
-						for(int kp3=0, idx2=0;kp3<=RCTMAX;++kp3)
-						{
-							for(int kp4=0;kp3+kp4<=RCTMAX;++kp4, ++idx2)
-							{
-								int y=yuv[0]+((kp3*u+kp4*v+(1<<RCTBITS))>>(RCTBITS+1));
-							//	y<<=32-(8+RCTBITS);
-							//	y>>=32-(8+RCTBITS);
-								currctrs->yctrs[idx][idx2]+=abs(y);
-							}
-						}
-					}
-				}
-#else
-				currctrs->yctrs[0][0]+=abs(yuv[0]);
+				currctrs->yctr+=abs(yuv[0]);
 				for(int kp1=0, idx=0;kp1<=RCTMAX;++kp1)
 				{
 					int u=yuv[1]-(kp1*yuv[0]>>RCTBITS);
@@ -344,7 +310,6 @@ static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 						currctrs->vctrs[idx]+=abs(v);
 					}
 				}
-#endif
 			}
 		}
 	}
@@ -353,16 +318,9 @@ static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 	
 #ifdef PRINT_RCT
 	printf("Y:\n");
-	for(int k=0;k<RCTLEVELS*(RCTLEVELS+1)/2;++k)
-	{
-		for(int k2=0;k2<RCTLEVELS*(RCTLEVELS+1)/2;++k2)
-		{
-			for(int kp=0;kp<NPERMS;++kp)
-				printf("  %12u", counters[kp].yctrs[k][k2]);
-			printf("\n");
-		}
-		printf("\n");
-	}
+	for(int kp=0;kp<NPERMS;++kp)
+		printf("  %12u", counters[kp].yctr);
+	printf("\n");
 	printf("U:\n");
 	for(int k=0;k<RCTLEVELS;++k)
 	{
@@ -387,39 +345,27 @@ static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 			{
 				for(int vc1=0;vc0+vc1<=RCTMAX;++vc1, ++idx)
 				{
-					for(int yc0=0, idx2=0;yc0<=RCTMAX;++yc0)
+					uint32_t score=currctrs->yctr+currctrs->uctrs[uc0]+currctrs->vctrs[idx];
+#ifdef PRINT_RCT
+					++it;
+#endif
+					if(!bestscore||bestscore>score)
 					{
-						for(int yc1=0;yc0+yc1<=RCTMAX;++yc1, ++idx2)
-						{
-#if defined ENABLE_LUMA_UPDATE
-							uint32_t score=currctrs->yctrs[idx][idx2]+currctrs->uctrs[uc0]+currctrs->vctrs[idx];
-#else
-							uint32_t score=currctrs->yctrs[0][0]+currctrs->uctrs[uc0]+currctrs->vctrs[idx];
-#endif
+						bestscore=score;
+						rct.pidx=kp;
+						rct.uc0=uc0;
+						rct.vc0=vc0;
+						rct.vc1=vc1;
 #ifdef PRINT_RCT
-							++it;
+						printf("%5d  ", it);
+						print_rct(&rct);
+						printf("  %10d  =  %10d + %10d + %10d\n"
+							, score
+							, currctrs->yctr
+							, currctrs->uctrs[uc0]
+							, currctrs->vctrs[idx]
+						);
 #endif
-							if(!bestscore||bestscore>score)
-							{
-								bestscore=score;
-								rct.pidx=kp;
-								rct.uc0=uc0;
-								rct.vc0=vc0;
-								rct.vc1=vc1;
-							//	rct.yc0=yc0;
-							//	rct.yc1=yc1;
-#ifdef PRINT_RCT
-								printf("%5d  ", it);
-								print_rct(&rct);
-								printf("  %10d  =  %10d + %10d + %10d\n"
-									, score
-									, currctrs->yctrs[idx][idx2]
-									, currctrs->uctrs[uc0]
-									, currctrs->vctrs[idx]
-								);
-#endif
-							}
-						}
 					}
 				}
 			}
@@ -444,13 +390,14 @@ int c61_codec(int argc, char **argv)
 	enum
 	{
 		XPAD=8,
-		NCH=3,
-		NROWS=4,
-		NVAL=3,
+		NCH=4,
+		NROWS=2,
+		NVAL=4,
 
 		PREDADD=4,
 		TOTALADD=PREDADD+RCTBITS,
 	};
+	typedef int32_t Pixel_t;
 	const uint16_t tag='6'|'1'<<8;
 
 	const char *srcfn=0, *dstfn=0;
@@ -459,7 +406,7 @@ int c61_codec(int argc, char **argv)
 	int fwd=0, iw=0, ih=0;
 	int64_t usize=0, csize=0;
 	int psize=0;
-	int16_t *pixels=0;
+	Pixel_t *pixels=0;
 	uint32_t cache=0;
 	uint32_t inc=0;
 	int nbits=0;
@@ -566,8 +513,8 @@ int c61_codec(int argc, char **argv)
 		return 1;
 	}
 	usize=(int64_t)3*iw*ih;
-	psize=(iw+2*XPAD)*(int)sizeof(int16_t[NCH*NROWS*NVAL]);
-	pixels=(int16_t*)malloc(psize);
+	psize=(iw+2*XPAD)*(int)sizeof(Pixel_t[NCH*NROWS*NVAL]);
+	pixels=(Pixel_t*)malloc(psize);
 	if(!pixels)
 	{
 		CRASH("Alloc error");
@@ -670,19 +617,18 @@ int c61_codec(int argc, char **argv)
 	{
 		static const uint8_t masks[]={0, 1, 3, 7, 15, 31, 63, 127, 255};
 		int yuv[3]={0};
-		int16_t *rows[]=
+		Pixel_t *rows[]=
 		{
 			pixels+(XPAD*NCH*NROWS+(ky-0LL+NROWS)%NROWS)*NVAL,
 			pixels+(XPAD*NCH*NROWS+(ky-1LL+NROWS)%NROWS)*NVAL,
-			pixels+(XPAD*NCH*NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
-			pixels+(XPAD*NCH*NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
+		//	pixels+(XPAD*NCH*NROWS+(ky-2LL+NROWS)%NROWS)*NVAL,
+		//	pixels+(XPAD*NCH*NROWS+(ky-3LL+NROWS)%NROWS)*NVAL,
 		};
 
 		//interleaved
 #if 1
 		uint32_t data;
 		int nbypass[3], pred[3], offset[3];
-		//int vmin[3], vmax[3], t[6];
 		int sym[3];
 		uint32_t code[3];
 		
@@ -729,8 +675,24 @@ int c61_codec(int argc, char **argv)
 		
 		//				-2
 		//			-5	10	2
-		//	1	-3	13	[?]			slightly optimized
+		//	1	-3	13	[?]			264.046491   214.654919 MB/s
 #if 1
+#define PREDICT(CH) pred[CH]=\
+	+8*(+rows[1][0+(+0*NCH+CH)*NROWS*NVAL]+rows[0][0+(-1*NCH+CH)*NROWS*NVAL])\
+	+5*(+rows[0][2+(-1*NCH+CH)*NROWS*NVAL])\
+	+2*(+rows[1][2+(+0*NCH+CH)*NROWS*NVAL]+rows[1][0+(+1*NCH+CH)*NROWS*NVAL]-rows[0][0+(-2*NCH+CH)*NROWS*NVAL])\
+	+1*(-rows[0][0+(-2*NCH+CH)*NROWS*NVAL]+rows[0][0+(-3*NCH+CH)*NROWS*NVAL])\
+
+#define UPDATE_AUX(CH) rows[0][2+(+0*NCH+CH)*NROWS*NVAL]=\
+	rows[0][0+(+0*NCH+CH)*NROWS*NVAL]-rows[1][0+(+0*NCH+CH)*NROWS*NVAL]\
+
+#define UPDATE_AUX2(...)
+#endif
+		
+		//				-2
+		//			-5	10	2
+		//	1	-3	13	[?]			254.037084   211.666218 MB/s		peak 257.035017   214.905455 MB/s
+#if 0
 #define PREDICT(CH) pred[CH]=\
 	+ 5*rows[1][2+(+0*NCH+CH)*NROWS*NVAL]\
 	+11*rows[0][0+(-1*NCH+CH)*NROWS*NVAL]\
@@ -739,20 +701,94 @@ int c61_codec(int argc, char **argv)
 	- 2*rows[2][0+(+0*NCH+CH)*NROWS*NVAL]\
 	- 1*rows[0][2+(-2*NCH+CH)*NROWS*NVAL]\
 
+#define UPDATE_AUX(CH) rows[0][2+(+0*NCH+CH)*NROWS*NVAL]=\
+	2*rows[0][0+(+0*NCH+CH)*NROWS*NVAL]-rows[0][0+(-1*NCH+CH)*NROWS*NVAL]\
+
+#define UPDATE_AUX2(...)
+
 #endif
 		
 		//				-2
 		//			-5	10	2
-		//	1	-3	13	[?]
+		//	1	-3	13	[?]			252.824410   209.942417 MB/s
 #if 0
 #define PREDICT(CH) pred[CH]=\
 	+10*rows[1][0+(+0*NCH+CH)*NROWS*NVAL]\
 	+13*rows[0][0+(-1*NCH+CH)*NROWS*NVAL]\
 	- 5*rows[1][0+(-1*NCH+CH)*NROWS*NVAL]\
+	- 3*rows[0][0+(-2*NCH+CH)*NROWS*NVAL]\
 	+ 2*rows[1][0+(+1*NCH+CH)*NROWS*NVAL]\
 	- 2*rows[2][0+(+0*NCH+CH)*NROWS*NVAL]\
-	- 3*rows[0][0+(-2*NCH+CH)*NROWS*NVAL]\
-	+   rows[0][0+(-3*NCH+CH)*NROWS*NVAL]\
+	+ 1*rows[0][0+(-3*NCH+CH)*NROWS*NVAL]\
+
+#define UPDATE_AUX(...)
+#define UPDATE_AUX2(...)
+#endif
+		
+		//					+1
+		//					-3
+		//			+2	-5	+10	+3
+		//	-1/4	+1	-3	+13	[?]
+#if 0
+#define PREDICT(CH) pred[CH]=\
+	+1*rows[0][2+(-1*NCH+CH)*NROWS*NVAL]\
+	+1*rows[1][3+(+1*NCH+CH)*NROWS*NVAL]\
+	-3*rows[2][0+(+0*NCH+CH)*NROWS*NVAL]\
+	+1*rows[3][0+(+0*NCH+CH)*NROWS*NVAL]\
+	-1*rows[1][0+(-1*NCH+CH)*NROWS*NVAL]\
+
+		//y = ((17*sum)*x-y)>>4
+		//y = (( 9*sum)*x-y)>>3
+		//y = (( 5*sum)*x-y)>>2	<-
+		//y = (( 3*sum)*x-y)>>1
+		//y = (( 2*sum)*x-y)>>0
+
+		//W/N
+		//	10540810	aux2
+		//
+		//	10550799
+		//
+		//9/3	10588613
+		//45/35	10633572
+		//
+		//45/35	10697116
+		//
+		//45/35	11190760
+		//46/34	11195181
+		//
+		//45/35	11488406
+		//46/34	11493070
+		//40/40	11498885
+		//36/44	11552223
+		//PPM	36756720
+#define UPDATE_AUX(CH) rows[0][2+(+0*NCH+CH)*NROWS*NVAL]=\
+	(5*(9*rows[0][0+(+0*NCH+CH)*NROWS*NVAL]+7*rows[1][0+(+1*NCH+CH)*NROWS*NVAL])-rows[0][2+(-1*NCH+CH)*NROWS*NVAL])>>2\
+
+#if 0
+#undef  UPDATE_AUX
+
+#define UPDATE_AUX(CH) rows[0][2+(+0*NCH+CH)*NROWS*NVAL]=\
+	(9*(8*rows[0][0+(+0*NCH+CH)*NROWS*NVAL]+8*rows[1][0+(+1*NCH+CH)*NROWS*NVAL])-rows[0][2+(-1*NCH+CH)*NROWS*NVAL])>>3\
+
+#endif
+
+#define UPDATE_AUX2(CH) rows[0][3+(+0*NCH+CH)*NROWS*NVAL]=\
+	((9*3)*rows[0][0+(+0*NCH+CH)*NROWS*NVAL]-rows[1][3+(+0*NCH+CH)*NROWS*NVAL])>>3\
+
+
+#endif
+		
+		//				-1*8	-1*4	+1*1
+		//	-1*1	+1*6	-1*10	+2*8	+2*4	-2*1
+		//	+2*1	-2*6	+2*10	[?]
+#if 0
+#define PREDICT(CH) pred[CH]=\
+	+ 1*rows[0][2+(-3*NCH+CH)*NROWS*NVAL]\
+	- 6*rows[0][2+(-2*NCH+CH)*NROWS*NVAL]\
+	+10*rows[0][2+(-1*NCH+CH)*NROWS*NVAL]\
+	+ 8*rows[1][2+(+0*NCH+CH)*NROWS*NVAL]\
+	+ 4*rows[1][2+(+1*NCH+CH)*NROWS*NVAL]\
+	- 1*rows[1][2+(+2*NCH+CH)*NROWS*NVAL]\
 
 #endif
 
@@ -822,41 +858,6 @@ int c61_codec(int argc, char **argv)
 		{
 			for(int kx=0;kx<iw;++kx)
 			{
-#if 0
-				t[0]=vmax[0]=rows[1][0+(+0*NCH+0)*NROWS*NVAL]; t[0+3]=vmin[0]=rows[0][0+(-1*NCH+0)*NROWS*NVAL];//N W
-				t[1]=vmax[1]=rows[1][0+(+0*NCH+1)*NROWS*NVAL]; t[1+3]=vmin[1]=rows[0][0+(-1*NCH+1)*NROWS*NVAL];
-				t[2]=vmax[2]=rows[1][0+(+0*NCH+2)*NROWS*NVAL]; t[2+3]=vmin[2]=rows[0][0+(-1*NCH+2)*NROWS*NVAL];
-				vmin[0]=t[0]<t[0+3]?t[0]:vmin[0]; vmax[0]=t[0]<t[0+3]?t[0+3]:vmax[0];
-				vmin[1]=t[1]<t[1+3]?t[1]:vmin[1]; vmax[1]=t[1]<t[1+3]?t[1+3]:vmax[1];
-				vmin[2]=t[2]<t[2+3]?t[2]:vmin[2]; vmax[2]=t[2]<t[2+3]?t[2+3]:vmax[2];
-				t[0]=rows[1][0+(+1*NCH+0)*NROWS*NVAL];//NE
-				t[1]=rows[1][0+(+1*NCH+1)*NROWS*NVAL];
-				t[2]=rows[1][0+(+1*NCH+2)*NROWS*NVAL];
-				t[3]=rows[1][0+(+3*NCH+0)*NROWS*NVAL];//NEEE
-				t[4]=rows[1][0+(+3*NCH+1)*NROWS*NVAL];
-				t[5]=rows[1][0+(+3*NCH+2)*NROWS*NVAL];
-				vmin[0]=vmin[0]>t[0]?t[0]:vmin[0];
-				vmin[1]=vmin[1]>t[1]?t[1]:vmin[1];
-				vmin[2]=vmin[2]>t[2]?t[2]:vmin[2];
-				vmax[0]=vmax[0]<t[0]?t[0]:vmax[0];
-				vmax[1]=vmax[1]<t[1]?t[1]:vmax[1];
-				vmax[2]=vmax[2]<t[2]?t[2]:vmax[2];
-				vmin[0]=vmin[0]>t[0+3]?t[0+3]:vmin[0];
-				vmin[1]=vmin[1]>t[1+3]?t[1+3]:vmin[1];
-				vmin[2]=vmin[2]>t[2+3]?t[2+3]:vmin[2];
-				vmax[0]=vmax[0]<t[0+3]?t[0+3]:vmax[0];
-				vmax[1]=vmax[1]<t[1+3]?t[1+3]:vmax[1];
-				vmax[2]=vmax[2]<t[2+3]?t[2+3]:vmax[2];
-				vmin[0]<<=PREDADD;
-				vmax[0]<<=PREDADD;
-				vmin[1]<<=PREDADD;
-				vmax[1]<<=PREDADD;
-				vmin[2]<<=PREDADD;
-				vmax[2]<<=PREDADD;
-				CLAMP(pred[0], vmin[0]-(1<<PREDADD>>1), vmax[0]+(1<<PREDADD>>1));
-				CLAMP(pred[1], vmin[1]-(1<<PREDADD>>1), vmax[1]+(1<<PREDADD>>1));
-				CLAMP(pred[2], vmin[2]-(1<<PREDADD>>1), vmax[2]+(1<<PREDADD>>1));
-#endif				
 				data=*(uint32_t*)rdptr;
 				if(rdptr>=rdend)
 				{
@@ -887,17 +888,6 @@ int c61_codec(int argc, char **argv)
 				sym[0]=(int8_t)(yuv[0]-pred[0]);
 				sym[1]=(int8_t)(yuv[1]-pred[1]);
 				sym[2]=(int8_t)(yuv[2]-pred[2]);
-				
-#if defined ENABLE_LUMA_UPDATE || defined TEST_LUMA_UPDATE
-				sym[1]-=(sym[0]+(1<<5>>1))>>5;		sym[1]=(int8_t)sym[1];
-				sym[2]-=(sym[0]+(1<<5>>1))>>5;		sym[2]=(int8_t)sym[2];
-				sym[0]+=(sym[1]+sym[2]+(1<<6>>1))>>6;	sym[0]=(int8_t)sym[0];
-
-			//	sym[0]-=(rct.uc0*sym[1]+(rct.vc0+rct.vc1)*sym[2]+16)>>5;//
-			//	sym[0]+=(3*sym[1]+sym[2]+16)>>5;
-			//	sym[0]+=(rct.yc0*sym[1]+rct.yc1*sym[2]+(1<<RCTBITS))>>(RCTBITS+1);//
-			//	sym[0]=(int8_t)sym[0];
-#endif
 
 				code[0]=(enctable+(1<<DEPTH>>1))[(nbypass[0]<<DEPTH)+sym[0]];
 				code[1]=(enctable+(1<<DEPTH>>1))[(nbypass[1]<<DEPTH)+sym[1]];
@@ -928,13 +918,16 @@ int c61_codec(int argc, char **argv)
 				UPDATE(0);
 				UPDATE(1);
 				UPDATE(2);
-				rows[0][2+(+0*NCH+0)*NROWS*NVAL]=2*rows[0][0+(+0*NCH+0)*NROWS*NVAL]-rows[0][0+(-1*NCH+0)*NROWS*NVAL];
-				rows[0][2+(+0*NCH+1)*NROWS*NVAL]=2*rows[0][0+(+0*NCH+1)*NROWS*NVAL]-rows[0][0+(-1*NCH+1)*NROWS*NVAL];
-				rows[0][2+(+0*NCH+2)*NROWS*NVAL]=2*rows[0][0+(+0*NCH+2)*NROWS*NVAL]-rows[0][0+(-1*NCH+2)*NROWS*NVAL];
+				UPDATE_AUX(0);
+				UPDATE_AUX(1);
+				UPDATE_AUX(2);
+				UPDATE_AUX2(0);
+				UPDATE_AUX2(1);
+				UPDATE_AUX2(2);
 				rows[0]+=NCH*NROWS*NVAL;
 				rows[1]+=NCH*NROWS*NVAL;
-				rows[2]+=NCH*NROWS*NVAL;
-				rows[3]+=NCH*NROWS*NVAL;
+			//	rows[2]+=NCH*NROWS*NVAL;
+			//	rows[3]+=NCH*NROWS*NVAL;
 				PREDICT(0);
 				PREDICT(1);
 				PREDICT(2);
@@ -949,41 +942,6 @@ int c61_codec(int argc, char **argv)
 
 			for(int kx=0;kx<iw;++kx)
 			{
-#if 0
-				t[0]=vmax[0]=rows[1][0+(+0*NCH+0)*NROWS*NVAL]; t[0+3]=vmin[0]=rows[0][0+(-1*NCH+0)*NROWS*NVAL];//N W
-				t[1]=vmax[1]=rows[1][0+(+0*NCH+1)*NROWS*NVAL]; t[1+3]=vmin[1]=rows[0][0+(-1*NCH+1)*NROWS*NVAL];
-				t[2]=vmax[2]=rows[1][0+(+0*NCH+2)*NROWS*NVAL]; t[2+3]=vmin[2]=rows[0][0+(-1*NCH+2)*NROWS*NVAL];
-				vmin[0]=t[0]<t[0+3]?t[0]:vmin[0]; vmax[0]=t[0]<t[0+3]?t[0+3]:vmax[0];
-				vmin[1]=t[1]<t[1+3]?t[1]:vmin[1]; vmax[1]=t[1]<t[1+3]?t[1+3]:vmax[1];
-				vmin[2]=t[2]<t[2+3]?t[2]:vmin[2]; vmax[2]=t[2]<t[2+3]?t[2+3]:vmax[2];
-				t[0]=rows[1][0+(+1*NCH+0)*NROWS*NVAL];//NE
-				t[1]=rows[1][0+(+1*NCH+1)*NROWS*NVAL];
-				t[2]=rows[1][0+(+1*NCH+2)*NROWS*NVAL];
-				t[3]=rows[1][0+(+3*NCH+0)*NROWS*NVAL];//NEEE
-				t[4]=rows[1][0+(+3*NCH+1)*NROWS*NVAL];
-				t[5]=rows[1][0+(+3*NCH+2)*NROWS*NVAL];
-				vmin[0]=vmin[0]>t[0]?t[0]:vmin[0];
-				vmin[1]=vmin[1]>t[1]?t[1]:vmin[1];
-				vmin[2]=vmin[2]>t[2]?t[2]:vmin[2];
-				vmax[0]=vmax[0]<t[0]?t[0]:vmax[0];
-				vmax[1]=vmax[1]<t[1]?t[1]:vmax[1];
-				vmax[2]=vmax[2]<t[2]?t[2]:vmax[2];
-				vmin[0]=vmin[0]>t[0+3]?t[0+3]:vmin[0];
-				vmin[1]=vmin[1]>t[1+3]?t[1+3]:vmin[1];
-				vmin[2]=vmin[2]>t[2+3]?t[2+3]:vmin[2];
-				vmax[0]=vmax[0]<t[0+3]?t[0+3]:vmax[0];
-				vmax[1]=vmax[1]<t[1+3]?t[1+3]:vmax[1];
-				vmax[2]=vmax[2]<t[2+3]?t[2+3]:vmax[2];
-				vmin[0]<<=PREDADD;
-				vmax[0]<<=PREDADD;
-				vmin[1]<<=PREDADD;
-				vmax[1]<<=PREDADD;
-				vmin[2]<<=PREDADD;
-				vmax[2]<<=PREDADD;
-				CLAMP(pred[0], vmin[0]-(1<<PREDADD>>1), vmax[0]+(1<<PREDADD>>1));
-				CLAMP(pred[1], vmin[1]-(1<<PREDADD>>1), vmax[1]+(1<<PREDADD>>1));
-				CLAMP(pred[2], vmin[2]-(1<<PREDADD>>1), vmax[2]+(1<<PREDADD>>1));
-#endif
 				for(int kc=0;kc<3;++kc)
 				{
 					cache|=*(uint32_t*)rdptr<<nbits;
@@ -1011,17 +969,6 @@ int c61_codec(int argc, char **argv)
 				sym[0]=(int8_t)signpack[sym[0]];
 				sym[1]=(int8_t)signpack[sym[1]];
 				sym[2]=(int8_t)signpack[sym[2]];
-				
-#if defined ENABLE_LUMA_UPDATE || defined TEST_LUMA_UPDATE
-				sym[0]-=(sym[1]+sym[2]+(1<<6>>1))>>6;		sym[0]=(int8_t)sym[0];
-				sym[2]+=(sym[0]+(1<<5>>1))>>5;			sym[2]=(int8_t)sym[2];
-				sym[1]+=(sym[0]+(1<<5>>1))>>5;			sym[1]=(int8_t)sym[1];
-
-			//	sym[0]+=(rct.uc0*sym[1]+(rct.vc0+rct.vc1)*sym[2]+16)>>5;//
-			//	sym[0]-=(3*sym[1]+sym[2]+16)>>5;
-			//	sym[0]-=(rct.yc0*sym[1]+rct.yc1*sym[2]+(1<<RCTBITS))>>(RCTBITS+1);
-			//	sym[0]=(int8_t)sym[0];
-#endif
 
 				offset[0]=0;
 				pred[0]=(pred[0]+offset[0]+((1<<TOTALADD>>1)+2))>>TOTALADD;
@@ -1078,13 +1025,16 @@ int c61_codec(int argc, char **argv)
 				rows[0][0+(+0*NCH+0)*NROWS*NVAL]=(yuv[0]<<RCTBITS)-((offset[0]-7)>>PREDADD);
 				rows[0][0+(+0*NCH+1)*NROWS*NVAL]=(yuv[1]<<RCTBITS)-((offset[1]-7)>>PREDADD);
 				rows[0][0+(+0*NCH+2)*NROWS*NVAL]=(yuv[2]<<RCTBITS)-((offset[2]-7)>>PREDADD);
-				rows[0][2+(+0*NCH+0)*NROWS*NVAL]=2*rows[0][0+(+0*NCH+0)*NROWS*NVAL]-rows[0][0+(-1*NCH+0)*NROWS*NVAL];
-				rows[0][2+(+0*NCH+1)*NROWS*NVAL]=2*rows[0][0+(+0*NCH+1)*NROWS*NVAL]-rows[0][0+(-1*NCH+1)*NROWS*NVAL];
-				rows[0][2+(+0*NCH+2)*NROWS*NVAL]=2*rows[0][0+(+0*NCH+2)*NROWS*NVAL]-rows[0][0+(-1*NCH+2)*NROWS*NVAL];
+				UPDATE_AUX(0);
+				UPDATE_AUX(1);
+				UPDATE_AUX(2);
+				UPDATE_AUX2(0);
+				UPDATE_AUX2(1);
+				UPDATE_AUX2(2);
 				rows[0]+=NCH*NROWS*NVAL;
 				rows[1]+=NCH*NROWS*NVAL;
-				rows[2]+=NCH*NROWS*NVAL;
-				rows[3]+=NCH*NROWS*NVAL;
+			//	rows[2]+=NCH*NROWS*NVAL;
+			//	rows[3]+=NCH*NROWS*NVAL;
 				PREDICT(0);
 				PREDICT(1);
 				PREDICT(2);

@@ -298,4 +298,4 @@ c60:
 	clang -Wall -O3 -s -Dc60_codec=main -mavx2 -mlzcnt $(SRC_ZYDIS2) c60.c -o c60 $(LIBS)
 
 c61:
-	clang -Wall -O3 -s -Dc61_codec=main -mavx2 -mlzcnt -static -s c61.c -o c61
+	gcc -Wall -O3 -s -Dc61_codec=main -mavx2 -mlzcnt -static -s c61.c -o c61
