@@ -631,62 +631,21 @@ int c61_codec(int argc, char **argv)
 #if 1
 		uint32_t data;
 		int nbypass[3], pred[3], offset[3];
-		int sym[3];
+		ALIGN(32) int sym[4]={0};
 		uint32_t code[3];
-		
-		//					1/8
-		//					-2
-		//				-5	10	2	1/8
-		//	-2/8	1	-3	13	[?]
-#if 0
-#define PREDICT(CH) pred[CH]=\
-	+10*rows[1][0+(+0*NCH+CH)*NROWS*NVAL]\
-	+13*rows[0][0+(-1*NCH+CH)*NROWS*NVAL]\
-	- 5*rows[1][0+(-1*NCH+CH)*NROWS*NVAL]\
-	+ 2*rows[1][0+(+1*NCH+CH)*NROWS*NVAL]\
-	- 2*rows[2][0+(+0*NCH+CH)*NROWS*NVAL]\
-	- 3*rows[0][0+(-2*NCH+CH)*NROWS*NVAL]\
-	+   rows[0][0+(-3*NCH+CH)*NROWS*NVAL]\
-	+((\
-		-2*rows[0][0+(-4*NCH+CH)*NROWS*NVAL]\
-		+  rows[3][0+(+0*NCH+CH)*NROWS*NVAL]\
-		+  rows[1][0+(+2*NCH+CH)*NROWS*NVAL]\
-	)>>3)
-
-#endif
-		
-		//					1/8
-		//					-2
-		//				-5	10	2
-		//	-1/8	1	-3	13	[?]
-#if 0
-#define PREDICT(CH) pred[CH]=\
-	+10*rows[1][0+(+0*NCH+CH)*NROWS*NVAL]\
-	+13*rows[0][0+(-1*NCH+CH)*NROWS*NVAL]\
-	- 5*rows[1][0+(-1*NCH+CH)*NROWS*NVAL]\
-	+ 2*rows[1][0+(+1*NCH+CH)*NROWS*NVAL]\
-	- 2*rows[2][0+(+0*NCH+CH)*NROWS*NVAL]\
-	- 3*rows[0][0+(-2*NCH+CH)*NROWS*NVAL]\
-	+   rows[0][0+(-3*NCH+CH)*NROWS*NVAL]\
-	+((\
-		-rows[0][0+(-4*NCH+CH)*NROWS*NVAL]\
-		+rows[3][0+(+0*NCH+CH)*NROWS*NVAL]\
-	)>>3)
-
-#endif
 		
 		//				-2
 		//			-5	10	2
 		//	1	-3	13	[?]			273.892616   265.253549 MB/s
 #if 1
 #define PREDICT(CH) pred[CH]=\
-	+8*(+rows[1][0+(+0*NCH+CH)*NROWS*NVAL]+rows[0][0+(-1*NCH+CH)*NROWS*NVAL])\
-	+5*(+rows[0][2+(-1*NCH+CH)*NROWS*NVAL])\
-	+2*(+rows[1][2+(+0*NCH+CH)*NROWS*NVAL]+rows[1][0+(+1*NCH+CH)*NROWS*NVAL]-rows[0][0+(-2*NCH+CH)*NROWS*NVAL])\
-	+1*(-rows[0][0+(-2*NCH+CH)*NROWS*NVAL]+rows[0][0+(-3*NCH+CH)*NROWS*NVAL])\
+	+8*(+rows[1][+CH+(+0*NVAL+0)*NROWS*NCH]+rows[0][+CH+(-1*NVAL+0)*NROWS*NCH])\
+	+5*(+rows[0][+CH+(-1*NVAL+2)*NROWS*NCH])\
+	+2*(+rows[1][+CH+(+0*NVAL+2)*NROWS*NCH]+rows[1][+CH+(+1*NVAL+0)*NROWS*NCH]-rows[0][+CH+(-2*NVAL+0)*NROWS*NCH])\
+	+1*(-rows[0][+CH+(-2*NVAL+0)*NROWS*NCH]+rows[0][+CH+(-3*NVAL+0)*NROWS*NCH])\
 
-#define UPDATE_AUX(CH) rows[0][2+(+0*NCH+CH)*NROWS*NVAL]=\
-	rows[0][0+(+0*NCH+CH)*NROWS*NVAL]-rows[1][0+(+0*NCH+CH)*NROWS*NVAL]\
+#define UPDATE_AUX(CH) rows[0][+CH+(+0*NVAL+2)*NROWS*NCH]=\
+	rows[0][+CH+(+0*NVAL+0)*NROWS*NCH]-rows[1][+CH+(+0*NVAL+0)*NROWS*NCH]\
 
 #define UPDATE_AUX2(...)
 #endif
@@ -696,124 +655,18 @@ int c61_codec(int argc, char **argv)
 		//	1	-3	13	[?]			252.824410   209.942417 MB/s
 #if 0
 #define PREDICT(CH) pred[CH]=\
-	+10*rows[1][0+(+0*NCH+CH)*NROWS*NVAL]\
-	+13*rows[0][0+(-1*NCH+CH)*NROWS*NVAL]\
-	- 5*rows[1][0+(-1*NCH+CH)*NROWS*NVAL]\
-	- 3*rows[0][0+(-2*NCH+CH)*NROWS*NVAL]\
-	+ 2*rows[1][0+(+1*NCH+CH)*NROWS*NVAL]\
-	- 2*rows[0][0+(+0*NCH+CH)*NROWS*NVAL]\
-	+ 1*rows[0][0+(-3*NCH+CH)*NROWS*NVAL]\
+	+10*rows[1][+CH+(+0*NVAL+0)*NROWS*NCH]\
+	+13*rows[0][+CH+(-1*NVAL+0)*NROWS*NCH]\
+	- 5*rows[1][+CH+(-1*NVAL+0)*NROWS*NCH]\
+	- 3*rows[0][+CH+(-2*NVAL+0)*NROWS*NCH]\
+	+ 2*rows[1][+CH+(+1*NVAL+0)*NROWS*NCH]\
+	- 2*rows[0][+CH+(+0*NVAL+0)*NROWS*NCH]\
+	+ 1*rows[0][+CH+(-3*NVAL+0)*NROWS*NCH]\
 
 #define UPDATE_AUX(...)
 #define UPDATE_AUX2(...)
 #endif
-		
-		//					+1
-		//					-3
-		//			+2	-5	+10	+3
-		//	-1/4	+1	-3	+13	[?]
-#if 0
-#define PREDICT(CH) pred[CH]=\
-	+1*rows[0][2+(-1*NCH+CH)*NROWS*NVAL]\
-	+1*rows[1][3+(+1*NCH+CH)*NROWS*NVAL]\
-	-3*rows[2][0+(+0*NCH+CH)*NROWS*NVAL]\
-	+1*rows[3][0+(+0*NCH+CH)*NROWS*NVAL]\
-	-1*rows[1][0+(-1*NCH+CH)*NROWS*NVAL]\
 
-		//y = ((17*sum)*x-y)>>4
-		//y = (( 9*sum)*x-y)>>3
-		//y = (( 5*sum)*x-y)>>2	<-
-		//y = (( 3*sum)*x-y)>>1
-		//y = (( 2*sum)*x-y)>>0
-
-		//W/N
-		//	10540810	aux2
-		//
-		//	10550799
-		//
-		//9/3	10588613
-		//45/35	10633572
-		//
-		//45/35	10697116
-		//
-		//45/35	11190760
-		//46/34	11195181
-		//
-		//45/35	11488406
-		//46/34	11493070
-		//40/40	11498885
-		//36/44	11552223
-		//PPM	36756720
-#define UPDATE_AUX(CH) rows[0][2+(+0*NCH+CH)*NROWS*NVAL]=\
-	(5*(9*rows[0][0+(+0*NCH+CH)*NROWS*NVAL]+7*rows[1][0+(+1*NCH+CH)*NROWS*NVAL])-rows[0][2+(-1*NCH+CH)*NROWS*NVAL])>>2\
-
-#if 0
-#undef  UPDATE_AUX
-
-#define UPDATE_AUX(CH) rows[0][2+(+0*NCH+CH)*NROWS*NVAL]=\
-	(9*(8*rows[0][0+(+0*NCH+CH)*NROWS*NVAL]+8*rows[1][0+(+1*NCH+CH)*NROWS*NVAL])-rows[0][2+(-1*NCH+CH)*NROWS*NVAL])>>3\
-
-#endif
-
-#define UPDATE_AUX2(CH) rows[0][3+(+0*NCH+CH)*NROWS*NVAL]=\
-	((9*3)*rows[0][0+(+0*NCH+CH)*NROWS*NVAL]-rows[1][3+(+0*NCH+CH)*NROWS*NVAL])>>3\
-
-
-#endif
-		
-		//				-1*8	-1*4	+1*1
-		//	-1*1	+1*6	-1*10	+2*8	+2*4	-2*1
-		//	+2*1	-2*6	+2*10	[?]
-#if 0
-#define PREDICT(CH) pred[CH]=\
-	+ 1*rows[0][2+(-3*NCH+CH)*NROWS*NVAL]\
-	- 6*rows[0][2+(-2*NCH+CH)*NROWS*NVAL]\
-	+10*rows[0][2+(-1*NCH+CH)*NROWS*NVAL]\
-	+ 8*rows[1][2+(+0*NCH+CH)*NROWS*NVAL]\
-	+ 4*rows[1][2+(+1*NCH+CH)*NROWS*NVAL]\
-	- 1*rows[1][2+(+2*NCH+CH)*NROWS*NVAL]\
-
-#endif
-
-		//			-2
-		//		-4	10	2
-		//	-2	12	[?]
-#if 0
-#define PREDICT(CH) pred[CH]=\
-	+10*rows[1][0+(+0*NCH+CH)*NROWS*NVAL]\
-	+12*rows[0][0+(-1*NCH+CH)*NROWS*NVAL]\
-	- 4*rows[1][0+(-1*NCH+CH)*NROWS*NVAL]\
-	+ 2*rows[1][0+(+1*NCH+CH)*NROWS*NVAL]\
-	- 2*rows[2][0+(+0*NCH+CH)*NROWS*NVAL]\
-	- 2*rows[0][0+(-2*NCH+CH)*NROWS*NVAL]\
-
-#endif
-		
-		//			-1
-		//		-2	+5	1
-		//	-1	+6	[?]
-#if 0
-#define PREDICT(CH) pred[CH]=(\
-		+5*rows[1][0+(+0*NCH+CH)*NROWS*NVAL]\
-		+6*rows[0][0+(-1*NCH+CH)*NROWS*NVAL]\
-		-2*rows[1][0+(-1*NCH+CH)*NROWS*NVAL]\
-		+1*rows[1][0+(+1*NCH+CH)*NROWS*NVAL]\
-		-1*rows[2][0+(+0*NCH+CH)*NROWS*NVAL]\
-		-1*rows[0][0+(-2*NCH+CH)*NROWS*NVAL]\
-	)<<1
-
-#endif
-		
-		//	-2	+3
-		//	+3	[?]
-#if 0
-#define PREDICT(CH) pred[CH]=(\
-		+3*rows[1][0+(+0*NCH+CH)*NROWS*NVAL]\
-		+3*rows[0][0+(-1*NCH+CH)*NROWS*NVAL]\
-		-2*rows[1][0+(-1*NCH+CH)*NROWS*NVAL]\
-	)<<2
-
-#endif
 		
 		//			8	12	8
 		//	20	[17]	?
@@ -821,13 +674,13 @@ int c61_codec(int argc, char **argv)
 #define UPDATE(CH)\
 	do\
 	{\
-		int W=rows[0][1+(-1*NCH+CH)*NROWS*NVAL], NEE=rows[1][1+(+2*NCH+CH)*NROWS*NVAL];\
+		int W=rows[0][+CH+(-1*NVAL+1)*NROWS*NCH], NEE=rows[1][+CH+(+2*NVAL+1)*NROWS*NCH];\
 		\
-		nbypass[CH]=rows[0][1+(+0*NCH+CH)*NROWS*NVAL]=(\
+		nbypass[CH]=rows[0][+CH+(+0*NCH+1)*NROWS*NVAL]=(\
 			+16*(W+sym[CH])\
-			+ 8*(rows[1][1+(+1*NCH+CH)*NROWS*NVAL]+NEE+rows[1][1+(+3*NCH+CH)*NROWS*NVAL])\
+			+ 8*(rows[1][+CH+(+1*NCH+1)*NROWS*NVAL]+NEE+rows[1][+CH+(+3*NCH+1)*NROWS*NVAL])\
 			+ 4*(W+NEE)\
-			+sym[CH]\
+			+ 1*sym[CH]\
 		+9)>>6;\
 	}while(0)
 
@@ -837,12 +690,12 @@ int c61_codec(int argc, char **argv)
 		//	20	[17]	?
 #if 0
 #define UPDATE(CH) nbypass[CH]=\
-	rows[0][1+(+0*NCH+CH)*NROWS*NVAL]=(\
-		+20*rows[0][1+(-1*NCH+CH)*NROWS*NVAL]\
+	rows[0][+CH+(+0*NVAL+1)*NROWS*NCH]=(\
+		+20*rows[0][+CH+(-1*NVAL+1)*NROWS*NCH]\
 		+17*sym[CH]\
-		+ 8*rows[1][1+(+1*NCH+CH)*NROWS*NVAL]\
-		+12*rows[1][1+(+2*NCH+CH)*NROWS*NVAL]\
-		+ 8*rows[1][1+(+3*NCH+CH)*NROWS*NVAL]\
+		+ 8*rows[1][+CH+(+1*NVAL+1)*NROWS*NCH]\
+		+12*rows[1][+CH+(+2*NVAL+1)*NROWS*NCH]\
+		+ 8*rows[1][+CH+(+3*NVAL+1)*NROWS*NCH]\
 	+9)>>6
 
 #endif
@@ -852,9 +705,6 @@ int c61_codec(int argc, char **argv)
 		PREDICT(0);
 		PREDICT(1);
 		PREDICT(2);
-	//	pred[0]=rows[1][0+(+0*NCH+0)*NROWS*NVAL]<<PREDADD;//X  worse
-	//	pred[1]=rows[1][0+(+0*NCH+1)*NROWS*NVAL]<<PREDADD;
-	//	pred[2]=rows[1][0+(+0*NCH+2)*NROWS*NVAL]<<PREDADD;
 		if(fwd)
 		{
 			for(int kx=0;kx<iw;++kx)
@@ -916,9 +766,9 @@ int c61_codec(int argc, char **argv)
 					cache>>=nbits&24;
 					nbits&=7;
 				}
-				rows[0][0+(+0*NCH+0)*NROWS*NVAL]=(yuv[0]<<RCTBITS)-((offset[0]-7)>>PREDADD);
-				rows[0][0+(+0*NCH+1)*NROWS*NVAL]=(yuv[1]<<RCTBITS)-((offset[1]-7)>>PREDADD);
-				rows[0][0+(+0*NCH+2)*NROWS*NVAL]=(yuv[2]<<RCTBITS)-((offset[2]-7)>>PREDADD);
+				rows[0][+0+(+0*NVAL+0)*NROWS*NCH]=(yuv[0]<<RCTBITS)-((offset[0]-7)>>PREDADD);
+				rows[0][+1+(+0*NVAL+0)*NROWS*NCH]=(yuv[1]<<RCTBITS)-((offset[1]-7)>>PREDADD);
+				rows[0][+2+(+0*NVAL+0)*NROWS*NCH]=(yuv[2]<<RCTBITS)-((offset[2]-7)>>PREDADD);
 				UPDATE(0);
 				UPDATE(1);
 				UPDATE(2);
@@ -928,10 +778,10 @@ int c61_codec(int argc, char **argv)
 				UPDATE_AUX2(0);
 				UPDATE_AUX2(1);
 				UPDATE_AUX2(2);
-				rows[0]+=NCH*NROWS*NVAL;
-				rows[1]+=NCH*NROWS*NVAL;
-			//	rows[2]+=NCH*NROWS*NVAL;
-			//	rows[3]+=NCH*NROWS*NVAL;
+				rows[0]+=NVAL*NROWS*NCH;
+				rows[1]+=NVAL*NROWS*NCH;
+			//	rows[2]+=NVAL*NROWS*NCH;
+			//	rows[3]+=NVAL*NROWS*NCH;
 				PREDICT(0);
 				PREDICT(1);
 				PREDICT(2);
@@ -1035,9 +885,9 @@ int c61_codec(int argc, char **argv)
 					*(uint32_t*)wtptr=data;
 				}
 				wtptr+=3;
-				rows[0][0+(+0*NCH+0)*NROWS*NVAL]=(yuv[0]<<RCTBITS)-((offset[0]-7)>>PREDADD);
-				rows[0][0+(+0*NCH+1)*NROWS*NVAL]=(yuv[1]<<RCTBITS)-((offset[1]-7)>>PREDADD);
-				rows[0][0+(+0*NCH+2)*NROWS*NVAL]=(yuv[2]<<RCTBITS)-((offset[2]-7)>>PREDADD);
+				rows[0][+0+(+0*NVAL+0)*NROWS*NCH]=(yuv[0]<<RCTBITS)-((offset[0]-7)>>PREDADD);
+				rows[0][+1+(+0*NVAL+0)*NROWS*NCH]=(yuv[1]<<RCTBITS)-((offset[1]-7)>>PREDADD);
+				rows[0][+2+(+0*NVAL+0)*NROWS*NCH]=(yuv[2]<<RCTBITS)-((offset[2]-7)>>PREDADD);
 				UPDATE_AUX(0);
 				UPDATE_AUX(1);
 				UPDATE_AUX(2);
