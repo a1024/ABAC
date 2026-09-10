@@ -29,6 +29,6 @@ SRC =\
 WARN = -Wall
 #WARN = -Wall -Wextra -Wcast-qual -Wcast-align -Wstrict-aliasing -Wpointer-arith -Winit-self -Wshadow -Wswitch-enum -Wstrict-prototypes -Wmissing-prototypes -Wredundant-decls -Wformat=2 -Wfloat-equal -Wundef -Wvla -Wdeclaration-after-statement -Wc++-compat -Wno-cast-function-type -Wno-redundant-decls -Wno-switch-enum -Wno-unused-function -Wno-implicit-fallthrough
 eBench:
-	gcc -O3 $(WARN) -mavx2 -mbmi -mlzcnt $(SRC) -o ebench -lopengl32 -lgdi32 -lole32 -lcomdlg32 -luuid -static -s
+	gcc -O3 $(WARN) -mavx2 -mbmi -mlzcnt -mwindows $(SRC) -o ebench -lopengl32 -lgdi32 -lole32 -lcomdlg32 -luuid -static -s
 debug:
 	gcc -g $(WARN) -mavx2 -mbmi -mlzcnt $(SRC) -o ebench-debug -lopengl32 -lgdi32 -lole32 -lcomdlg32 -luuid -static

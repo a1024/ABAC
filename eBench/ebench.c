@@ -216,18 +216,19 @@ typedef enum TransformTypeEnum
 	CT_FWD_YCbCr,		CT_INV_YCbCr,	//LOSSY	JPEG
 	CT_FWD_XYB,		CT_INV_XYB,	//LOSSY	(2021) JPEG XL
 	CT_FWD_CUSTOM,		CT_INV_CUSTOM,
-	CT_FWD_PCA,		CT_INV_PCA,
+//	CT_FWD_PCA,		CT_INV_PCA,
 	CT_FWD_HISTMATCH,	CT_INV_HISTMATCH,
 //	CT_FWD_ADAPTIVE,	CT_INV_ADAPTIVE,
 
 	CST_COMPARE,		CST_INV_SEPARATOR,
 	
-	ST_FWD_GRAY,		ST_INV_GRAY,
+	ST_FWD_MIXR,		ST_INV_MIXR,
 	ST_FWD_MIXN,		ST_INV_MIXN,
-	ST_FWD_MIXNC,		ST_INV_MIXNC,
-	ST_FWD_BESTN,		ST_INV_BESTN,
-	ST_FWD_RLS,		ST_INV_RLS,
+//	ST_FWD_MIXNC,		ST_INV_MIXNC,
+//	ST_FWD_BESTN,		ST_INV_BESTN,
+//	ST_FWD_RLS,		ST_INV_RLS,
 	ST_FWD_ADAQUANT,	ST_INV_ADAQUANT,
+	ST_FWD_GRAY,		ST_INV_GRAY,
 	ST_FWD_GRFILT,		ST_INV_GRFILT,
 	ST_FWD_L1CRCT,		ST_INV_L1CRCT,
 	ST_FWD_OLS7,		ST_INV_OLS7,
@@ -240,6 +241,8 @@ typedef enum TransformTypeEnum
 	ST_FWD_CGCRCT,		ST_INV_CGCRCT,
 	ST_FWD_CLAMPGRAD,	ST_INV_CLAMPGRAD,
 	ST_FWD_SELECT,		ST_INV_SELECT,
+	ST_FWD_PAETH,		ST_INV_PAETH,
+	ST_FWD_SELECT4,		ST_INV_SELECT4,
 	ST_FWD_AV2,		ST_INV_AV2,
 	ST_FWD_SUB,		ST_INV_SUB,
 	ST_FWD_CALIC,		ST_INV_CALIC,
@@ -247,6 +250,7 @@ typedef enum TransformTypeEnum
 	ST_DIFF,		ST_SSIM,
 	ST_FILT_MEDIAN33,	ST_FILT_AV33,
 	ST_FILT_DEINT422,	ST_FILT_DEINT420,
+	ST_FWD_EXTRAP,		ST_FWD_L1DITHER,
 	ST_FWD_QUANT,		ST_INV_QUANT,
 
 	ST_FWD_PALETTE,		ST_INV_PALETTE,
@@ -3056,8 +3060,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 //	case CT_INV_ADAPTIVE:		a="C  Inv Adaptive";		break;
 	case CT_FWD_CUSTOM:		a="C  Fwd CUSTOM";		break;
 	case CT_INV_CUSTOM:		a="C  Inv CUSTOM";		break;
-	case CT_FWD_PCA:		a="C  Fwd PCA";			break;
-	case CT_INV_PCA:		a="C  Inv PCA";			break;
+//	case CT_FWD_PCA:		a="C  Fwd PCA";			break;
+//	case CT_INV_PCA:		a="C  Inv PCA";			break;
 	case CT_FWD_HISTMATCH:		a="C  Fwd HistMatch";		break;
 	case CT_INV_HISTMATCH:		a="C  Inv HistMatch";		break;
 //	case CT_FWD_QUAD:		a="C  Fwd Quad";		break;
@@ -3134,6 +3138,8 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_CLAMPGRAD:		a=" S Inv ClampGrad";		break;
 	case ST_FWD_CLEARTYPE:		a=" S Fwd ClearType";		break;
 	case ST_INV_CLEARTYPE:		a=" S Inv ClearType";		break;
+	case ST_FWD_EXTRAP:		a=" S Fwd Extrapolate";		break;
+	case ST_FWD_L1DITHER:		a=" S Fwd L1 Dither";		break;
 	case ST_FWD_QUANT:		a=" S Fwd Quantize";		break;
 	case ST_INV_QUANT:		a=" S Inv Quantize";		break;
 	case ST_FWD_ADAQUANT:		a=" S Fwd AdaQuant";		break;
@@ -3144,6 +3150,10 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 	case ST_INV_SEL4:		a=" S Inv Sel4";		break;
 	case ST_FWD_SELECT:		a=" S Fwd Select";		break;
 	case ST_INV_SELECT:		a=" S Inv Select";		break;
+	case ST_FWD_PAETH:		a=" S Fwd Paeth";		break;
+	case ST_INV_PAETH:		a=" S Inv Paeth";		break;
+	case ST_FWD_SELECT4:		a=" S Fwd SelGrad cRCT";	break;
+	case ST_INV_SELECT4:		a=" S Inv SelGrad cRCT";	break;
 	case ST_FWD_CGPLUS:		a=" S Fwd CGplus";		break;
 	case ST_INV_CGPLUS:		a=" S Inv CGplus";		break;
 	case ST_FWD_CG422:		a=" S Fwd CG422";		break;
@@ -3156,14 +3166,16 @@ static void transforms_printname(float x, float y, unsigned tid, int place, long
 //	case ST_INV_MIX2:		a=" S Inv MIX2";		break;
 	case ST_FWD_GRAY:		a=" S Fwd Gray";		break;
 	case ST_INV_GRAY:		a=" S Inv Gray";		break;
+	case ST_FWD_MIXR:		a=" S Fwd Mix RCT";		break;
+	case ST_INV_MIXR:		a=" S Inv Mix RCT";		break;
 	case ST_FWD_MIXN:		a=" S Fwd MIX N";		break;
 	case ST_INV_MIXN:		a=" S Inv MIX N";		break;
-	case ST_FWD_MIXNC:		a=" S Fwd MIX NC";		break;
-	case ST_INV_MIXNC:		a=" S Inv MIX NC";		break;
-	case ST_FWD_BESTN:		a=" S Fwd Best N";		break;
-	case ST_INV_BESTN:		a=" S Inv Best N";		break;
-	case ST_FWD_RLS:		a=" S Fwd RLS";			break;
-	case ST_INV_RLS:		a=" S Inv RLS";			break;
+//	case ST_FWD_MIXNC:		a=" S Fwd MIX NC";		break;
+//	case ST_INV_MIXNC:		a=" S Inv MIX NC";		break;
+//	case ST_FWD_BESTN:		a=" S Fwd Best N";		break;
+//	case ST_INV_BESTN:		a=" S Inv Best N";		break;
+//	case ST_FWD_RLS:		a=" S Fwd RLS";			break;
+//	case ST_INV_RLS:		a=" S Inv RLS";			break;
 //	case ST_FWD_AV3:		a=" S Fwd AV3";			break;
 //	case ST_INV_AV3:		a=" S Inv AV3";			break;
 	case ST_FWD_WGRAD:		a="CS Fwd WGrad";		break;
@@ -4425,6 +4437,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_CLAMPGRAD:		pred_clampgrad(image, 0, pred_ma_enabled);		break;
 	case ST_FWD_CLEARTYPE:		pred_cleartype(image, 1);				break;
 	case ST_INV_CLEARTYPE:		pred_cleartype(image, 0);				break;
+	case ST_FWD_EXTRAP:		pred_extrap(image);					break;
+	case ST_FWD_L1DITHER:		pred_l1dither(image);					break;
 	case ST_FWD_QUANT:		pred_quantize(image, 1);				break;
 	case ST_INV_QUANT:		pred_quantize(image, 0);				break;
 	case ST_FWD_ADAQUANT:		pred_adaquant(image, 1);				break;
@@ -4433,6 +4447,10 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_INV_SEL4:		pred_sel4(image, 0);					break;
 	case ST_FWD_SELECT:		pred_select(image, 1);					break;
 	case ST_INV_SELECT:		pred_select(image, 0);					break;
+	case ST_FWD_PAETH:		pred_paeth(image, 1);					break;
+	case ST_INV_PAETH:		pred_paeth(image, 0);					break;
+	case ST_FWD_SELECT4:		pred_select4(image, 1);					break;
+	case ST_INV_SELECT4:		pred_select4(image, 0);					break;
 	case ST_FWD_CGPLUS:		pred_cgplus(image, 1);					break;
 	case ST_INV_CGPLUS:		pred_cgplus(image, 0);					break;
 	case ST_FWD_CG422:		pred_CG422(image, 1);					break;
@@ -4445,14 +4463,16 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 //	case ST_INV_MIX2:		pred_mix2(image, 0);					break;
 	case ST_FWD_GRAY:		pred_gray(image, 1);					break;
 	case ST_INV_GRAY:		pred_gray(image, 0);					break;
+	case ST_FWD_MIXR:		pred_mixR(image, 1);					break;
+	case ST_INV_MIXR:		pred_mixR(image, 0);					break;
 	case ST_FWD_MIXN:		pred_mixN(image, 1);					break;
 	case ST_INV_MIXN:		pred_mixN(image, 0);					break;
-	case ST_FWD_MIXNC:		pred_mixNC(image, 1);					break;
-	case ST_INV_MIXNC:		pred_mixNC(image, 0);					break;
-	case ST_FWD_BESTN:		pred_bestN(image, 1);					break;
-	case ST_INV_BESTN:		pred_bestN(image, 0);					break;
-	case ST_FWD_RLS:		pred_rls(image, 1);					break;
-	case ST_INV_RLS:		pred_rls(image, 0);					break;
+//	case ST_FWD_MIXNC:		pred_mixNC(image, 1);					break;
+//	case ST_INV_MIXNC:		pred_mixNC(image, 0);					break;
+//	case ST_FWD_BESTN:		pred_bestN(image, 1);					break;
+//	case ST_INV_BESTN:		pred_bestN(image, 0);					break;
+//	case ST_FWD_RLS:		pred_rls(image, 1);					break;
+//	case ST_INV_RLS:		pred_rls(image, 0);					break;
 //	case ST_FWD_AV3:		pred_av3(image, 1);					break;
 //	case ST_INV_AV3:		pred_av3(image, 0);					break;
 	case ST_FWD_WGRAD:		pred_wgrad(image, 1, hasRCT);				break;
@@ -11683,13 +11703,51 @@ void io_render(void)
 		//extern int testhist[3];//
 		//GUIPrint(0, 0, tdy*2, 1, "%d %d %d", testhist[0], testhist[1], testhist[2]);//
 		//const char *label=ec_method_label(ec_method);
-		GUIPrint(0, 0, 0, 1, "WH %dx%d  D0[%d %d %d %d] D[%d %d %d %d]  RCT%2d %s  Z %13.6lf",
-			im0->iw, im0->ih,
-			im0->src_depth[0], im0->src_depth[1], im0->src_depth[2], im0->src_depth[3],
-			im1->depth[0], im1->depth[1], im1->depth[2], im1->depth[3],
-			im1->rct, rct_names[im1->rct],
-			imzoom
-		);
+		if(im1->rct&0x8000)
+		{
+			int uc0=0, vc0=0, vc1=0;
+			const uint8_t *perm=0;
+
+			perm=crct2_unpack(im1->rct, &uc0, &vc0, &vc1);
+			GUIPrint(0, 0, 0, 1, "WH %dx%d  D0[%d %d %d %d] D[%d %d %d %d]  RCT%c%c%c_%c_%c%c/%c  Z %13.6lf"
+				, im0->iw
+				, im0->ih
+				, im0->src_depth[0]
+				, im0->src_depth[1]
+				, im0->src_depth[2]
+				, im0->src_depth[3]
+				, im1->depth[0]
+				, im1->depth[1]
+				, im1->depth[2]
+				, im1->depth[3]
+				, '0'+perm[0]
+				, '0'+perm[1]
+				, '0'+perm[2]
+				, uc0+(uc0<9?'0':'A'-10)
+				, vc0+(vc0<9?'0':'A'-10)
+				, vc1+(vc1<9?'0':'A'-10)
+				, (1<<RCTBITS)+((1<<RCTBITS)<9?'0':'A'-10)
+				, imzoom
+			);
+		}
+		else
+		{
+			GUIPrint(0, 0, 0, 1, "WH %dx%d  D0[%d %d %d %d] D[%d %d %d %d]  RCT%2d %s  Z %13.6lf"
+				, im0->iw
+				, im0->ih
+				, im0->src_depth[0]
+				, im0->src_depth[1]
+				, im0->src_depth[2]
+				, im0->src_depth[3]
+				, im1->depth[0]
+				, im1->depth[1]
+				, im1->depth[2]
+				, im1->depth[3]
+				, im1->rct
+				, rct_names[im1->rct]
+				, imzoom
+			);
+		}
 	}
 #if 0
 	if(image)

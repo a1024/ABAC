@@ -2,6 +2,8 @@
 #ifndef INC_EBENCH_H
 #define INC_EBENCH_H
 #include"util.h"
+#include<stdint.h>
+#include<stdlib.h>
 #define WIN32_LEAN_AND_MEAN
 #include<Windows.h>
 #include<GL/gl.h>
@@ -559,7 +561,7 @@ const char* glerr2str(int error);
 void set_region_immediate(int x1, int x2, int y1, int y2);//calls glViewport
 
 void send_texture_pot(unsigned gl_texture, const int *rgba, int txw, int txh, int linear);
-void send_texture_pot_grey(unsigned gl_texture, const unsigned char *bmp, int txw, int txh, int linear);
+void send_texture_pot_grey(unsigned gl_texture, const uint8_t *bmp, int txw, int txh, int linear);
 void send_texture_pot_int16x1(unsigned gl_texture, const unsigned *texture, int txw, int txh, int linear);
 void select_texture(unsigned tx_id, int u_location);
 
@@ -620,7 +622,7 @@ void draw_contour3d(Camera const *cam, float x1, float x2, float y1, float y2, f
 
 void depth_test(int enable);
 
-unsigned char* stbi_load(char const *filename, int *x, int *y, int *comp, int req_comp);
+uint8_t* stbi_load(char const *filename, int *x, int *y, int *comp, int req_comp);
 unsigned short* stbi_load_16(char const *filename, int *x, int *y, int *comp, int req_comp);
 
 
@@ -629,24 +631,24 @@ unsigned short* stbi_load_16(char const *filename, int *x, int *y, int *comp, in
 //Entropy Benchmark (eBench)
 typedef struct ImageStruct
 {
-	int iw, ih;
-	short
+	int32_t iw, ih;
+	int16_t
 		rct,
 		nch;//{greyscale, greyscale+alpha, RGB, RGB+alpha}	alpha can be ignored for now
-	char depth[4];
-	char src_depth[4];//for entropy calculations
-	int data[];//stride always sizeof(int[4])
+	int8_t depth[4];
+	int8_t src_depth[4];//for entropy calculations
+	int32_t data[];//stride always sizeof(int[4])
 } Image;
 Image* image_load(const char *fn, int fnlen);
 int image_save_uint8(const char *fn, Image const *image, int override_alpha);
-Image* image_from_uint8(const unsigned char *src, int iw, int ih, int nch, char rdepth, char gdepth, char bdepth, char adepth);
+Image* image_from_uint8(const uint8_t *src, int iw, int ih, int nch, char rdepth, char gdepth, char bdepth, char adepth);
 Image* image_from_uint16(const unsigned short *src, int iw, int ih, int nch, char *src_depths, char *dst_depths);
-void image_export_uint8(Image const *image, unsigned char **dst, int override_alpha, int swap_rb);
+void image_export_uint8(Image const *image, uint8_t **dst, int override_alpha, int swap_rb);
 double image_getBMPsize(Image const *image);
 size_t image_getbufsize(Image const *image);
 void image_copy_nodata(Image **dst, Image const *src);
 void image_copy(Image **dst, Image const *src);
-int copy_bmp_to_clipboard(const unsigned char *rgba, int iw, int ih);
+int copy_bmp_to_clipboard(const uint8_t *rgba, int iw, int ih);
 Image* paste_bmp_from_clipboard(void);//window.c
 
 
@@ -705,7 +707,7 @@ void colortransform_lossy_pca(Image *image, int fwd);
 #define RCT_CUSTOM_NPARAMS 9
 #define RCT_CUSTOM_PARAMBITS 12
 extern short rct_custom_params[RCT_CUSTOM_NPARAMS];
-void rct_custom_unpackpermutation(short p, unsigned char *permutation);
+void rct_custom_unpackpermutation(short p, uint8_t *permutation);
 void rct_custom(Image *image, int fwd, const short *params);
 void rct_custom_optimize(Image const *image, short *params);
 void rct_custom_getmatrix(double *matrix, int fwd);
@@ -855,7 +857,7 @@ typedef enum _RCTIndex
 #undef  RCT
 	RCT_COUNT,
 } RCTIndex;
-static const unsigned char rct_combinations[RCT_COUNT][II_COUNT]=
+static const uint8_t rct_combinations[RCT_COUNT][II_COUNT]=
 {
 #define RCT(LABEL, ...) {__VA_ARGS__},
 	RCTLIST
@@ -870,6 +872,146 @@ static const char *rct_names[]=
 int crct_analysis(Image *src);
 int crct_analysis2(Image *src);
 #endif
+static const uint8_t perms[]=
+{
+	0, 1, 2,	2, 1, 0,
+	2, 0, 1,	1, 0, 2,
+	1, 2, 0,	0, 2, 1,
+};
+static const uint8_t crct2_uc[]=
+{
+	0,
+//	1,
+//	2,
+//	3,
+	4,
+	5,
+	6,
+	7,
+	8,
+};
+static const int8_t crct2_vc[]=
+{
+//	-1, -1,//- 2
+//	-1, +0,//- 1
+//	+0, -1,//- 1
+//	-1, +1,//+ 0
+	+0, +0,//+ 0
+//	+1, -1,//+ 0
+//	+0, +1,//+ 1
+//	+1, +0,//+ 1
+//	-1, +3,//+ 2
+	+0, +2,//+ 2
+	+1, +1,//+ 2
+	+2, +0,//+ 2
+//	+3, -1,//+ 2
+//	-1, +4,//+ 3
+	+0, +3,//+ 3
+	+1, +2,//+ 3
+//	+2, +1,//+ 3
+	+3, +0,//+ 3
+//	+4, -1,//+ 3
+//	-1, +5,//+ 4
+	+0, +4,//+ 4
+	+1, +3,//+ 4
+	+2, +2,//+ 4
+	+3, +1,//+ 4
+//	+4, +0,//+ 4
+//	+5, -1,//+ 4
+	-1, +6,//+ 5
+	+0, +5,//+ 5
+	+1, +4,//+ 5
+	+2, +3,//+ 5
+//	+3, +2,//+ 5
+	+4, +1,//+ 5
+	+5, +0,//+ 5
+	+6, -1,//+ 5
+//	-1, +7,//+ 6
+	+0, +6,//+ 6
+	+1, +5,//+ 6
+	+2, +4,//+ 6
+//	+3, +3,//+ 6
+	+4, +2,//+ 6
+	+5, +1,//+ 6
+	+6, +0,//+ 6
+//	+7, -1,//+ 6
+//	-1, +8,//+ 7
+	+0, +7,//+ 7
+//	+1, +6,//+ 7
+//	+2, +5,//+ 7
+//	+3, +4,//+ 7
+//	+4, +3,//+ 7
+//	+5, +2,//+ 7
+	+6, +1,//+ 7
+//	+7, +0,//+ 7
+//	+8, -1,//+ 7
+//	-1, +9,//+ 8
+	+0, +8,//+ 8
+//	+1, +7,//+ 8
+//	+2, +6,//+ 8
+//	+3, +5,//+ 8
+	+4, +4,//+ 8
+//	+5, +3,//+ 8
+//	+6, +2,//+ 8
+	+7, +1,//+ 8
+	+8, +0,//+ 8
+//	+9, -1,//+ 8
+//	+0, +9,//+ 9
+	+1, +8,//+ 9
+//	+2, +7,//+ 9
+//	+3, +6,//+ 9
+//	+4, +5,//+ 9
+//	+5, +4,//+ 9
+//	+6, +3,//+ 9
+//	+7, +2,//+ 9
+	+8, +1,//+ 9
+//	+9, +0,//+ 9
+	+2, +8,//+10
+//	+3, +7,//+10
+//	+4, +6,//+10
+//	+5, +5,//+10
+//	+6, +4,//+10
+//	+7, +3,//+10
+	+8, +2,//+10
+	+3, +8,//+11
+//	+4, +7,//+11
+//	+5, +6,//+11
+//	+6, +5,//+11
+//	+7, +4,//+11
+	+8, +3,//+11
+//	+4, +8,//+12
+//	+5, +7,//+12
+//	+6, +6,//+12
+//	+7, +5,//+12
+//	+8, +4,//+12
+//	+5, +8,//+13
+//	+6, +7,//+13
+//	+7, +6,//+13
+//	+8, +5,//+13
+//	+6, +8,//+14
+//	+7, +7,//+14
+//	+8, +6,//+14
+//	+7, +8,//+15
+//	+8, +7,//+15
+//	+8, +8,//+16
+};
+enum
+{
+	RCTBITS=3,//eBench: NPERMS*RCTLEVELSU*RCTLEVELSV <= 0x7FFF
+	RCTLEVELSU=_countof(crct2_uc),
+	RCTLEVELSV=_countof(crct2_vc)/2,
+	RCTROUND=0,
+
+//	RCTBITS=2,	//up to 4	eBench
+//	RCTLEVELS=(1<<RCTBITS)+1,//+unity
+	NPERMS=_countof(perms)/3,
+};
+typedef struct _RCTInfo
+{
+	uint8_t pidx, uc0, vc0, vc1;
+} RCTInfo;
+int crct2_analysis(Image *src);
+const uint8_t* crct2_unpack(int rctdata, int *uc0, int *vc0, int *vc1);
 
 
 
@@ -901,15 +1043,20 @@ void pred_CG420(Image *src, int fwd);
 void pred_CG422(Image *src, int fwd);
 void pred_sel4(Image *src, int fwd);
 void pred_select(Image *src, int fwd);
+void pred_paeth(Image *src, int fwd);
+void pred_select4(Image *src, int fwd);
 void pred_sub(Image *src, int fwd);
 void pred_av2(Image *src, int fwd);
 void pred_mix2(Image *src, int fwd);
 void pred_mixN(Image *src, int fwd);
+void pred_mixR(Image *src, int fwd);
 void pred_mixNC(Image *src, int fwd);
 void pred_bestN(Image *src, int fwd);
 void pred_rls(Image *src, int fwd);
 void pred_gray(Image *src, int fwd);
 void pred_awav(Image *src, int fwd);
+void pred_extrap(Image *src);
+void pred_l1dither(Image *src);
 void pred_MTF(Image *src, int fwd);
 void pred_palette(Image *src, int fwd);
 
@@ -952,9 +1099,9 @@ void pred_ols3(Image *src, int fwd, int enable_ma);
 #define OLS4_CTXSIZE (2*(OLS4_RMAX+1)*OLS4_RMAX)
 extern int ols4_period;
 extern double ols4_lr[4];
-extern unsigned char ols4_cache;
-extern unsigned char ols4_mask[4][OLS4_CTXSIZE+1];
-void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsigned char *mask1, unsigned char *mask2, unsigned char *mask3, int fwd);
+extern uint8_t ols4_cache;
+extern uint8_t ols4_mask[4][OLS4_CTXSIZE+1];
+void pred_ols4(Image *src, int period, double *lrs, uint8_t *mask0, uint8_t *mask1, uint8_t *mask2, uint8_t *mask3, int fwd);
 void pred_ols5(Image *src, int fwd);
 void pred_ols6(Image *src, int fwd);
 void pred_ols7(Image *src, int fwd);		//L1
@@ -1013,8 +1160,8 @@ void custom3_opt(Image const *src, Custom3Params *srcparams, int niter, int mask
 extern short lossyconv_clipboard;
 extern int lossyconv_page;
 extern short lossyconv_params[5*5*4*4];//(r2 = 5*5) * 4 channels max * 4 banks
-extern unsigned char lossyconv_stride[2*4], lossyconv_offset[2*4];//2 dimensions * 4 stages
-extern unsigned char lossyconv_causalRCT[4];
+extern uint8_t lossyconv_stride[2*4], lossyconv_offset[2*4];//2 dimensions * 4 stages
+extern uint8_t lossyconv_causalRCT[4];
 void pred_lossyconv(Image *src);//irreversible conv
 void pred_WC(Image *src);
 void filt_median33(Image *src);
@@ -1087,8 +1234,8 @@ void pred_dct3_fwd(char *buf, int iw, int ih, int nch, int bytestride);
 void pred_dct3_inv(char *buf, int iw, int ih, int nch, int bytestride);
 
 double calc_entropy(int *hist, int sum);//pass -1 if sum is unknown
-void channel_entropy(unsigned char *buf, int resolution, int nch, int bytestride, float *cr, int *usage);
-void jointhistogram(unsigned char *buf, int iw, int ih, int nbits, ArrayHandle *hist, int space_not_color);
+void channel_entropy(uint8_t *buf, int resolution, int nch, int bytestride, float *cr, int *usage);
+void jointhistogram(uint8_t *buf, int iw, int ih, int nbits, ArrayHandle *hist, int space_not_color);
 
 
 //experiment 24: test 16 optimization per block
@@ -1105,8 +1252,8 @@ typedef struct E24ParamsStruct
 } E24Params;
 extern E24Params e24_params[3];
 extern double e24_cr[3];
-int e24_optimizeall(const unsigned char *buf, int iw, int ih, int x1, int x2, int y1, int y2, int loud);
-void e24_estimate(const unsigned char *buf, int iw, int ih, int x1, int x2, int y1, int y2);
+int e24_optimizeall(const uint8_t *buf, int iw, int ih, int x1, int x2, int y1, int y2, int loud);
+void e24_estimate(const uint8_t *buf, int iw, int ih, int x1, int x2, int y1, int y2);
 #endif
 
 //Bayes memory experiment
@@ -1115,7 +1262,7 @@ typedef struct BayesCounterStruct
 	int n[2];
 } BayesCounter;
 extern ArrayHandle bayes_mem[8];
-void bayes_estimate(unsigned char *image, int iw, int ih, int x1, int x2, int y1, int y2, int kc);
+void bayes_estimate(uint8_t *image, int iw, int ih, int x1, int x2, int y1, int y2, int kc);
 
 
 //transforms pt2

@@ -449,7 +449,7 @@ start:
 		double ctotal=total_csize[0]+total_csize[1]+total_csize[2]+total_csize[3];
 		double CR=total_usize/ctotal;
 		int nprinted=snprintf(str, sizeof(str)-1
-			, "%13.2lf %13.2lf %13.2lf %13.2lf %13.2lf  BPD %8.4lf {%8.4lf %8.4lf %8.4lf %8.4lf %8.4lf}  %12.6lf sec  %12.6lf MB/s  %12.6lf ms/MB"
+			, "%13.2lf %13.2lf %13.2lf %13.2lf %13.2lf  BPD %8.6lf {%8.6lf %8.6lf %8.6lf %8.6lf %8.6lf}  %12.6lf sec  %12.6lf MB/s  %12.6lf ms/MB"
 			, total_usize
 			, ctotal
 			, total_csize[0]

@@ -382,14 +382,20 @@ void pred_ols8_crct(Image *src, int fwd)
 	int *weights2=(int*)malloc(w2size);
 	int bufsize=(src->iw+8*2)*(int)sizeof(short[6*4*3]);//6 padded rows * 4 channels max * {pixels, residuals1, residuals2}
 	short *pixels=(short*)malloc(bufsize);
+	int rctdata=0, uc0=0, vc0=0, vc1=0;
+	const uint8_t *perm=0;
+	
 	if(fwd)
-		src->rct=crct_analysis(src);
-	const uint8_t *combination=rct_combinations[src->rct];
-	int
-		yidx=combination[II_PERM_Y],
-		uidx=combination[II_PERM_U],
-		vidx=combination[II_PERM_V];
-	int vfromy=-(combination[II_COEFF_U_SUB_Y]!=0);
+		src->rct=crct2_analysis(src);
+	perm=crct2_unpack(src->rct, &uc0, &vc0, &vc1);
+	//if(fwd)
+	//	src->rct=crct_analysis(src);
+	//const uint8_t *combination=rct_combinations[src->rct];
+	//int
+	//	yidx=combination[II_PERM_Y],
+	//	uidx=combination[II_PERM_U],
+	//	vidx=combination[II_PERM_V];
+	//int vfromy=-(combination[II_COEFF_U_SUB_Y]!=0);
 	if(!pixels||!weights||!weights2)
 	{
 		LOG_ERROR("Alloc error");
@@ -422,9 +428,9 @@ void pred_ols8_crct(Image *src, int fwd)
 			int offset=0;
 			int yuv[]=
 			{
-				src->data[idx+yidx],
-				src->data[idx+uidx],
-				src->data[idx+vidx],
+				src->data[idx+perm[0]],
+				src->data[idx+perm[1]],
+				src->data[idx+perm[2]],
 			};
 			for(int kc=0;kc<4;++kc)
 			{
@@ -574,11 +580,17 @@ void pred_ols8_crct(Image *src, int fwd)
 				if(vmin>NEEE)vmin=NEEE;
 				if(vmax<NEEE)vmax=NEEE;
 				CLAMP2(predc, vmin, vmax);
-				if(kc)
-				{
-					predc+=offset;
-					CLAMP2(predc, amin[kc], amax[kc]);
-				}
+
+				offset=0;
+				if(kc==1)offset=uc0*yuv[0]>>RCTBITS;
+				if(kc==2)offset=(vc0*yuv[0]+vc1*yuv[1])>>RCTBITS;
+				predc+=offset;
+				CLAMP2(predc, amin[kc], amax[kc]);
+				//if(kc)
+				//{
+				//	predc+=offset;
+				//	CLAMP2(predc, amin[kc], amax[kc]);
+				//}
 				
 				int curr=yuv[kc];
 				if(g_dist>1)
@@ -644,13 +656,13 @@ void pred_ols8_crct(Image *src, int fwd)
 				for(int k=0;k<NPREDS2;++k)
 					currw2[k]+=e*preds2[k];//coeffs
 
-				offset=kc?(combination[II_COEFF_V_SUB_Y]*yuv[0]+combination[II_COEFF_V_SUB_U]*yuv[1])>>2:yuv[0]&vfromy;
+				//offset=kc?(combination[II_COEFF_V_SUB_Y]*yuv[0]+combination[II_COEFF_V_SUB_U]*yuv[1])>>2:yuv[0]&vfromy;
 			}
 			if(!fwd)
 			{
-				src->data[idx+yidx]=yuv[0];
-				src->data[idx+uidx]=yuv[1];
-				src->data[idx+vidx]=yuv[2];
+				src->data[idx+perm[0]]=yuv[0];
+				src->data[idx+perm[1]]=yuv[1];
+				src->data[idx+perm[2]]=yuv[2];
 			}
 		}
 	}
