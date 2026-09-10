@@ -11709,7 +11709,7 @@ void io_render(void)
 			const uint8_t *perm=0;
 
 			perm=crct2_unpack(im1->rct, &uc0, &vc0, &vc1);
-			GUIPrint(0, 0, 0, 1, "WH %dx%d  D0[%d %d %d %d] D[%d %d %d %d]  RCT%c%c%c_%c_%c%c/%c  Z %13.6lf"
+			GUIPrint(0, 0, 0, 1, "WH %dx%d  D0[%d %d %d %d] D[%d %d %d %d]  RCT%c%c%c_%02d_%02d%02d/%02d  Z %13.6lf"
 				, im0->iw
 				, im0->ih
 				, im0->src_depth[0]
@@ -11723,10 +11723,14 @@ void io_render(void)
 				, '0'+perm[0]
 				, '0'+perm[1]
 				, '0'+perm[2]
-				, uc0+(uc0<9?'0':'A'-10)
-				, vc0+(vc0<9?'0':'A'-10)
-				, vc1+(vc1<9?'0':'A'-10)
-				, (1<<RCTBITS)+((1<<RCTBITS)<9?'0':'A'-10)
+				, uc0
+				, vc0
+				, vc1
+				, 1<<RCTBITS
+			//	, uc0+(uc0<9?'0':'A'-10)
+			//	, vc0+(vc0<9?'0':'A'-10)
+			//	, vc1+(vc1<9?'0':'A'-10)
+			//	, (1<<RCTBITS)+((1<<RCTBITS)<9?'0':'A'-10)
 				, imzoom
 			);
 		}
