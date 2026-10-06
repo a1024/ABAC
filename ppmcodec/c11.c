@@ -850,9 +850,9 @@ int c11_codec(int argc, char **argv)
 			if(fwd)
 			{
 				uint64_t data=acme_read(&rdptr, 3, fsrc);
-				yuv[0]=data>>yshift&255;
-				yuv[1]=data>>ushift&255;
-				yuv[2]=data>>vshift&255;
+				yuv[0]=(uint8_t)(data>>yshift);
+				yuv[1]=(uint8_t)(data>>ushift);
+				yuv[2]=(uint8_t)(data>>vshift);
 				
 				uoffset=cu0*yuv[0]>>2;
 				voffset=(cv0*yuv[0]+cv1*yuv[1])>>2;
@@ -900,9 +900,8 @@ int c11_codec(int argc, char **argv)
 					{
 						acme_write(&wtptr, sizeof(uint32_t), fdst, (uint32_t)(low>>32));
 						low<<=32;
-						range=range<<32|0xFFFFFFFF;
-						if(range>~low)
-							range=~low;
+						range=range<<32|~0U;
+						if(range>~low)range=~low;
 					}
 					low+=range*cdfs[k]>>PROBBITS;
 					range=(range*freqs[k]>>PROBBITS)-1;
@@ -916,11 +915,10 @@ int c11_codec(int argc, char **argv)
 
 					while(range<=0xFFFF)
 					{
-						code=code<<32|(acme_read(&rdptr, sizeof(uint32_t), fsrc)&0xFFFFFFFF);
+						code=code<<32|(uint32_t)acme_read(&rdptr, sizeof(uint32_t), fsrc);
 						low<<=32;
-						range=range<<32|0xFFFFFFFF;
-						if(range>~low)
-							range=~low;
+						range=range<<32|~0U;
+						if(range>~low)range=~low;
 					}
 					__m256i ms0=_mm256_load_si256((__m256i*)currstats[kc]);
 					__m256i mc2=_mm256_set1_epi16((uint16_t)(((code-low)<<PROBBITS|((1LL<<PROBBITS)-1))/range));
@@ -946,11 +944,10 @@ int c11_codec(int argc, char **argv)
 					
 					while(range<=0xFFFF)
 					{
-						code=code<<32|(acme_read(&rdptr, sizeof(uint32_t), fsrc)&0xFFFFFFFF);
+						code=code<<32|(uint32_t)acme_read(&rdptr, sizeof(uint32_t), fsrc);
 						low<<=32;
-						range=range<<32|0xFFFFFFFF;
-						if(range>~low)
-							range=~low;
+						range=range<<32|~0U;
+						if(range>~low)range=~low;
 					}
 					__m256i ms0=_mm256_load_si256((__m256i*)currstats[kc+3]);
 					__m256i mc2=_mm256_set1_epi16((uint16_t)(((code-low)<<PROBBITS|((1LL<<PROBBITS)-1))/range));

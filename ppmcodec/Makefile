@@ -75,7 +75,7 @@ c10:
 	clang $(FLAGS) -DCODEC_EXT=c10 -mavx2 -mbmi -mbmi2 -mlzcnt  $(SRC_ZYDIS) c10.c codec.c util.c  -o c10 $(LIBS)
 
 c11:
-	gcc $(FLAGS) -fopt-info -Dc11_codec=main -mtune=native -mavx2 -mlzcnt $(SRC_ZYDIS2) c11.c -o c11 $(LIBS)
+	gcc -Wall -O3 -s -fopt-info -mtune=native -mavx2 -mlzcnt -static -lm -Dc11_codec=main c11.c -o c11
 
 c12m:
 	gcc $(FLAGS) -DCODEC_EXT=c12 -mavx2 -mbmi -mlzcnt  $(SRC_ZYDIS) c12m.c codec.c util.c  -o c12 $(LIBS)
@@ -298,4 +298,7 @@ c60:
 	clang -Wall -O3 -s -Dc60_codec=main -mavx2 -mlzcnt $(SRC_ZYDIS2) c60.c -o c60 $(LIBS)
 
 c61:
-	gcc -Wall -O3 -s -Dc61_codec=main -mavx2 -mlzcnt -static -s c61.c -o c61
+	gcc -Wall -O3 -mavx2 -mlzcnt -static -s -Dc61_codec=main c61.c -o c61
+
+c62:
+	gcc -Wall -O3 -mavx2 -mlzcnt -static -s -Dc62_codec=main c62.c -o c62

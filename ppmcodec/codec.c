@@ -78,6 +78,7 @@ int c58_codec(int argc, char **argv);//bit coding with plain histograms (c12)
 int c59_codec(int argc, char **argv);//near portable rapid
 int c60_codec(int argc, char **argv);//lossy wavelet FSE/AC
 int c61_codec(int argc, char **argv);//experiments on c54
+int c62_codec(int argc, char **argv);//static pred - static stats
 #endif
 
 
@@ -143,6 +144,7 @@ int c61_codec(int argc, char **argv);//experiments on c54
 //	#define CODEC_EXT c59
 //	#define CODEC_EXT c60
 	#define CODEC_EXT c61
+//	#define CODEC_EXT c62
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -246,6 +248,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-HUGE-ppm/space_huge.ppm"		//X
 	//	"C:/dataset-ic16-ppm/big_building.ppm"		//16-bit
 	//	"C:/dataset-ic8-ppm/big_building.ppm"
+	//	"C:/dataset-kodak-ppm/kodim13.ppm"
 		"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_02.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_05.ppm"
@@ -279,6 +282,7 @@ int main(int argc, char **argv)
 	//	"C:/dataset-synth2-ppm/20240412 2 gralic enc.ppm"
 	//	"C:/dataset-synth2-ppm/20240419 1 speed for efficiency.ppm"
 	//	"C:/dataset-synth2-ppm/20240419 1 speed for efficiency.ppm"
+	//	"C:/dataset-synth2-ppm/20240419 2.ppm"			//libre calc
 	//	"C:/dataset-synth2-ppm/20240419 3.ppm"
 	//	"C:/dataset-synth2-ppm/20240422 1.PPM"
 	//	"C:/dataset-synth2-ppm/20240524 numbers.ppm"

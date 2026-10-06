@@ -29,7 +29,8 @@
 #if defined _MSC_VER && !defined RELEASE
 	#define LOUD
 //	#define PRINT_RCT
-	#define JOINT_EXP
+//	#define JOINT_EXP
+	#define PRINT_CODES
 
 	#define ENABLE_GUIDE
 //	#define FIFOVAL
@@ -549,7 +550,24 @@ INLINE void codebit(ACState *ac, Cell_t *pcell, int32_t *pbit, const int fwd)
 			CRASH("inflation");
 		}
 		if(fwd)
+		{
+#if defined PRINT_CODES &&0
+			{
+				static int prev=0;
+				uint32_t c=(uint32_t)(ac->lo>>32);
+				int len=32;
+				for(int kb=len-1;kb>=0;--kb)
+				{
+					int bit=c>>kb&1;
+					if(prev^bit)
+						printf(" ");
+					printf("%c", '0'+bit);
+					prev=bit;
+				}
+			}
+#endif
 			*(uint32_t*)ac->ptr=(uint32_t)(ac->lo>>32);
+		}
 		else
 			ac->code=ac->code<<32|*(uint32_t*)ac->ptr;
 		ac->ptr+=4;
