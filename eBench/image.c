@@ -141,9 +141,13 @@ Image* image_load(const char *fn, int fnlen)
 		{
 			for(int k=0;k<4*res;k+=4)
 			{
-				image->data[k+0]=(uint16_t)_loadbe_i16(ptr)-0x8000; ptr+=2;
-				image->data[k+1]=(uint16_t)_loadbe_i16(ptr)-0x8000; ptr+=2;
-				image->data[k+2]=(uint16_t)_loadbe_i16(ptr)-0x8000; ptr+=2;
+				uint16_t val;
+				val=*(uint16_t*)ptr; ptr+=2; image->data[k+0]=(uint16_t)(val<<8|val>>8)-0x8000;
+				val=*(uint16_t*)ptr; ptr+=2; image->data[k+1]=(uint16_t)(val<<8|val>>8)-0x8000;
+				val=*(uint16_t*)ptr; ptr+=2; image->data[k+2]=(uint16_t)(val<<8|val>>8)-0x8000;
+			//	image->data[k+0]=(uint16_t)_loadbe_i16(ptr)-0x8000; ptr+=2;
+			//	image->data[k+1]=(uint16_t)_loadbe_i16(ptr)-0x8000; ptr+=2;
+			//	image->data[k+2]=(uint16_t)_loadbe_i16(ptr)-0x8000; ptr+=2;
 				image->data[k+3]=0;
 			}
 		}

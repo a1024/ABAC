@@ -1118,7 +1118,7 @@ enum
 //	RCTLEVELS=(1<<RCTBITS)+1,//+unity
 	NPERMS=_countof(perms)/3,
 };
-uint8_t crct2_eBench_assert[NPERMS*RCTLEVELSU*RCTLEVELSV <= 0x7FFF];
+static uint8_t crct2_eBench_assert[NPERMS*RCTLEVELSU*RCTLEVELSV <= 0x7FFF];
 typedef struct _RCTInfo
 {
 	uint8_t pidx, uc0, vc0, vc1;

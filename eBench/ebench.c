@@ -607,7 +607,7 @@ void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 				if(!sum)
 					continue;
 				double e=0;
-				if(maxdepth>8)//exact estimate
+				if(maxdepth>9)//exact estimate
 				{
 					double norm=1./sum;
 					for(int ks=0;ks<nlevels;++ks)
