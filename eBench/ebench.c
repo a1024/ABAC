@@ -5812,11 +5812,11 @@ static void chart_hist_draw(float x1, float x2, float y1, float y2, int cstart, 
 
 				//for(int k2=0;k2<256;++k2)//
 				//	GUIPrint(0, x1+k2*(x2-x1)/256, y1+(kc+1)*dy-hist2[k2]*histpx, 0.6f, "%d", _hist[kc<<8|k2]);
-				for(int k2=0;k2<256;++k2)//
-				{
-					if(hist2[k2]>(k2>0?hist2[k2-1]:0)&&hist2[k2]>(k2<255?hist2[k2+1]:0))
-						GUIPrint(0, x1+k2*(x2-x1)/256, y1+(kc+1)*dy-hist2[k2]*histpx, 0.8f, "%lf", k2*(1./256));
-				}
+				//for(int k2=0;k2<256;++k2)//
+				//{
+				//	if(hist2[k2]>(k2>0?hist2[k2-1]:0)&&hist2[k2]>(k2<255?hist2[k2+1]:0))
+				//		GUIPrint(0, x1+k2*(x2-x1)/256, y1+(kc+1)*dy-hist2[k2]*histpx, 0.8f, "%lf", k2*(1./256));
+				//}
 			}
 		}
 		break;
@@ -7104,10 +7104,34 @@ int io_keydn(IOKey key, char c)
 	case 'S':
 		if(keyboard[KEY_CTRL]&&im1&&im_export)
 		{
-			char *filename=dialog_save_file(0, 0, "Untitled.PNG");
+			Filter ext[]=
+			{
+				{"Portable Network Graphics (*.PNG) File", "*.PNG"},
+				{"Portable Pixmap (*.PPM) File", "*.PPM"},
+			};
+			char *filename=dialog_save_file(ext, _countof(ext), "Untitled.PNG");
 			if(filename)
 			{
-				lodepng_encode_file(filename, im_export, im1->iw, im1->ih, LCT_RGBA, 8);
+				int len=(int)strlen(filename);
+
+				if(!_stricmp(filename+len-4, ".PNG"))
+					lodepng_encode_file(filename, im_export, im1->iw, im1->ih, LCT_RGBA, 8);
+				else if(!_stricmp(filename+len-4, ".PPM"))
+				{
+					size_t k, res;
+					FILE *fdst=fopen(filename, "wb");
+
+					if(!fdst)
+					{
+						LOG_ERROR("Cannot open \"%s\" for writing", fn);
+						return 1;
+					}
+					fprintf(fdst, "P6\n%d %d\n255\n", im1->iw, im1->ih);
+					for(k=0, res=(size_t)4*im1->iw*im1->ih;k<res;k+=4)
+						fwrite(im_export+k, 1, 3, fdst);
+				//	fwrite(im_export, 1, (ptrdiff_t)3*im1->iw*im1->ih, fdst);
+					fclose(fdst);
+				}
 				free(filename);
 			}
 			return 1;

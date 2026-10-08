@@ -15,6 +15,7 @@ Image* image_from_uint8(const unsigned char *src, int iw, int ih, int nch, char 
 		LOG_ERROR("Alloc error");
 		return 0;
 	}
+	memset(image, 0, sizeof(*image));
 	image->iw=iw;
 	image->ih=ih;
 	image->nch=nch;

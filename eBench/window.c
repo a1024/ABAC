@@ -936,8 +936,15 @@ LRESULT __stdcall WndProc(HWND hWnd, unsigned message, WPARAM wParam, LPARAM lPa
 		//SwapBuffers(ghDC);
 		break;
 	case WM_PAINT:
-		g_repaint=0;
-		io_render();
+		{
+			static int callctr=0;
+
+			++callctr;
+			g_repaint=0;
+			if(callctr==1)
+				io_render();
+			--callctr;
+		}
 		//prof_print();
 		//SwapBuffers(ghDC);
 		break;
