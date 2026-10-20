@@ -1,0 +1,543 @@
+gcc -std=c89 -Wall -Wextra -Wpedantic -Wcast-qual -Wcast-align -Wstrict-aliasing -Wpointer-arith -Winit-self -Wshadow -Wswitch-enum -Wstrict-prototypes -Wmissing-prototypes -Wredundant-decls -Wformat=2 -Wfloat-equal -Wundef -Wvla -Wdeclaration-after-statement -Wno-cast-function-type -Wno-redundant-decls -Wno-switch-enum -Wno-unused-function -Wno-implicit-fallthrough  -O3 -s -ffast-math -static -mwindows -mavx2 -mbmi -mlzcnt  bt2.c bwt.c console.c custom4.c c18.c ebench.c graphics.c hadamard.c image.c lodepng.c lpc.c ols4.c ols5.c ols6.c ols7.c ols8.c ols9.c palette.c ssim.c transforms.c util.c wg4.c wg5.c wg6.c wg7.c window.c  -o ebench-gcc -lopengl32 -lgdi32 -lole32 -lcomdlg32 -luuid 
+In file included from graphics.c:5:
+stb_image.h:132:1: error: C++ style comments are not allowed in ISO C90
+  132 | // DOCUMENTATION
+      | ^
+stb_image.h:132:1: note: (this will be reported only once per input file)
+stb_image.h:372:8: warning: extra tokens at end of '#endif' directive [-Wendif-labels]
+  372 | #endif // STBI_NO_STDIO
+      |        ^
+stb_image.h:470:8: warning: extra tokens at end of '#endif' directive [-Wendif-labels]
+  470 | #endif // STBI_NO_HDR
+      |        ^
+stb_image.h:475:8: warning: extra tokens at end of '#endif' directive [-Wendif-labels]
+  475 | #endif // STBI_NO_LINEAR
+      |        ^
+stb_image.h:483:8: warning: extra tokens at end of '#endif' directive [-Wendif-labels]
+  483 | #endif // STBI_NO_STDIO
+      |        ^
+stb_image.h:545:8: warning: extra tokens at end of '#endif' directive [-Wendif-labels]
+  545 | #endif // STBI_INCLUDE_STB_IMAGE_H
+      |        ^
+stb_image.h:588:21: warning: extra tokens at end of '#include' directive
+  588 | #include <stddef.h> // ptrdiff_t on osx
+      |                     ^
+stb_image.h:594:20: warning: extra tokens at end of '#include' directive
+  594 | #include <math.h>  // ldexp, pow
+      |                    ^
+stb_image.h:699:13: warning: missing terminating ' character
+  699 | // gcc doesn't support sse2 intrinsics unless you compile with -msse2,
+      |             ^
+stb_image.h:705:29: warning: missing terminating ' character
+  705 | // detection; if not, we don't use it at all.
+      |                             ^
+stb_image.h:710:31: warning: missing terminating ' character
+  710 | // Note that __MINGW32__ doesn't actually mean 32-bit, so we have to avoid STBI__X64_TARGET
+      |                               ^
+stb_image.h:713:52: warning: missing terminating ' character
+  713 | // Windows ABI and VC++ as well as Windows DLLs don't maintain that invariant.
+      |                                                    ^
+stb_image.h:719:49: warning: missing terminating ' character
+  719 | // So default to no SSE2 on 32-bit MinGW. If you've read this far and added
+      |                                                 ^
+stb_image.h:761:7: warning: extra tokens at end of '#else' directive [-Wendif-labels]
+  761 | #else // assume GCC-style if not VC++
+      |       ^
+stb_image.h: In function 'stbi__start_mem':
+stb_image.h:831:45: warning: cast discards 'const' qualifier from pointer target type [-Wcast-qual]
+  831 |    s->img_buffer = s->img_buffer_original = (stbi_uc *) buffer;
+      |                                             ^
+stb_image.h:832:53: warning: cast discards 'const' qualifier from pointer target type [-Wcast-qual]
+  832 |    s->img_buffer_end = s->img_buffer_original_end = (stbi_uc *) buffer+len;
+      |                                                     ^
+stb_image.h: At top level:
+stb_image.h:884:8: warning: extra tokens at end of '#endif' directive [-Wendif-labels]
+  884 | #endif // !STBI_NO_STDIO
+      |        ^
+stb_image.h:1135:8: warning: extra tokens at end of '#endif' directive [-Wendif-labels]
+ 1135 | #endif // STBI_THREAD_LOCAL
+      |        ^
+stb_image.h:1413:8: warning: extra tokens at end of '#endif' directive [-Wendif-labels]
+ 1413 | #endif //!STBI_NO_STDIO
+      |        ^
+stb_image.h: In function 'stbi_load_16_from_callbacks':
+stb_image.h:1425:30: warning: cast discards 'const' qualifier from pointer target type [-Wcast-qual]
+ 1425 |    stbi__start_callbacks(&s, (stbi_io_callbacks *)clbk, user);
+      |                              ^
+stb_image.h: In function 'stbi_load_from_callbacks':
+stb_image.h:1439:30: warning: cast discards 'const' qualifier from pointer target type [-Wcast-qual]
+ 1439 |    stbi__start_callbacks(&s, (stbi_io_callbacks *) clbk, user);
+      |                              ^
+stb_image.h: In function 'stbi_loadf_from_callbacks':
+stb_image.h:1488:30: warning: cast discards 'const' qualifier from pointer target type [-Wcast-qual]
+ 1488 |    stbi__start_callbacks(&s, (stbi_io_callbacks *) clbk, user);
+      |                              ^
+stb_image.h: At top level:
+stb_image.h:1509:8: warning: extra tokens at end of '#endif' directive [-Wendif-labels]
+ 1509 | #endif // !STBI_NO_STDIO
+      |        ^
+stb_image.h:1511:8: warning: extra tokens at end of '#endif' directive [-Wendif-labels]
+ 1511 | #endif // !STBI_NO_LINEAR
+      |        ^
+stb_image.h:1557:8: warning: extra tokens at end of '#endif' directive [-Wendif-labels]
+ 1557 | #endif // !STBI_NO_STDIO
+      |        ^
+stb_image.h: In function 'stbi_is_hdr_from_callbacks':
+stb_image.h:1563:30: warning: cast discards 'const' qualifier from pointer target type [-Wcast-qual]
+ 1563 |    stbi__start_callbacks(&s, (stbi_io_callbacks *) clbk, user);
+      |                              ^
+stb_image.h: At top level:
+stb_image.h:1936:25: error: expected expression before '/' token
+ 1936 | #define FAST_BITS   9  // larger handles more cases; smaller stomps less cache
+      |                         ^
+stb_image.h:1940:23: note: in expansion of macro 'FAST_BITS'
+ 1940 |    stbi_uc  fast[1 << FAST_BITS];
+      |                       ^~~~~~~~~
+stb_image.h:1936:25: error: expected expression before '/' token
+ 1936 | #define FAST_BITS   9  // larger handles more cases; smaller stomps less cache
+      |                         ^
+stb_image.h:1955:32: note: in expansion of macro 'FAST_BITS'
+ 1955 |    stbi__int16 fast_ac[4][1 << FAST_BITS];
+      |                                ^~~~~~~~~
+stb_image.h: In function 'stbi__build_huffman':
+stb_image.h:2034:12: error: 'stbi__huffman' has no member named 'fast'
+ 2034 |    memset(h->fast, 255, 1 << FAST_BITS);
+      |            ^~
+stb_image.h:1936:25: error: expected expression before '/' token
+ 1936 | #define FAST_BITS   9  // larger handles more cases; smaller stomps less cache
+      |                         ^
+stb_image.h:2034:30: note: in expansion of macro 'FAST_BITS'
+ 2034 |    memset(h->fast, 255, 1 << FAST_BITS);
+      |                              ^~~~~~~~~
+stb_image.h:1936:25: error: expected expression before '/' token
+ 1936 | #define FAST_BITS   9  // larger handles more cases; smaller stomps less cache
+      |                         ^
+stb_image.h:2037:16: note: in expansion of macro 'FAST_BITS'
+ 2037 |       if (s <= FAST_BITS) {
+      |                ^~~~~~~~~
+stb_image.h:1936:25: error: expected expression before '/' token
+ 1936 | #define FAST_BITS   9  // larger handles more cases; smaller stomps less cache
+      |                         ^
+stb_image.h:2038:33: note: in expansion of macro 'FAST_BITS'
+ 2038 |          int c = h->code[i] << (FAST_BITS-s);
+      |                                 ^~~~~~~~~
+stb_image.h:1936:25: error: expected expression before '/' token
+ 1936 | #define FAST_BITS   9  // larger handles more cases; smaller stomps less cache
+      |                         ^
+stb_image.h:2039:24: note: in expansion of macro 'FAST_BITS'
+ 2039 |          int m = 1 << (FAST_BITS-s);
+      |                        ^~~~~~~~~
+stb_image.h:2041:14: error: 'stbi__huffman' has no member named 'fast'
+ 2041 |             h->fast[c+j] = (stbi_uc) i;
+      |              ^~
+stb_image.h: In function 'stbi__build_fast_ac':
+stb_image.h:1936:25: error: expected expression before '/' token
+ 1936 | #define FAST_BITS   9  // larger handles more cases; smaller stomps less cache
+      |                         ^
+stb_image.h:2053:24: note: in expansion of macro 'FAST_BITS'
+ 2053 |    for (i=0; i < (1 << FAST_BITS); ++i) {
+      |                        ^~~~~~~~~
+stb_image.h:2054:23: error: 'stbi__huffman' has no member named 'fast'
+ 2054 |       stbi_uc fast = h->fast[i];
+      |                       ^~
+stb_image.h:1936:25: error: expected expression before '/' token
+ 1936 | #define FAST_BITS   9  // larger handles more cases; smaller stomps less cache
+      |                         ^
+stb_image.h:2062:42: note: in expansion of macro 'FAST_BITS'
+ 2062 |          if (magbits && len + magbits <= FAST_BITS) {
+      |                                          ^~~~~~~~~
+stb_image.h:1936:25: error: expected expression before '/' token
+ 1936 | #define FAST_BITS   9  // larger handles more cases; smaller stomps less cache
+      |                         ^
+stb_image.h:2064:42: note: in expansion of macro 'FAST_BITS'
+ 2064 |             int k = ((i << len) & ((1 << FAST_BITS) - 1)) >> (FAST_BITS - magbits);
+      |                                          ^~~~~~~~~
+stb_image.h:1936:25: error: expected expression before '/' token
+ 1936 | #define FAST_BITS   9  // larger handles more cases; smaller stomps less cache
+      |                         ^
+stb_image.h:2064:63: note: in expansion of macro 'FAST_BITS'
+ 2064 |             int k = ((i << len) & ((1 << FAST_BITS) - 1)) >> (FAST_BITS - magbits);
+      |                                                               ^~~~~~~~~
+stb_image.h: In function 'stbi__jpeg_huff_decode':
+stb_image.h:1936:25: error: expected expression before '/' token
+ 1936 | #define FAST_BITS   9  // larger handles more cases; smaller stomps less cache
+      |                         ^
+stb_image.h:2106:33: note: in expansion of macro 'FAST_BITS'
+ 2106 |    c = (j->code_buffer >> (32 - FAST_BITS)) & ((1 << FAST_BITS)-1);
+      |                                 ^~~~~~~~~
+stb_image.h:1936:25: error: expected expression before '/' token
+ 1936 | #define FAST_BITS   9  // larger handles more cases; smaller stomps less cache
+      |                         ^
+stb_image.h:2106:54: note: in expansion of macro 'FAST_BITS'
+ 2106 |    c = (j->code_buffer >> (32 - FAST_BITS)) & ((1 << FAST_BITS)-1);
+      |                                                      ^~~~~~~~~
+stb_image.h:2107:9: error: 'stbi__huffman' has no member named 'fast'
+ 2107 |    k = h->fast[c];
+      |         ^~
+stb_image.h:1936:25: error: expected expression before '/' token
+ 1936 | #define FAST_BITS   9  // larger handles more cases; smaller stomps less cache
+      |                         ^
+stb_image.h:2124:11: note: in expansion of macro 'FAST_BITS'
+ 2124 |    for (k=FAST_BITS+1 ; ; ++k)
+      |           ^~~~~~~~~
+stb_image.h:1936:54: error: 'smaller' undeclared (first use in this function)
+ 1936 | #define FAST_BITS   9  // larger handles more cases; smaller stomps less cache
+      |                                                      ^~~~~~~
+stb_image.h:2124:11: note: in expansion of macro 'FAST_BITS'
+ 2124 |    for (k=FAST_BITS+1 ; ; ++k)
+      |           ^~~~~~~~~
+stb_image.h:1936:54: note: each undeclared identifier is reported only once for each function it appears in
+stb_image.h:2124:11: note: in expansion of macro 'FAST_BITS'
+ 2124 |    for (k=FAST_BITS+1 ; ; ++k)
+      |           ^~~~~~~~~
+stb_image.h:1936:62: error: expected ';' before 'stomps'
+ 1936 | #define FAST_BITS   9  // larger handles more cases; smaller stomps less cache
+      |                                                              ^~~~~~
+stb_image.h:2124:11: note: in expansion of macro 'FAST_BITS'
+ 2124 |    for (k=FAST_BITS+1 ; ; ++k)
+      |           ^~~~~~~~~
+stb_image.h:2124:25: error: expected expression before ';' token
+ 2124 |    for (k=FAST_BITS+1 ; ; ++k)
+      |                         ^
+stb_image.h: In function 'stbi__jpeg_decode_block':
+stb_image.h:1936:25: error: expected expression before '/' token
+ 1936 | #define FAST_BITS   9  // larger handles more cases; smaller stomps less cache
+      |                         ^
+stb_image.h:2235:36: note: in expansion of macro 'FAST_BITS'
+ 2235 |       c = (j->code_buffer >> (32 - FAST_BITS)) & ((1 << FAST_BITS)-1);
+      |                                    ^~~~~~~~~
+stb_image.h:1936:25: error: expected expression before '/' token
+ 1936 | #define FAST_BITS   9  // larger handles more cases; smaller stomps less cache
+      |                         ^
+stb_image.h:2235:57: note: in expansion of macro 'FAST_BITS'
+ 2235 |       c = (j->code_buffer >> (32 - FAST_BITS)) & ((1 << FAST_BITS)-1);
+      |                                                         ^~~~~~~~~
+stb_image.h: In function 'stbi__jpeg_decode_block_prog_ac':
+stb_image.h:1936:25: error: expected expression before '/' token
+ 1936 | #define FAST_BITS   9  // larger handles more cases; smaller stomps less cache
+      |                         ^
+stb_image.h:2313:39: note: in expansion of macro 'FAST_BITS'
+ 2313 |          c = (j->code_buffer >> (32 - FAST_BITS)) & ((1 << FAST_BITS)-1);
+      |                                       ^~~~~~~~~
+stb_image.h:1936:25: error: expected expression before '/' token
+ 1936 | #define FAST_BITS   9  // larger handles more cases; smaller stomps less cache
+      |                         ^
+stb_image.h:2313:60: note: in expansion of macro 'FAST_BITS'
+ 2313 |          c = (j->code_buffer >> (32 - FAST_BITS)) & ((1 << FAST_BITS)-1);
+      |                                                            ^~~~~~~~~
+stb_image.h: At top level:
+stb_image.h:2705:8: warning: extra tokens at end of '#endif' directive [-Wendif-labels]
+ 2705 | #endif // STBI_SSE2
+      |        ^
+stb_image.h:2863:72: warning: missing terminating ' character
+ 2863 |       // again, these can translate into one instruction, but often don't.
+      |                                                                        ^
+stb_image.h:2868:19: warning: missing terminating ' character
+ 2868 |       // sadly can't use interleaved stores here since we only write
+      |                   ^
+stb_image.h:2913:8: warning: extra tokens at end of '#endif' directive [-Wendif-labels]
+ 2913 | #endif // STBI_NEON
+      |        ^
+stb_image.h: In function 'stbi__parse_entropy_coded_data':
+stb_image.h:2966:100: error: 'stbi__jpeg' has no member named 'fast_ac'
+ 2966 |                if (!stbi__jpeg_decode_block(z, data, z->huff_dc+z->img_comp[n].hd, z->huff_ac+ha, z->fast_ac[ha], n, z->dequant[z->img_comp[n].tq])) return 0;
+      |                                                                                                    ^~
+stb_image.h:2994:109: error: 'stbi__jpeg' has no member named 'fast_ac'
+ 2994 |                         if (!stbi__jpeg_decode_block(z, data, z->huff_dc+z->img_comp[n].hd, z->huff_ac+ha, z->fast_ac[ha], n, z->dequant[z->img_comp[n].tq])) return 0;
+      |                                                                                                             ^~
+stb_image.h:3028:83: error: 'stbi__jpeg' has no member named 'fast_ac'
+ 3028 |                   if (!stbi__jpeg_decode_block_prog_ac(z, data, &z->huff_ac[ha], z->fast_ac[ha]))
+      |                                                                                   ^~
+stb_image.h: In function 'stbi__process_marker':
+stb_image.h:3151:37: error: 'stbi__jpeg' has no member named 'fast_ac'
+ 3151 |                stbi__build_fast_ac(z->fast_ac[th], z->huff_ac + th);
+      |                                     ^~
+stb_image.h: In function 'stbi__resample_row_hv_2_simd':
+stb_image.h:3607:62: warning: missing terminating ' character
+ 3607 |       // horizontal filter, polyphase implementation since it's convenient:
+      |                                                              ^
+stb_image.h: In function 'stbi__YCbCr_to_RGB_simd':
+stb_image.h:3706:44: warning: cast discards 'const' qualifier from pointer target type [-Wcast-qual]
+ 3706 |          __m128i y_bytes = _mm_loadl_epi64((__m128i *) (y+i));
+      |                                            ^
+stb_image.h:3707:45: warning: cast discards 'const' qualifier from pointer target type [-Wcast-qual]
+ 3707 |          __m128i cr_bytes = _mm_loadl_epi64((__m128i *) (pcr+i));
+      |                                             ^
+stb_image.h:3708:45: warning: cast discards 'const' qualifier from pointer target type [-Wcast-qual]
+ 3708 |          __m128i cb_bytes = _mm_loadl_epi64((__m128i *) (pcb+i));
+      |                                             ^
+stb_image.h: At top level:
+stb_image.h:4091:30: error: expected expression before '/' token
+ 4091 | #define STBI__ZFAST_BITS  9 // accelerate all cases in default tables
+      |                              ^
+stb_image.h:4099:27: note: in expansion of macro 'STBI__ZFAST_BITS'
+ 4099 |    stbi__uint16 fast[1 << STBI__ZFAST_BITS];
+      |                           ^~~~~~~~~~~~~~~~
+stb_image.h:4093:27: error: expected expression before '/' token
+ 4093 | #define STBI__ZNSYMS 288 // number of symbols in literal/length alphabet
+      |                           ^
+stb_image.h:4103:18: note: in expansion of macro 'STBI__ZNSYMS'
+ 4103 |    stbi_uc  size[STBI__ZNSYMS];
+      |                  ^~~~~~~~~~~~
+stb_image.h:4093:27: error: expected expression before '/' token
+ 4093 | #define STBI__ZNSYMS 288 // number of symbols in literal/length alphabet
+      |                           ^
+stb_image.h:4104:23: note: in expansion of macro 'STBI__ZNSYMS'
+ 4104 |    stbi__uint16 value[STBI__ZNSYMS];
+      |                       ^~~~~~~~~~~~
+stb_image.h:4105:1: warning: no semicolon at end of struct or union
+ 4105 | } stbi__zhuffman;
+      | ^
+stb_image.h: In function 'stbi__zbuild_huffman':
+stb_image.h:4131:12: error: 'stbi__zhuffman' has no member named 'fast'
+ 4131 |    memset(z->fast, 0, sizeof(z->fast));
+      |            ^~
+stb_image.h:4131:31: error: 'stbi__zhuffman' has no member named 'fast'
+ 4131 |    memset(z->fast, 0, sizeof(z->fast));
+      |                               ^~
+stb_image.h:4156:11: error: 'stbi__zhuffman' has no member named 'size'
+ 4156 |          z->size [c] = (stbi_uc     ) s;
+      |           ^~
+stb_image.h:4157:11: error: 'stbi__zhuffman' has no member named 'value'
+ 4157 |          z->value[c] = (stbi__uint16) i;
+      |           ^~
+stb_image.h:4091:30: error: expected expression before '/' token
+ 4091 | #define STBI__ZFAST_BITS  9 // accelerate all cases in default tables
+      |                              ^
+stb_image.h:4158:19: note: in expansion of macro 'STBI__ZFAST_BITS'
+ 4158 |          if (s <= STBI__ZFAST_BITS) {
+      |                   ^~~~~~~~~~~~~~~~
+stb_image.h:4091:30: error: expected expression before '/' token
+ 4091 | #define STBI__ZFAST_BITS  9 // accelerate all cases in default tables
+      |                              ^
+stb_image.h:4160:30: note: in expansion of macro 'STBI__ZFAST_BITS'
+ 4160 |             while (j < (1 << STBI__ZFAST_BITS)) {
+      |                              ^~~~~~~~~~~~~~~~
+stb_image.h:4161:17: error: 'stbi__zhuffman' has no member named 'fast'
+ 4161 |                z->fast[j] = fastv;
+      |                 ^~
+stb_image.h:4154:14: warning: variable 'c' set but not used [-Wunused-but-set-variable=]
+ 4154 |          int c = next_code[s] - z->firstcode[s] + z->firstsymbol[s];
+      |              ^
+stb_image.h: In function 'stbi__zhuffman_decode_slowpath':
+stb_image.h:4091:30: error: expected expression before '/' token
+ 4091 | #define STBI__ZFAST_BITS  9 // accelerate all cases in default tables
+      |                              ^
+stb_image.h:4230:11: note: in expansion of macro 'STBI__ZFAST_BITS'
+ 4230 |    for (s=STBI__ZFAST_BITS+1; ; ++s)
+      |           ^~~~~~~~~~~~~~~~
+stb_image.h:4093:27: error: expected expression before '/' token
+ 4093 | #define STBI__ZNSYMS 288 // number of symbols in literal/length alphabet
+      |                           ^
+stb_image.h:4236:13: note: in expansion of macro 'STBI__ZNSYMS'
+ 4236 |    if (b >= STBI__ZNSYMS) return -1; // some data was corrupt somewhere!
+      |             ^~~~~~~~~~~~
+stb_image.h:4237:9: error: 'stbi__zhuffman' has no member named 'size'
+ 4237 |    if (z->size[b] != s) return -1;  // was originally an assert, but report failure instead.
+      |         ^~
+stb_image.h:4240:12: error: 'stbi__zhuffman' has no member named 'value'
+ 4240 |    return z->value[b];
+      |            ^~
+stb_image.h: In function 'stbi__zhuffman_decode':
+stb_image.h:4263:9: error: 'stbi__zhuffman' has no member named 'fast'
+ 4263 |    b = z->fast[a->code_buffer & STBI__ZFAST_MASK];
+      |         ^~
+stb_image.h:4091:30: error: expected expression before '/' token
+ 4091 | #define STBI__ZFAST_BITS  9 // accelerate all cases in default tables
+      |                              ^
+stb_image.h:4092:34: note: in expansion of macro 'STBI__ZFAST_BITS'
+ 4092 | #define STBI__ZFAST_MASK  ((1 << STBI__ZFAST_BITS) - 1)
+      |                                  ^~~~~~~~~~~~~~~~
+stb_image.h:4263:33: note: in expansion of macro 'STBI__ZFAST_MASK'
+ 4263 |    b = z->fast[a->code_buffer & STBI__ZFAST_MASK];
+      |                                 ^~~~~~~~~~~~~~~~
+stb_image.h: At top level:
+stb_image.h:4093:27: error: expected expression before '/' token
+ 4093 | #define STBI__ZNSYMS 288 // number of symbols in literal/length alphabet
+      |                           ^
+stb_image.h:4452:44: note: in expansion of macro 'STBI__ZNSYMS'
+ 4452 | static const stbi_uc stbi__zdefault_length[STBI__ZNSYMS] =
+      |                                            ^~~~~~~~~~~~
+stb_image.h:4463:2: warning: ISO C does not allow extra ';' outside of a function [-Wpedantic]
+ 4463 | };
+      |  ^
+stb_image.h: In function 'stbi__parse_zlib':
+stb_image.h:4499:55: error: 'stbi__zdefault_length' undeclared (first use in this function); did you mean 'stbi__zdefault_distance'?
+ 4499 |             if (!stbi__zbuild_huffman(&a->z_length  , stbi__zdefault_length  , STBI__ZNSYMS)) return 0;
+      |                                                       ^~~~~~~~~~~~~~~~~~~~~
+      |                                                       stbi__zdefault_distance
+stb_image.h:4093:27: error: expected expression before '/' token
+ 4093 | #define STBI__ZNSYMS 288 // number of symbols in literal/length alphabet
+      |                           ^
+stb_image.h:4499:80: note: in expansion of macro 'STBI__ZNSYMS'
+ 4499 |             if (!stbi__zbuild_huffman(&a->z_length  , stbi__zdefault_length  , STBI__ZNSYMS)) return 0;
+      |                                                                                ^~~~~~~~~~~~
+stb_image.h: In function 'stbi_zlib_decode_malloc_guesssize':
+stb_image.h:4525:16: warning: cast discards 'const' qualifier from pointer target type [-Wcast-qual]
+ 4525 |    a.zbuffer = (stbi_uc *) buffer;
+      |                ^
+stb_image.h:4526:20: warning: cast discards 'const' qualifier from pointer target type [-Wcast-qual]
+ 4526 |    a.zbuffer_end = (stbi_uc *) buffer + len;
+      |                    ^
+stb_image.h: In function 'stbi_zlib_decode_malloc_guesssize_headerflag':
+stb_image.h:4546:16: warning: cast discards 'const' qualifier from pointer target type [-Wcast-qual]
+ 4546 |    a.zbuffer = (stbi_uc *) buffer;
+      |                ^
+stb_image.h:4547:20: warning: cast discards 'const' qualifier from pointer target type [-Wcast-qual]
+ 4547 |    a.zbuffer_end = (stbi_uc *) buffer + len;
+      |                    ^
+stb_image.h: In function 'stbi_zlib_decode_buffer':
+stb_image.h:4560:16: warning: cast discards 'const' qualifier from pointer target type [-Wcast-qual]
+ 4560 |    a.zbuffer = (stbi_uc *) ibuffer;
+      |                ^
+stb_image.h:4561:20: warning: cast discards 'const' qualifier from pointer target type [-Wcast-qual]
+ 4561 |    a.zbuffer_end = (stbi_uc *) ibuffer + ilen;
+      |                    ^
+stb_image.h: In function 'stbi_zlib_decode_noheader_malloc':
+stb_image.h:4573:16: warning: cast discards 'const' qualifier from pointer target type [-Wcast-qual]
+ 4573 |    a.zbuffer = (stbi_uc *) buffer;
+      |                ^
+stb_image.h:4574:20: warning: cast discards 'const' qualifier from pointer target type [-Wcast-qual]
+ 4574 |    a.zbuffer_end = (stbi_uc *) buffer+len;
+      |                    ^
+stb_image.h: In function 'stbi_zlib_decode_noheader_buffer':
+stb_image.h:4587:16: warning: cast discards 'const' qualifier from pointer target type [-Wcast-qual]
+ 4587 |    a.zbuffer = (stbi_uc *) ibuffer;
+      |                ^
+stb_image.h:4588:20: warning: cast discards 'const' qualifier from pointer target type [-Wcast-qual]
+ 4588 |    a.zbuffer_end = (stbi_uc *) ibuffer + ilen;
+      |                    ^
+stb_image.h: In function 'stbi__create_png_image_raw':
+stb_image.h:1730:54: error: expected expression before '/' token
+ 1730 | #define STBI__BYTECAST(x)  ((stbi_uc) ((x) & 255))  // truncate int to byte without warnings
+      |                                                      ^
+stb_image.h:4762:22: note: in expansion of macro 'STBI__BYTECAST'
+ 4762 |             cur[k] = STBI__BYTECAST(raw[k] + cur[k-filter_bytes]);
+      |                      ^~~~~~~~~~~~~~
+stb_image.h:1730:54: error: expected expression before '/' token
+ 1730 | #define STBI__BYTECAST(x)  ((stbi_uc) ((x) & 255))  // truncate int to byte without warnings
+      |                                                      ^
+stb_image.h:4766:22: note: in expansion of macro 'STBI__BYTECAST'
+ 4766 |             cur[k] = STBI__BYTECAST(raw[k] + prior[k]);
+      |                      ^~~~~~~~~~~~~~
+stb_image.h:1730:54: error: expected expression before '/' token
+ 1730 | #define STBI__BYTECAST(x)  ((stbi_uc) ((x) & 255))  // truncate int to byte without warnings
+      |                                                      ^
+stb_image.h:4770:22: note: in expansion of macro 'STBI__BYTECAST'
+ 4770 |             cur[k] = STBI__BYTECAST(raw[k] + (prior[k]>>1));
+      |                      ^~~~~~~~~~~~~~
+stb_image.h:1730:54: error: expected expression before '/' token
+ 1730 | #define STBI__BYTECAST(x)  ((stbi_uc) ((x) & 255))  // truncate int to byte without warnings
+      |                                                      ^
+stb_image.h:4772:22: note: in expansion of macro 'STBI__BYTECAST'
+ 4772 |             cur[k] = STBI__BYTECAST(raw[k] + ((prior[k] + cur[k-filter_bytes])>>1));
+      |                      ^~~~~~~~~~~~~~
+stb_image.h:1730:54: error: expected expression before '/' token
+ 1730 | #define STBI__BYTECAST(x)  ((stbi_uc) ((x) & 255))  // truncate int to byte without warnings
+      |                                                      ^
+stb_image.h:4776:22: note: in expansion of macro 'STBI__BYTECAST'
+ 4776 |             cur[k] = STBI__BYTECAST(raw[k] + prior[k]); // prior[k] == stbi__paeth(0,prior[k],0)
+      |                      ^~~~~~~~~~~~~~
+stb_image.h:1730:54: error: expected expression before '/' token
+ 1730 | #define STBI__BYTECAST(x)  ((stbi_uc) ((x) & 255))  // truncate int to byte without warnings
+      |                                                      ^
+stb_image.h:4778:22: note: in expansion of macro 'STBI__BYTECAST'
+ 4778 |             cur[k] = STBI__BYTECAST(raw[k] + stbi__paeth(cur[k-filter_bytes], prior[k], prior[k-filter_bytes]));
+      |                      ^~~~~~~~~~~~~~
+stb_image.h:1730:54: error: expected expression before '/' token
+ 1730 | #define STBI__BYTECAST(x)  ((stbi_uc) ((x) & 255))  // truncate int to byte without warnings
+      |                                                      ^
+stb_image.h:4783:22: note: in expansion of macro 'STBI__BYTECAST'
+ 4783 |             cur[k] = STBI__BYTECAST(raw[k] + (cur[k-filter_bytes] >> 1));
+      |                      ^~~~~~~~~~~~~~
+stb_image.h: At top level:
+stb_image.h:5031:8: warning: extra tokens at end of '#endif' directive [-Wendif-labels]
+ 5031 | #endif // STBI_THREAD_LOCAL
+      |        ^
+stb_image.h: In function 'stbi__parse_png_file':
+stb_image.h:1730:54: error: expected expression before '/' token
+ 1730 | #define STBI__BYTECAST(x)  ((stbi_uc) ((x) & 255))  // truncate int to byte without warnings
+      |                                                      ^
+stb_image.h:5248:35: note: in expansion of macro 'STBI__BYTECAST'
+ 5248 |                invalid_chunk[0] = STBI__BYTECAST(c.type >> 24);
+      |                                   ^~~~~~~~~~~~~~
+stb_image.h:1730:54: error: expected expression before '/' token
+ 1730 | #define STBI__BYTECAST(x)  ((stbi_uc) ((x) & 255))  // truncate int to byte without warnings
+      |                                                      ^
+stb_image.h:5249:35: note: in expansion of macro 'STBI__BYTECAST'
+ 5249 |                invalid_chunk[1] = STBI__BYTECAST(c.type >> 16);
+      |                                   ^~~~~~~~~~~~~~
+stb_image.h:1730:54: error: expected expression before '/' token
+ 1730 | #define STBI__BYTECAST(x)  ((stbi_uc) ((x) & 255))  // truncate int to byte without warnings
+      |                                                      ^
+stb_image.h:5250:35: note: in expansion of macro 'STBI__BYTECAST'
+ 5250 |                invalid_chunk[2] = STBI__BYTECAST(c.type >>  8);
+      |                                   ^~~~~~~~~~~~~~
+stb_image.h:1730:54: error: expected expression before '/' token
+ 1730 | #define STBI__BYTECAST(x)  ((stbi_uc) ((x) & 255))  // truncate int to byte without warnings
+      |                                                      ^
+stb_image.h:5251:35: note: in expansion of macro 'STBI__BYTECAST'
+ 5251 |                invalid_chunk[3] = STBI__BYTECAST(c.type >>  0);
+      |                                   ^~~~~~~~~~~~~~
+stb_image.h: In function 'stbi__bmp_load':
+stb_image.h:1730:54: error: expected expression before '/' token
+ 1730 | #define STBI__BYTECAST(x)  ((stbi_uc) ((x) & 255))  // truncate int to byte without warnings
+      |                                                      ^
+stb_image.h:5695:27: note: in expansion of macro 'STBI__BYTECAST'
+ 5695 |                out[z++] = STBI__BYTECAST(stbi__shiftsigned(v & mr, rshift, rcount));
+      |                           ^~~~~~~~~~~~~~
+stb_image.h:1730:54: error: expected expression before '/' token
+ 1730 | #define STBI__BYTECAST(x)  ((stbi_uc) ((x) & 255))  // truncate int to byte without warnings
+      |                                                      ^
+stb_image.h:5696:27: note: in expansion of macro 'STBI__BYTECAST'
+ 5696 |                out[z++] = STBI__BYTECAST(stbi__shiftsigned(v & mg, gshift, gcount));
+      |                           ^~~~~~~~~~~~~~
+stb_image.h:1730:54: error: expected expression before '/' token
+ 1730 | #define STBI__BYTECAST(x)  ((stbi_uc) ((x) & 255))  // truncate int to byte without warnings
+      |                                                      ^
+stb_image.h:5697:27: note: in expansion of macro 'STBI__BYTECAST'
+ 5697 |                out[z++] = STBI__BYTECAST(stbi__shiftsigned(v & mb, bshift, bcount));
+      |                           ^~~~~~~~~~~~~~
+stb_image.h:1730:54: error: expected expression before '/' token
+ 1730 | #define STBI__BYTECAST(x)  ((stbi_uc) ((x) & 255))  // truncate int to byte without warnings
+      |                                                      ^
+stb_image.h:5700:44: note: in expansion of macro 'STBI__BYTECAST'
+ 5700 |                if (target == 4) out[z++] = STBI__BYTECAST(a);
+      |                                            ^~~~~~~~~~~~~~
+stb_image.h: At top level:
+stb_image.h:7332:8: warning: extra tokens at end of '#endif' directive [-Wendif-labels]
+ 7332 | #endif // STBI_NO_HDR
+      |        ^
+stb_image.h:7732:8: warning: extra tokens at end of '#endif' directive [-Wendif-labels]
+ 7732 | #endif // !STBI_NO_STDIO
+      |        ^
+stb_image.h: In function 'stbi_info_from_callbacks':
+stb_image.h:7744:30: warning: cast discards 'const' qualifier from pointer target type [-Wcast-qual]
+ 7744 |    stbi__start_callbacks(&s, (stbi_io_callbacks *) c, user);
+      |                              ^
+stb_image.h: In function 'stbi_is_16_bit_from_callbacks':
+stb_image.h:7758:30: warning: cast discards 'const' qualifier from pointer target type [-Wcast-qual]
+ 7758 |    stbi__start_callbacks(&s, (stbi_io_callbacks *) c, user);
+      |                              ^
+stb_image.h: At top level:
+stb_image.h:7762:8: warning: extra tokens at end of '#endif' directive [-Wendif-labels]
+ 7762 | #endif // STB_IMAGE_IMPLEMENTATION
+      |        ^
+graphics.c:238:17: warning: string length '859' is greater than the length '509' ISO C90 compilers are required to support [-Woverlength-strings]
+  238 |                 "}";
+      |                 ^~~
+lodepng.c:586:10: warning: no previous prototype for 'lode_png_test_bitreader' [-Wmissing-prototypes]
+  586 | unsigned lode_png_test_bitreader(const unsigned char* data, size_t size,
+      |          ^~~~~~~~~~~~~~~~~~~~~~~
+lodepng.c:3584:10: warning: no previous prototype for 'lodepng_convert_rgb' [-Wmissing-prototypes]
+ 3584 | unsigned lodepng_convert_rgb(
+      |          ^~~~~~~~~~~~~~~~~~~
+lodepng.c: In function 'readChunk_iTXt':
+lodepng.c:4559:69: warning: cast discards 'const' qualifier from pointer target type [-Wcast-qual]
+ 4559 |       error = lodepng_add_itext_sized(info, key, langtag, transkey, (char*)(data + begin), length);
+      |                                                                     ^
+util.c: In function 'acme_strftime':
+util.c:853:9: warning: format not a string literal, format string not checked [-Wformat-nonliteral]
+  853 |         return (int)strftime(buf, len, format, tformat);
+      |         ^~~~~~
+mingw32-make: *** [Makefile:78: ebench] Error 1

@@ -1,25 +1,25 @@
 #include<stdio.h>
 #include<stdlib.h>
-#include<Windowsx.h>//for GET_X_LPARAM
+#include<Windowsx.h>	/*for GET_X_LPARAM*/
 
+#define COBJMACROS
 #define STRICT_TYPED_ITEMIDS
 #include<shlobj.h>
-#include<objbase.h>	// For COM headers
-#include<shobjidl.h>	// for IFileDialogEvents and IFileDialogControlEvents
+#include<objbase.h>	/*for COM headers	*/
+#include<shobjidl.h>	/*for IFileDialogEvents and IFileDialogControlEvents	*/
 #include<shlwapi.h>
-#include<knownfolders.h>// for KnownFolder APIs/datatypes/function headers
-#include<propvarutil.h>	// for PROPVAR-related functions
-#include<propkey.h>	// for the Property key APIs/datatypes
-#include<propidl.h>	// for the Property System APIs
-#include<strsafe.h>	// for StringCchPrintfW
-#include<shtypes.h>	// for COMDLG_FILTERSPEC
-#include<combaseapi.h>	// for IID_PPV_ARGS
+#include<knownfolders.h>/*for KnownFolder APIs/datatypes/function headers	*/
+#include<propvarutil.h>	/*for PROPVAR-related functions	*/
+#include<propkey.h>	/*for the Property key APIs/datatypes	*/
+#include<propidl.h>	/*for the Property System APIs	*/
+#include<strsafe.h>	/*for StringCchPrintfW	*/
+#include<shtypes.h>	/*for COMDLG_FILTERSPEC	*/
+#include<combaseapi.h>	/*for IID_PPV_ARGS	*/
 
 #include"ebench.h"
-static const char file[]=__FILE__;
 
 
-extern LRESULT __stdcall WndProc(HWND hWnd, unsigned message, WPARAM wParam, LPARAM lParam);
+extern LRESULT __stdcall WndProc(HWND hWnd, uint32_t message, WPARAM wParam, LPARAM lParam);
 extern int __stdcall WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrev, _In_ char *pCmdLine, _In_ int nShowCmd);
 
 int wndw=0, wndh=0,
@@ -37,11 +37,12 @@ ArrayHandle exedir=0;
 #define UTF8TOWCHAR(U8, LEN, RET_U16, BUF_SIZE, RET_LEN)    RET_LEN=MultiByteToWideChar(CP_UTF8, 0, U8, LEN, RET_U16, BUF_SIZE)
 #define WCHARTOUTF8(WSTR, LEN, RET_UTF8, BUF_SIZE, RET_LEN) RET_LEN=WideCharToMultiByte(CP_UTF8, 0, WSTR, LEN, RET_UTF8, BUF_SIZE, 0, 0)
 
+#if 0
 static const char* wm2str(int message)
 {
 	const char *a="???";
 	switch(message)
-	{//message case
+	{/*message case*/
 #define		MC(x)	case x:a=#x;break;
 	MC(WM_NULL)
 	MC(WM_CREATE)
@@ -69,7 +70,9 @@ static const char* wm2str(int message)
 	MC(WM_SYSCOLORCHANGE)
 	MC(WM_SHOWWINDOW)
 	MC(WM_WININICHANGE)
-//	MC(WM_SETTINGCHANGE)//==WM_WININICHANGE
+#if 0
+	MC(WM_SETTINGCHANGE)/*==WM_WININICHANGE*/
+#endif
 
 	MC(WM_DEVMODECHANGE)
 	MC(WM_ACTIVATEAPP)
@@ -155,7 +158,9 @@ static const char* wm2str(int message)
 
 	MC(WM_INPUT)
 
-//	MC(WM_KEYFIRST   )//==WM_KEYDOWN
+#if 0
+	MC(WM_KEYFIRST   )/*==WM_KEYDOWN*/
+#endif
 	MC(WM_KEYDOWN    )
 	MC(WM_KEYUP      )
 	MC(WM_CHAR       )
@@ -166,13 +171,17 @@ static const char* wm2str(int message)
 	MC(WM_SYSDEADCHAR)
 
 	MC(WM_UNICHAR)
-//	MC(WM_KEYLAST)		//==WM_UNICHAR
-	MC(UNICODE_NOCHAR)	//0xFFFF
+#if 0
+	MC(WM_KEYLAST)		/*==WM_UNICHAR*/
+#endif
+	MC(UNICODE_NOCHAR)	/*0xFFFF*/
 
 	MC(WM_IME_STARTCOMPOSITION)
 	MC(WM_IME_ENDCOMPOSITION)
 	MC(WM_IME_COMPOSITION)
-//	MC(WM_IME_KEYLAST)	//==WM_IME_KEYLAST
+#if 0
+	MC(WM_IME_KEYLAST)	/*==WM_IME_KEYLAST*/
+#endif
 
 	MC(WM_INITDIALOG   )
 	MC(WM_COMMAND      )
@@ -209,7 +218,9 @@ static const char* wm2str(int message)
 	MC(WM_CTLCOLORSTATIC   )
 	MC(MN_GETHMENU         )
 
-//	MC(WM_MOUSEFIRST   )
+#if 0
+	MC(WM_MOUSEFIRST   )
+#endif
 	MC(WM_MOUSEMOVE    )
 	MC(WM_LBUTTONDOWN  )
 	MC(WM_LBUTTONUP    )
@@ -227,7 +238,9 @@ static const char* wm2str(int message)
 	MC(WM_XBUTTONUP    )
 	MC(WM_XBUTTONDBLCLK)
 
-//	MC(WM_MOUSELAST)	//==WM_MOUSEWHEEL
+#if 0
+	MC(WM_MOUSELAST)	/*==WM_MOUSEWHEEL*/
+#endif
 
 	MC(WM_PARENTNOTIFY )
 	MC(WM_ENTERMENULOOP)
@@ -259,26 +272,30 @@ static const char* wm2str(int message)
 	MC(WM_DROPFILES     )
 	MC(WM_MDIREFRESHMENU)
 
-//	MC(WM_POINTERDEVICECHANGE    )
-//	MC(WM_POINTERDEVICEINRANGE   )
-//	MC(WM_POINTERDEVICEOUTOFRANGE)
+#if 0
+	MC(WM_POINTERDEVICECHANGE    )
+	MC(WM_POINTERDEVICEINRANGE   )
+	MC(WM_POINTERDEVICEOUTOFRANGE)
+#endif
 
 	MC(WM_TOUCH)
 
-//	MC(WM_NCPOINTERUPDATE      )
-//	MC(WM_NCPOINTERDOWN        )
-//	MC(WM_NCPOINTERUP          )
-//	MC(WM_POINTERUPDATE        )
-//	MC(WM_POINTERDOWN          )
-//	MC(WM_POINTERUP            )
-//	MC(WM_POINTERENTER         )
-//	MC(WM_POINTERLEAVE         )
-//	MC(WM_POINTERACTIVATE      )
-//	MC(WM_POINTERCAPTURECHANGED)
-//	MC(WM_TOUCHHITTESTING      )
-//	MC(WM_POINTERWHEEL         )
-//	MC(WM_POINTERHWHEEL        )
-//	MC(DM_POINTERHITTEST       )
+#if 0
+	MC(WM_NCPOINTERUPDATE      )
+	MC(WM_NCPOINTERDOWN        )
+	MC(WM_NCPOINTERUP          )
+	MC(WM_POINTERUPDATE        )
+	MC(WM_POINTERDOWN          )
+	MC(WM_POINTERUP            )
+	MC(WM_POINTERENTER         )
+	MC(WM_POINTERLEAVE         )
+	MC(WM_POINTERACTIVATE      )
+	MC(WM_POINTERCAPTURECHANGED)
+	MC(WM_TOUCHHITTESTING      )
+	MC(WM_POINTERWHEEL         )
+	MC(WM_POINTERHWHEEL        )
+	MC(DM_POINTERHITTEST       )
+#endif
 
 	MC(WM_IME_SETCONTEXT     )
 	MC(WM_IME_NOTIFY         )
@@ -303,7 +320,9 @@ static const char* wm2str(int message)
 	MC(WM_TABLET_FIRST)
 	MC(WM_TABLET_LAST )
 
-//	MC(WM_DPICHANGED)
+#if 0
+	MC(WM_DPICHANGED)
+#endif
 
 	MC(WM_CUT              )
 	MC(WM_COPY             )
@@ -360,20 +379,22 @@ static const char* wm2str(int message)
 	}
 	return a;
 }
+#endif
 int sys_check(const char *fn, int line, const char *info)
 {
 	int e2=GetLastError();
 	if(e2)
 	{
 		char *messageBuffer=0;
+
 		/*size_t size=*/FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER|FORMAT_MESSAGE_FROM_SYSTEM|FORMAT_MESSAGE_IGNORE_INSERTS, NULL, e2, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&messageBuffer, 0, NULL);
-		log_error(fn, line, 1, "%s%sGetLastError() returned %d: %s", info?info:"", info?"\n":"", e2, messageBuffer);
+		crash(fn, line, 1, "%s%sGetLastError() returned %d: %s", info?info:"", info?"\n":"", e2, messageBuffer);
 		LocalFree(messageBuffer);
 	}
 	return 0;
 }
 
-static int format_utf8_message(const char *title, const char *format, char *args)//returns idx of title in g_wbuf
+static int format_utf8_message(const char *title, const char *format, char *args)/*returns idx of title in g_wbuf*/
 {
 	int len, len2;
 
@@ -385,17 +406,21 @@ static int format_utf8_message(const char *title, const char *format, char *args
 	g_wbuf[len+len2]='\0';
 	return len;
 }
-int messagebox(MessageBoxType type, const char *title, const char *format, ...)//returns index of pressed button
+int messagebox(MessageBoxType type, const char *title, const char *format, ...)/*returns index of pressed button*/
 {
+	const int wintypes[]={MB_OK, MB_OKCANCEL, MB_YESNOCANCEL};
 	va_list args;
+	int len, result;
+
 	va_start(args, format);
-	int len=format_utf8_message(title, format, args);
+	len=format_utf8_message(title, format, args);
 	va_end(args);
-	int wintypes[]={MB_OK, MB_OKCANCEL, MB_YESNOCANCEL};
-	int result=MessageBoxW(ghWnd, g_wbuf, g_wbuf+len, wintypes[type]);
+	result=MessageBoxW(ghWnd, g_wbuf, g_wbuf+len, wintypes[type]);
 	switch(type)
 	{
-	case MBOX_OK:result=0;
+	case MBOX_OK:
+		result=0;
+		break;
 	case MBOX_OKCANCEL:
 		switch(result)
 		{
@@ -411,28 +436,30 @@ int messagebox(MessageBoxType type, const char *title, const char *format, ...)/
 	case MBOX_YESNOCANCEL:
 		switch(result)
 		{
-		case IDYES:		result=0;	break;
-		case IDNO:		result=1;	break;
+		case IDYES:	result=0;break;
+		case IDNO:	result=1;break;
 		default:
-		case IDCANCEL:	result=2;	break;
+		case IDCANCEL:	result=2;break;
 		}
 		break;
 	}
 	return result;
 }
 
-//static void free_pchar(void *data)
-//{
-//	char **str=(char**)data;
-//	free(*str);
-//	*str=0;
-//}
+#if 0
+static void free_pchar(void *data)
+{
+	char **str=(char**)data;
+	free(*str);
+	*str=0;
+}
+#endif
 ArrayHandle dialog_open_folder(void)
 {
 	ArrayHandle arr=0;
 	IFileOpenDialog *pFileOpenDialog=0;
 	HRESULT hr=OleInitialize(0);
-	IID fileOpenDialogIID={0xD57C7288, 0xD4AD, 0x4768, {0xBE, 0x02, 0x9D, 0x96, 0x95, 0x32, 0xD9, 0x60}};//IFileOpenDialog
+	IID fileOpenDialogIID={0xD57C7288, 0xD4AD, 0x4768, {0xBE, 0x02, 0x9D, 0x96, 0x95, 0x32, 0xD9, 0x60}};/*IFileOpenDialog*/
 	if(hr!=S_OK)
 	{
 		OleUninitialize();
@@ -442,39 +469,46 @@ ArrayHandle dialog_open_folder(void)
 	if(SUCCEEDED(hr))
 	{
 		int success=0, len=0;
+
+#if 0
 #ifdef __cplusplus
 #define	CALL_METHOD(OBJ, METHOD, ...)	(OBJ)->METHOD(__VA_ARGS__)
 #else
 #define	CALL_METHOD(OBJ, METHOD, ...)	(OBJ)->lpVtbl->METHOD(OBJ, ##__VA_ARGS__)
 #endif
-		hr=CALL_METHOD(pFileOpenDialog, SetOptions, FOS_PICKFOLDERS|FOS_FORCEFILESYSTEM);
-		hr=CALL_METHOD(pFileOpenDialog, Show, 0);
+#endif
+		hr=IFileOpenDialog_SetOptions(pFileOpenDialog, FOS_PICKFOLDERS|FOS_FORCEFILESYSTEM);
+		hr=IFileOpenDialog_Show(pFileOpenDialog, 0);
 		success=SUCCEEDED(hr);
 		if(success)
 		{
 			IShellItem *pShellItem=0;
 			wchar_t *fullpath=0;
-			hr=CALL_METHOD(pFileOpenDialog, GetResult, &pShellItem);
-			CALL_METHOD(pShellItem, GetDisplayName, SIGDN_FILESYSPATH, &fullpath);
+
+			hr=IFileOpenDialog_GetResult(pFileOpenDialog, &pShellItem);
+			hr=IShellItem_GetDisplayName(pShellItem, SIGDN_FILESYSPATH, &fullpath);
 			WCHARTOUTF8(fullpath, (int)wcslen(fullpath), g_buf, G_BUF_SIZE, len);
 
 			g_buf[len]=0;
 			arr=filter_path(g_buf, len, 1);
-			//STR_COPY(arr, g_buf, len);
+			/*STR_COPY(arr, g_buf, len);*/
 
 			CoTaskMemFree(fullpath);
 		}
-		CALL_METHOD(pFileOpenDialog, Release);
+		IFileOpenDialog_Release(pFileOpenDialog);
 #undef	CALL_METHOD
 	}
 	OleUninitialize();
 	return arr;
 }
-static ArrayHandle	prep_filters(Filter *filters, int nfilters)
+static ArrayHandle prep_filters(Filter *filters, int nfilters)
 {
-	ArrayHandle winfilts=0;
+	ArrayHandle winfilts;
+	int k;
+
+	winfilts=0;
 	WSTR_ALLOC(winfilts, 0);
-	for(int k=0;k<nfilters;++k)
+	for(k=0;k<nfilters;++k)
 	{
 		int len=0;
 
@@ -491,7 +525,7 @@ static ArrayHandle	prep_filters(Filter *filters, int nfilters)
 	STR_APPEND(winfilts, 0, 2, 1);
 	return winfilts;
 }
-ArrayHandle dialog_open_file(Filter *filters, int nfilters, int multiple)//TODO: multiple
+ArrayHandle dialog_open_file(Filter *filters, int nfilters, int multiple)/*TODO: multiple files*/
 {
 	ArrayHandle winfilts=prep_filters(filters, nfilters), result=0;
 
@@ -501,24 +535,29 @@ ArrayHandle dialog_open_file(Filter *filters, int nfilters, int multiple)//TODO:
 
 		OPENFILENAMEW ofn=
 		{
-			sizeof(OPENFILENAMEW), ghWnd, 0,
-			&WSTR_AT(winfilts, 0), 0, 0, 1,
+			sizeof(OPENFILENAMEW), 0/*ghWnd*/, 0,
+			0/*&WSTR_AT(winfilts, 0)*/, 0, 0, 1,
 			g_wbuf, G_BUF_SIZE,
-			0, 0,//initial filename
+			0, 0,	/*initial filename*/
 			0,
-			0,//dialog title
-			OFN_CREATEPROMPT|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR,//flags
-			0,//file offset
-			0,//extension offset
-			L"txt",//default extension
-			0, 0,//data & hook
-			0,//template name
-			0,//reserved
-			0,//reserved
-			0,//flags ex
+			0,	/*dialog title*/
+			OFN_CREATEPROMPT|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR,/*flags*/
+			0,	/*file offset	*/
+			0,	/*extension offset*/
+			L"txt",	/*default extension*/
+			0, 0,	/*data & hook	*/
+			0,	/*template name	*/
+			0,	/*reserved	*/
+			0,	/*reserved	*/
+			0,	/*flags ex	*/
 		};
-		//if(multiple)//CRASHES
-		//	ofn.Flags|=OFN_ALLOWMULTISELECT;
+
+		ofn.hwndOwner=ghWnd;
+		ofn.lpstrFilter=&WSTR_AT(winfilts, 0);
+#if 0
+		if(multiple)/*CRASHES*/
+			ofn.Flags|=OFN_ALLOWMULTISELECT;
+#endif
 		success=GetOpenFileNameW(&ofn);
 		array_free(&winfilts);
 		if(!success)
@@ -541,42 +580,51 @@ ArrayHandle dialog_open_file(Filter *filters, int nfilters, int multiple)//TODO:
 		return result;
 	}
 }
-//const wchar_t		initialname[]=L"Untitled.txt";
+#if 0
+const wchar_t initialname[]=L"Untitled.txt";
+#endif
 char* dialog_save_file(Filter *filters, int nfilters, const char *initialname)
 {
-	ArrayHandle winfilts=prep_filters(filters, nfilters);
-	
-	int len0=(int)strlen(initialname), ext_offset=0;
-	int len=0;
-	wchar_t def_ext[16]={0};//default extension
+	static wchar_t def_ext[16]={0};/*default extension*/
+	ArrayHandle winfilts;
+	int len0, ext_offset, len;
+
+	winfilts=prep_filters(filters, nfilters);
+	len0=(int)strlen(initialname);
+	ext_offset=0;
+	len=0;
 	UTF8TOWCHAR(initialname, len0+1, g_wbuf, G_BUF_SIZE, len);
 	for(ext_offset=len0-1;ext_offset>=0&&initialname[ext_offset]!='.';--ext_offset);
 	memcpy(def_ext, g_wbuf+ext_offset, (len0+1-ext_offset)*sizeof(wchar_t));
-	//memcpy(g_wbuf, initialname, sizeof(initialname));
+	/*memcpy(g_wbuf, initialname, sizeof(initialname));*/
 	{
+		OPENFILENAMEW ofn=
+		{
+			sizeof(OPENFILENAMEW), 0/*ghWnd*/, 0,
+		
+			0/*&WSTR_AT(winfilts, 0)*/,	/*<- filter*/
+		
+			0, 0,			/*custom filter & count*/
+			1,				/*<- initial filter index	*/
+			g_wbuf, G_BUF_SIZE,		/*<- output filename		*/
+			0, 0,			/*initial filename*/
+			0,
+			0,			/*dialog title*/
+			OFN_NOTESTFILECREATE|OFN_PATHMUSTEXIST|OFN_EXTENSIONDIFFERENT|OFN_OVERWRITEPROMPT,
+			0, 0/*(uint16_t)ext_offset*/,	/*<- file offset & extension offset*/
+			def_ext,			/*<- default extension (if user didn't type one)*/
+			0, 0,			/*data & hook	*/
+			0,			/*template name	*/
+			0, 0,			/*reserved	*/
+			0,			/*flags ex	*/
+		};
 		int success, retlen;
 		char *ret;
 
-		OPENFILENAMEW ofn=
-		{
-			sizeof(OPENFILENAMEW), ghWnd, 0,
-		
-			&WSTR_AT(winfilts, 0),	//<- filter
-		
-			0, 0,//custom filter & count
-			1,								//<- initial filter index
-			g_wbuf, G_BUF_SIZE,				//<- output filename
-			0, 0,//initial filename
-			0,
-			0,//dialog title
-			OFN_NOTESTFILECREATE|OFN_PATHMUSTEXIST|OFN_EXTENSIONDIFFERENT|OFN_OVERWRITEPROMPT,
-			0, (unsigned short)ext_offset,				//<- file offset & extension offset
-			def_ext,						//<- default extension (if user didn't type one)
-			0, 0,//data & hook
-			0,//template name
-			0, 0,//reserved
-			0,//flags ex
-		};
+		ofn.hwndOwner=ghWnd;
+		ofn.lpstrFilter=&WSTR_AT(winfilts, 0);
+		ofn.nFileExtension=(uint16_t)ext_offset;
+
 		success=GetSaveFileNameW(&ofn);
 		array_free(&winfilts);
 		if(!success)
@@ -588,12 +636,6 @@ char* dialog_save_file(Filter *filters, int nfilters, const char *initialname)
 		if(!len)
 			return 0;
 		return ret;
-
-		//int len=WideCharToMultiByte(CP_UTF8, 0, ofn.lpstrFile, wcslen(ofn.lpstrFile), g_buf, G_BUF_SIZE, 0, 0);	SYS_ASSERT(len);
-		//if(!len)
-		//	return 0;
-		//g_buf[len]='\0';
-		//return g_buf;
 	}
 }
 
@@ -612,7 +654,7 @@ void set_window_title(const char *format, ...)
 	{
 		int success=SetWindowTextA(ghWnd, g_buf);
 		if(!success)
-			LOG_ERROR("Error setting window title");
+			CRASH("Error setting window title");
 	}
 }
 
@@ -621,7 +663,9 @@ int copy_to_clipboard(const char *a, int size)
 	char *clipboard=(char*)LocalAlloc(LMEM_FIXED, (size+1)*sizeof(char));
 	if(!clipboard)
 		return 0;
-	//	LOG_ERROR("copy_to_clipboard(): LocalAlloc() error");
+#if 0
+		CRASH("copy_to_clipboard(): LocalAlloc() error");
+#endif
 
 	memcpy(clipboard, a, (size+1)*sizeof(char));
 	clipboard[size]='\0';
@@ -658,23 +702,30 @@ ArrayHandle paste_from_clipboard(int loud)
 	}
 }
 
-int copy_bmp_to_clipboard(const unsigned char *rgba, int iw, int ih)
+int copy_bmp_to_clipboard(const uint8_t *rgba, int iw, int ih)
 {
-	int res=iw*ih;
-	ptrdiff_t size=sizeof(BITMAPINFO)+((size_t)res<<2);
-	char *clipboard=(char*)LocalAlloc(LMEM_FIXED, size);
+	BITMAPINFO bmi={0};
+	char *clipboard;
+	intptr_t size;
+	int res, success;
+
+	res=iw*ih;
+	size=sizeof(BITMAPINFO)+((size_t)res<<2);
+	clipboard=(char*)LocalAlloc(LMEM_FIXED, size);
 	if(!clipboard)
 		return 0;
-	{
-		BITMAPINFO bmi={{sizeof(BITMAPINFOHEADER), iw, -ih, 1, 32, BI_RGB, (DWORD)(res<<2), 0, 0, 0, 0}, {{0}}};
-		memcpy(clipboard, &bmi, sizeof(BITMAPINFOHEADER));
-	}
+	bmi.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);
+	bmi.bmiHeader.biWidth=iw;
+	bmi.bmiHeader.biHeight=-ih;
+	bmi.bmiHeader.biPlanes=1;
+	bmi.bmiHeader.biBitCount=32;
+	bmi.bmiHeader.biCompression=BI_RGB;
+	bmi.bmiHeader.biSizeImage=(DWORD)(res*sizeof(uint32_t));
+	memcpy(clipboard, &bmi, sizeof(BITMAPINFOHEADER));
 	memcpy(clipboard+sizeof(BITMAPINFOHEADER), rgba, (size_t)res<<2);
-	{
-		int success=OpenClipboard(ghWnd);
-		if(!success)
-			return 0;
-	}
+	success=OpenClipboard(ghWnd);
+	if(!success)
+		return 0;
 	EmptyClipboard();
 	SetClipboardData(CF_DIB, clipboard);
 	CloseClipboard();
@@ -682,12 +733,12 @@ int copy_bmp_to_clipboard(const unsigned char *rgba, int iw, int ih)
 }
 Image* paste_bmp_from_clipboard(void)
 {
-	int success;
 	Image *image;
 	void *hData;
-	ptrdiff_t size;
+	intptr_t size;
+	int success, kx, ky;
 
-	unsigned clipboardformats[]={CF_DIB, CF_DIBV5, CF_BITMAP, CF_TIFF, CF_METAFILEPICT};
+	uint32_t clipboardformats[]={CF_DIB, CF_DIBV5, CF_BITMAP, CF_TIFF, CF_METAFILEPICT};
 	int format=GetPriorityClipboardFormat(clipboardformats, sizeof clipboardformats>>2);
 	if(format<=0)
 		return 0;
@@ -699,10 +750,17 @@ Image* paste_bmp_from_clipboard(void)
 	size=0;
 	switch(format)
 	{
-	case CF_BITMAP://20231016
+	case CF_BITMAP:/*20231016*/
 		{
+			BITMAPINFO bmh={0};
+			intptr_t k;
 			SIZE s;
-			HBITMAP hBm2=(HBITMAP)GetClipboardData(CF_BITMAP);		SYS_ASSERT(hBm2);
+			HBITMAP hBm2;
+			int copied;
+			HDC hDC2;
+
+			hBm2=(HBITMAP)GetClipboardData(CF_BITMAP);
+			SYS_ASSERT(hBm2);
 			if(!hBm2)
 				return 0;
 			GetBitmapDimensionEx(hBm2, &s);
@@ -710,30 +768,38 @@ Image* paste_bmp_from_clipboard(void)
 				break;
 
 			image=image_from_uint8(0, s.cx, s.cy, 4, 8, 8, 8, 8);
-			{
-				int copied;
 
-				BITMAPINFO bmh={{sizeof(BITMAPINFOHEADER), s.cx, -s.cy, 1, 32, BI_RGB, 0, 0, 0, 0, 0}, {{0}}};
-				HDC hDC2=CreateCompatibleDC(0);		SYS_ASSERT(hDC2);
-				if(!hDC2)
-					return 0;
-				hBm2=(HBITMAP)SelectObject(hDC2, hBm2);
-				copied=GetDIBits(hDC2, hBm2, 0, s.cy, image->data, &bmh, DIB_RGB_COLORS);
-				(void)copied;
-				hBm2=(HBITMAP)SelectObject(hDC2, hBm2);
-				DeleteDC(hDC2);
-			}
-			for(ptrdiff_t k=((ptrdiff_t)image->iw*image->ih<<2)-1;k>=0;--k)//untested
-				image->data[k]=((unsigned char*)image->data)[k]-128;
+			/*BITMAPINFO bmh={{sizeof(BITMAPINFOHEADER), s.cx, -s.cy, 1, 32, BI_RGB, 0, 0, 0, 0, 0}, {{0}}};*/
+			bmh.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);
+			bmh.bmiHeader.biWidth=s.cx;
+			bmh.bmiHeader.biHeight=-s.cy;
+			bmh.bmiHeader.biPlanes=1;
+			bmh.bmiHeader.biBitCount=32;
+			bmh.bmiHeader.biCompression=BI_RGB;
+			bmh.bmiHeader.biSizeImage=0/*(DWORD)(s.cx*s.cy*sizeof(uint32_t))*/;
+
+			hDC2=CreateCompatibleDC(0);
+			SYS_ASSERT(hDC2);
+			if(!hDC2)
+				return 0;
+			hBm2=(HBITMAP)SelectObject(hDC2, hBm2);
+			copied=GetDIBits(hDC2, hBm2, 0, s.cy, HDR_DATA(image), &bmh, DIB_RGB_COLORS);
+			(void)copied;
+			hBm2=(HBITMAP)SelectObject(hDC2, hBm2);
+			DeleteDC(hDC2);
+			for(k=((intptr_t)image->iw*image->ih<<2)-1;k>=0;--k)/*untested*/
+				((uint8_t*)HDR_DATA(image))[k]=((uint8_t*)HDR_DATA(image))[k]-128;
 		}
 		break;
-	case CF_DIBV5://20210402
+	case CF_DIBV5:/*20210402*/
 		{
-			//hData=GetClipboardData(CF_DIB);		SYS_ASSERT(hData);
-			//size=GlobalSize(hData);
-			//BITMAPV5HEADER *bm5=(BITMAPV5HEADER*)GlobalLock(hData);
-			//GlobalUnlock(hData);
-			LOG_WARNING("Unsupported format CF_DIBV5");
+#if 0
+			hData=GetClipboardData(CF_DIB);		SYS_ASSERT(hData);
+			size=GlobalSize(hData);
+			BITMAPV5HEADER *bm5=(BITMAPV5HEADER*)GlobalLock(hData);
+			GlobalUnlock(hData);
+#endif
+			crash(__FILE__, __LINE__, 0, "Unsupported format CF_DIBV5");
 		}
 		break;
 	case CF_DIB:
@@ -745,7 +811,7 @@ Image* paste_bmp_from_clipboard(void)
 			size=GlobalSize(hData);
 			(void)size;
 			bmi=(BITMAPINFO*)GlobalLock(hData);		SYS_ASSERT(bmi);
-			if(bmi->bmiHeader.biCompression==BI_RGB||bmi->bmiHeader.biCompression==BI_BITFIELDS)//uncompressed
+			if(bmi->bmiHeader.biCompression==BI_RGB||bmi->bmiHeader.biCompression==BI_BITFIELDS)/*uncompressed*/
 			{
 				byte *data;
 				int idx_b, idx_r, data_size;
@@ -755,29 +821,31 @@ Image* paste_bmp_from_clipboard(void)
 				data=(byte*)bmi->bmiColors;
 				idx_b=0;
 				idx_r=2;
-				if(bmi->bmiHeader.biCompression==BI_BITFIELDS)//first 3 DWORDs are red, green, blue bitfields
+				if(bmi->bmiHeader.biCompression==BI_BITFIELDS)/*first 3 DWORDs are red, green, blue bitfields*/
 				{
-					if(((int*)data)[0]==0x000000FF)//swap: 0xAABBGGRR -> 0xAARRGGBB
+					if(((int*)data)[0]==0x000000FF)/*swap: 0xAABBGGRR -> 0xAARRGGBB*/
 						idx_b=2, idx_r=0, data+=3*(bmi->bmiHeader.biBitCount>>3);
-					else if(((int*)data)[0]==0x00FF0000)//as it is: 0xAARRGGBB
+					else if(((int*)data)[0]==0x00FF0000)/*as it is: 0xAARRGGBB*/
 						idx_b=0, idx_r=2, data+=3*(bmi->bmiHeader.biBitCount>>3);
 					else
-						LOG_WARNING("Invalid bitmap bitfield");
+						crash(__FILE__, __LINE__, 0, "Invalid bitmap bitfield");
 				}
 				switch(bmi->bmiHeader.biBitCount)
 				{
 				case 24:
 					{
-						int row_bytes=iw*3;
+						int row_bytes;
+
+						row_bytes=iw*3;
 						row_bytes+=(4-(row_bytes&3))&3;
 						data_size=row_bytes*ih;
-						if(bmi->bmiHeader.biSizeImage)//skip palette bits
+						if(bmi->bmiHeader.biSizeImage)/*skip palette bits*/
 							data+=bmi->bmiHeader.biSizeImage-data_size;
-						for(int ky=0;ky<ih&&row_bytes*(ky+1)<=data_size;++ky)
+						for(ky=0;ky<ih&&row_bytes*(ky+1)<=data_size;++ky)
 						{
-							int *dstrow=image->data+((size_t)iw*ky<<2);
+							int *dstrow=(int*)HDR_DATA(image)+(size_t)iw*ky;
 							byte *srcrow=data+row_bytes*(bmi->bmiHeader.biHeight<0?ky:bmi->bmiHeader.biHeight-1-ky);
-							for(int kx=0;kx<iw;++kx)
+							for(kx=0;kx<iw;++kx)
 							{
 								byte *src=(byte*)(srcrow+3*kx);
 								dstrow[kx<<2|0]=src[idx_r	]-128;
@@ -786,67 +854,73 @@ Image* paste_bmp_from_clipboard(void)
 								dstrow[kx<<2|3]=0;
 							}
 						}
-						//for(int ky=0;ky<ih&&row_bytes*(ky+1)<=data_size;++ky)
-						//{
-						//	int *dstrow=(int*)image->data+iw*ky;
-						//	byte *srcrow=data+row_bytes*(bmi->bmiHeader.biHeight<0?ky:bmi->bmiHeader.biHeight-1-ky);
-						//	for(int kx=0;kx<iw;++kx)
-						//	{
-						//		byte *dst=(byte*)(dstrow+kx), *src=(byte*)(srcrow+3*kx);
-						//		dst[0]=src[idx_r];
-						//		dst[1]=src[1];
-						//		dst[2]=src[idx_b];
-						//		dst[3]=0xFF;
-						//	}
-						//}
+#if 0
+						for(ky=0;ky<ih&&row_bytes*(ky+1)<=data_size;++ky)
+						{
+							int *dstrow=(int*)HDR_DATA(image)+iw*ky;
+							byte *srcrow=data+row_bytes*(bmi->bmiHeader.biHeight<0?ky:bmi->bmiHeader.biHeight-1-ky);
+							for(kx=0;kx<iw;++kx)
+							{
+								byte *dst=(byte*)(dstrow+kx), *src=(byte*)(srcrow+3*kx);
+								dst[0]=src[idx_r];
+								dst[1]=src[1];
+								dst[2]=src[idx_b];
+								dst[3]=0xFF;
+							}
+						}
+#endif
 						image->nch=3;
 					}
 					break;
-				case 32://screenshots
+				case 32:/*screenshots*/
 					data_size=iw*ih<<2;
-					if(bmi->bmiHeader.biSizeImage)//skip palette bits
+					if(bmi->bmiHeader.biSizeImage)/*skip palette bits*/
 						data+=bmi->bmiHeader.biSizeImage-data_size;
-					//for(int ky=0;ky<ih&&(iw*(ky+1)<<2)<=data_size;++ky)
-					for(int ky=0;ky<ih;++ky)
+#if 0
+					for(ky=0;ky<ih&&(iw*(ky+1)<<2)<=data_size;++ky)
+#endif
+					for(ky=0;ky<ih;++ky)
 					{
-						int *dst=(int*)image->data+((size_t)iw*ky<<2),
+						int *dst=(int*)HDR_DATA(image)+((size_t)iw*ky<<2),
 							*src=(int*)data+iw*(bmi->bmiHeader.biHeight<0?ky:bmi->bmiHeader.biHeight-1-ky);
-						for(int kx=0;kx<iw;++kx)
+						for(kx=0;kx<iw;++kx)
 						{
-							unsigned char *p=(unsigned char*)(src+kx);
+							uint8_t *p=(uint8_t*)(src+kx);
 							dst[kx<<2|0]=p[2]-128;
 							dst[kx<<2|1]=p[1]-128;
 							dst[kx<<2|2]=p[0]-128;
 							dst[kx<<2|3]=p[3]-128;
 						}
 					}
-					//if(idx_r==0)
-					//{
-					//	for(int ky=0;ky<ih&&(iw*(ky+1)<<2)<=data_size;++ky)
-					//		memcpy((int*)image->data+iw*ky, (int*)data+iw*(bmi->bmiHeader.biHeight<0?ky:bmi->bmiHeader.biHeight-1-ky), (size_t)iw<<2);
-					//}
-					//else//swap rb
-					//{
-					//	for(int ky=0;ky<ih&&(iw*(ky+1)<<2)<=data_size;++ky)
-					//	{
-					//		int *dst=(int*)image->data+iw*ky,
-					//			*src=(int*)data+iw*(bmi->bmiHeader.biHeight<0?ky:bmi->bmiHeader.biHeight-1-ky);
-					//		for(int kx=0;kx<iw;++kx)
-					//		{
-					//			unsigned char *p1=(unsigned char*)(src+kx), *p2=(unsigned char*)(dst+kx);
-					//			p2[0]=p1[2];
-					//			p2[1]=p1[1];
-					//			p2[2]=p1[0];
-					//			p2[3]=p1[3];
-					//		}
-					//	}
-					//}
+#if 0
+					if(idx_r==0)
+					{
+						for(ky=0;ky<ih&&(iw*(ky+1)<<2)<=data_size;++ky)
+							memcpy((int*)HDR_DATA(image)+iw*ky, (int*)data+iw*(bmi->bmiHeader.biHeight<0?ky:bmi->bmiHeader.biHeight-1-ky), (size_t)iw<<2);
+					}
+					else/*swap rb*/
+					{
+						for(ky=0;ky<ih&&(iw*(ky+1)<<2)<=data_size;++ky)
+						{
+							int *dst=(int*)HDR_DATA(image)+iw*ky,
+								*src=(int*)data+iw*(bmi->bmiHeader.biHeight<0?ky:bmi->bmiHeader.biHeight-1-ky);
+							for(kx=0;kx<iw;++kx)
+							{
+								uint8_t *p1=(uint8_t*)(src+kx), *p2=(uint8_t*)(dst+kx);
+								p2[0]=p1[2];
+								p2[1]=p1[1];
+								p2[2]=p1[0];
+								p2[3]=p1[3];
+							}
+						}
+					}
+#endif
 					image->nch=4;
 					break;
 				}
 			}
 			else
-				LOG_WARNING("Unsupported compression: bmiHeader.biCompression == %d", bmi->bmiHeader.biCompression);
+				crash(__FILE__, __LINE__, 0, "Unsupported compression: bmiHeader.biCompression == %d", bmi->bmiHeader.biCompression);
 			GlobalUnlock(hData);
 		}
 		break;
@@ -863,13 +937,13 @@ Image* paste_bmp_from_clipboard(void)
 	case CF_LOCALE:
 		break;
 	case CF_METAFILEPICT:
-		LOG_WARNING("Unsupported format %d CF_METAFILEPICT", format);
+		crash(__FILE__, __LINE__, 0, "Unsupported format %d CF_METAFILEPICT", format);
 		break;
 	case CF_TIFF:
-		LOG_WARNING("Unsupported format %d CF_TIFF", format);
+		crash(__FILE__, __LINE__, 0, "Unsupported format %d CF_TIFF", format);
 		break;
 	case CF_PALETTE:
-		LOG_WARNING("Unsupported format %d CF_PALETTE", format);
+		crash(__FILE__, __LINE__, 0, "Unsupported format %d CF_PALETTE", format);
 		break;
 	}
 	CloseClipboard();
@@ -896,14 +970,18 @@ void timer_stop(int id)
 
 void set_mouse(int x, int y)
 {
-	POINT p={x, y};
+	POINT p={0};
+
+	p.x=x;
+	p.y=y;
 	ClientToScreen(ghWnd, &p);
 	SetCursorPos(p.x, p.y);
 	mouse_bypass=1;
 }
 void get_mouse(int *px, int *py)
 {
-	POINT p;
+	POINT p={0};
+
 	GetCursorPos(&p);
 	ScreenToClient(ghWnd, &p);
 	*px=p.x, *py=p.y;
@@ -917,7 +995,7 @@ void swapbuffers(void)
 {
 	SwapBuffers(ghDC);
 }
-LRESULT __stdcall WndProc(HWND hWnd, unsigned message, WPARAM wParam, LPARAM lParam)
+LRESULT __stdcall WndProc(HWND hWnd, uint32_t message, WPARAM wParam, LPARAM lParam)
 {
 	switch(message)
 	{
@@ -925,15 +1003,19 @@ LRESULT __stdcall WndProc(HWND hWnd, unsigned message, WPARAM wParam, LPARAM lPa
 		GetClientRect(ghWnd, &R);
 		wndw=R.right-R.left, wndh=R.bottom-R.top;
 		set_region_immediate(0, wndw, 0, wndh);
-		//InvalidateRect(hWnd, 0, 0);
+#if 0
+		InvalidateRect(hWnd, 0, 0);
+#endif
 		io_resize();
 		break;
 	case WM_TIMER:
 		g_repaint=0;
 		io_timer();
 		io_render();
-		//prof_print();
-		//SwapBuffers(ghDC);
+#if 0
+		prof_print();
+		SwapBuffers(ghDC);
+#endif
 		break;
 	case WM_PAINT:
 		{
@@ -945,8 +1027,10 @@ LRESULT __stdcall WndProc(HWND hWnd, unsigned message, WPARAM wParam, LPARAM lPa
 				io_render();
 			--callctr;
 		}
-		//prof_print();
-		//SwapBuffers(ghDC);
+#if 0
+		prof_print();
+		SwapBuffers(ghDC);
+#endif
 		break;
 	case WM_ACTIVATE:
 		update_main_key_states();
@@ -1033,31 +1117,26 @@ LRESULT __stdcall WndProc(HWND hWnd, unsigned message, WPARAM wParam, LPARAM lPa
 }
 int __stdcall WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrev, _In_ char *pCmdLine, _In_ int nShowCmd)
 {
-	int ret;
-	WNDCLASSEXA wndClassEx=
-	{
-		sizeof(WNDCLASSEXA), CS_HREDRAW|CS_VREDRAW|CS_DBLCLKS,
-		WndProc, 0, 0, hInstance,
-		LoadIconA(0, (char*)0x00007F00),
-		LoadCursorA(0, (char*)0x00007F00),
-
-		0,
-	//	(HBRUSH)(COLOR_WINDOW+1),
-
-		0, "New format", 0
-	};
+	WNDCLASSEXA wndClassEx={0};
 	MSG msg;
+	int k, len, len2, success, ret;
 
 	(void)hPrev;
 	(void)pCmdLine;
+	wndClassEx.cbSize=sizeof(WNDCLASSEXA);
+	wndClassEx.style=CS_HREDRAW|CS_VREDRAW|CS_DBLCLKS;
+	wndClassEx.lpfnWndProc=WndProc;
+	wndClassEx.hInstance=hInstance;
+	wndClassEx.hIcon=LoadIconA(0, (char*)0x00007F00);
+	wndClassEx.hCursor=LoadCursorA(0, (char*)0x00007F00);
+	wndClassEx.lpszClassName="New format";
+
+	len=GetModuleFileNameW(0, g_wbuf, G_BUF_SIZE);
+	len2=WideCharToMultiByte(CP_UTF8, 0, g_wbuf, len, g_buf, G_BUF_SIZE, 0, 0);
+	STR_COPY(exedir, g_buf, len2);
+	for(k=(int)exedir->count-1;k>=0;--k)
 	{
-		int len=GetModuleFileNameW(0, g_wbuf, G_BUF_SIZE);
-		int len2=WideCharToMultiByte(CP_UTF8, 0, g_wbuf, len, g_buf, G_BUF_SIZE, 0, 0);
-		STR_COPY(exedir, g_buf, len2);
-	}
-	for(int k=(int)exedir->count-1;k>=0;--k)
-	{
-		char c=exedir->data[k];
+		char c=HDR_DATA(exedir)[k];
 		if(c=='/'||c=='\\')
 		{
 			STR_POPBACK(exedir, exedir->count-(k+1));
@@ -1065,11 +1144,22 @@ int __stdcall WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrev, _In_ c
 		}
 	}
 
-	{
-		int success=RegisterClassExA(&wndClassEx);
-		SYS_ASSERT(success);
-	}
-	ghWnd=CreateWindowExA(WS_EX_ACCEPTFILES, wndClassEx.lpszClassName, "", WS_CAPTION|WS_SYSMENU|WS_THICKFRAME|WS_MINIMIZEBOX|WS_MAXIMIZEBOX|WS_CLIPCHILDREN, CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, 0, 0, hInstance, 0);	SYS_ASSERT(ghWnd);//2023-04-11
+	success=RegisterClassExA(&wndClassEx);
+	SYS_ASSERT(success);
+	ghWnd=CreateWindowExA(WS_EX_ACCEPTFILES
+		, wndClassEx.lpszClassName
+		, ""
+		, WS_CAPTION|WS_SYSMENU|WS_THICKFRAME|WS_MINIMIZEBOX|WS_MAXIMIZEBOX|WS_CLIPCHILDREN
+		, CW_USEDEFAULT
+		, 0
+		, CW_USEDEFAULT
+		, 0
+		, 0
+		, 0
+		, hInstance
+		, 0
+	);
+	SYS_ASSERT(ghWnd);/*2023-04-11, 2026-10-18*/
 	if(!ghWnd)
 		return 0;
 
@@ -1086,13 +1176,13 @@ int __stdcall WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrev, _In_ c
 	for(;;)
 	{
 		ret=GetMessageA(&msg, ghWnd, 0, 0);
-		if(!ret||ret==-1)//GetMessageA returns 0 at WM_QUIT, and -1 when ghWnd was closed
+		if(!ret||ret==-1)/*GetMessageA returns 0 at WM_QUIT, and -1 when ghWnd was closed*/
 			break;
 		TranslateMessage(&msg);
 		DispatchMessageA(&msg);
 	}
 
-		//finish
+		/*finish*/
 		io_cleanup();
 		ReleaseDC(ghWnd, ghDC);
 

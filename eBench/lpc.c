@@ -2,7 +2,6 @@
 #include<stdint.h>
 #include<stdio.h>
 #include<immintrin.h>
-static const char file[]=__FILE__;
 
 #if 1
 #define PREDLIST0\
@@ -49,7 +48,7 @@ static const char file[]=__FILE__;
 #endif
 enum
 {
-#define PRED(...) +1
+#define PRED(E) +1
 	NPREDS3	=PREDLIST3,
 	NPREDS2	=PREDLIST2,
 	NPREDS1	=PREDLIST1,
@@ -58,7 +57,7 @@ enum
 	XPAD	=8,
 	NROWS	=4,
 	NCH	=4,
-	NVAL	=1,
+	NVAL	=1
 };
 #define NMAX 16
 typedef struct _LPCInfo
@@ -68,42 +67,48 @@ typedef struct _LPCInfo
 } LPCInfo;
 static void lpc_update(LPCInfo *lpc, int count, double lr)
 {
-	//HALAC 1.9.0
+	/*HALAC 1.9.0*/
 #if 1
-	double coeffs[NMAX+1]={1}, temp[NMAX+1];
-	double error=lpc->autocorr[0];
-	if(!error)
-		error=1;
-	for(int i=0;i<count;++i)
+	double coeffs[NMAX+1]={0}, temp[NMAX+1];
+	double e=lpc->autocorr[0];
+	int i, j, k;
+
+	coeffs[0]=1;
+	if(fabs(e)<1e-9)
+		e=1;
+	for(i=0;i<count;++i)
 	{
 		double r=-coeffs[0]*lpc->autocorr[i+1];
-		for(int j=1;j<=i;++j)
+		for(j=1;j<=i;++j)
 			r-=coeffs[j]*lpc->autocorr[i+1-j];
-		r/=error;
-		for(int j=0;j<=i+1;++j)
+		r/=e;
+		for(j=0;j<=i+1;++j)
 			temp[j]=coeffs[j]+r*coeffs[i+1-j];
-		for(int j=0;j<=i+1;++j)
+		for(j=0;j<=i+1;++j)
 			coeffs[j]=temp[j];
-		//memcpy(coeffs, temp, sizeof(double)*(i+1));
-
-		error-=error*r*r;
+#if 0
+		memcpy(coeffs, temp, sizeof(double)*(i+1));
+#endif
+		e-=e*r*r;
 	}
-	for(int k=0;k<count;++k)
+	for(k=0;k<count;++k)
 		lpc->coeffs[k]+=(coeffs[k+1]-lpc->coeffs[k])*lr;
 #endif
 
-	//vorbis
+	/*vorbis*/
 #if 0
-	double error=lpc->autocorr[0]*(1+1e-10);
+	double e=lpc->autocorr[0]*(1+1e-10);
 	double epsilon=lpc->autocorr[0]*1e-9+1e-10;
-	for(int i=0;i<count;++i)
+	int i, j, k;
+
+	for(i=0;i<count;++i)
 	{
-		double r=-lpc->autocorr[i+1];//reflection
-		if(error<epsilon)
+		double r=-lpc->autocorr[i+1];/*reflection*/
+		if(e<epsilon)
 			break;
 		for(j=0;j<i;++j)
 			r-=lpc[j]*autocorr[i-j];
-		r/=error;
+		r/=e;
 		lpc[i]=r;
 		for(j=0;j<i/2;j++)
 		{
@@ -115,39 +120,44 @@ static void lpc_update(LPCInfo *lpc, int count, double lr)
 		if(i&1)
 			lpc[j]+=lpc[j]*r;
 
-		error-=error*r*r;
+		e-=e*r*r;
 	}
-	for(int k=0;k<NPREDS;++k)
+	for(k=0;k<NPREDS;++k)
 		coeffs[k]+=(lpc[k]-coeffs[k])*1;
 #endif
 }
 void pred_lpc(Image *src, int fwd)
 {
 	double coeffs[4][4]={0};
-	int psize=(src->iw+2*XPAD)*(int)sizeof(int16_t[NROWS*NCH*NVAL]);
-	int16_t *pixels=(int16_t*)_mm_malloc(psize, sizeof(__m128i*));
-	const int lpcsize=(int)sizeof(LPCInfo[4][4]);
-	LPCInfo *lpc=(LPCInfo*)malloc(lpcsize);
+	int psize;
+	int16_t *pixels;
+	int lpcsize;
+	LPCInfo *lpc;
+	int kc, kx, ky, idx;
+
+	psize=(src->iw+2*XPAD)*(int)sizeof(int16_t[NROWS*NCH*NVAL]);
+	pixels=(int16_t*)_mm_malloc(psize, sizeof(__m128i*));
+	lpcsize=(int)sizeof(LPCInfo[4][4]);
+	lpc=(LPCInfo*)malloc(lpcsize);
 	if(!pixels||!lpc)
 	{
-		LOG_ERROR("Alloc error");
+		CRASH("Alloc error");
 		return;
 	}
 	memset(pixels, 0, psize);
 	memset(lpc, 0, lpcsize);
-	for(int ky=0, idx=0;ky<src->ih;++ky)
+	for(ky=0, idx=0;ky<src->ih;++ky)
 	{
 		int j=0, pred=0, curr=0;
-		int16_t *rows[]=
+		int16_t *rows[4];
+		
+		rows[0]=pixels+(XPAD*NCH*NROWS-NROWS+(ky+(intptr_t)NROWS-0)%NROWS)*NVAL;
+		rows[1]=pixels+(XPAD*NCH*NROWS-NROWS+(ky+(intptr_t)NROWS-1)%NROWS)*NVAL;
+		rows[2]=pixels+(XPAD*NCH*NROWS-NROWS+(ky+(intptr_t)NROWS-2)%NROWS)*NVAL;
+		rows[3]=pixels+(XPAD*NCH*NROWS-NROWS+(ky+(intptr_t)NROWS-3)%NROWS)*NVAL;
+		for(kx=0;kx<src->iw;++kx)
 		{
-			pixels+(XPAD*NCH*NROWS-NROWS+(ky+NROWS-0LL)%NROWS)*NVAL,
-			pixels+(XPAD*NCH*NROWS-NROWS+(ky+NROWS-1LL)%NROWS)*NVAL,
-			pixels+(XPAD*NCH*NROWS-NROWS+(ky+NROWS-2LL)%NROWS)*NVAL,
-			pixels+(XPAD*NCH*NROWS-NROWS+(ky+NROWS-3LL)%NROWS)*NVAL,
-		};
-		for(int kx=0;kx<src->iw;++kx)
-		{
-			for(int kc=0;kc<4;++kc, ++idx)
+			for(kc=0;kc<4;++kc, ++idx)
 			{
 				rows[0]+=NROWS*NVAL;
 				rows[1]+=NROWS*NVAL;
@@ -155,118 +165,151 @@ void pred_lpc(Image *src, int fwd)
 				rows[3]+=NROWS*NVAL;
 				if(!src->depth[kc])
 					continue;
-				int16_t
-					NNNW	=rows[3][0-1*NROWS*NCH*NVAL],
-					NNN	=rows[3][0+0*NROWS*NCH*NVAL],
-					NNNE	=rows[3][0+1*NROWS*NCH*NVAL],
-					NNWW	=rows[2][0-2*NROWS*NCH*NVAL],
-					NNW	=rows[2][0-1*NROWS*NCH*NVAL],
-					NN	=rows[2][0+0*NROWS*NCH*NVAL],
-					NNE	=rows[2][0+1*NROWS*NCH*NVAL],
-					NNEE	=rows[2][0+2*NROWS*NCH*NVAL],
-					NWWW	=rows[1][0-3*NROWS*NCH*NVAL],
-					NWW	=rows[1][0-2*NROWS*NCH*NVAL],
-					NW	=rows[1][0-1*NROWS*NCH*NVAL],
-					N	=rows[1][0+0*NROWS*NCH*NVAL],
-					NE	=rows[1][0+1*NROWS*NCH*NVAL],
-					NEE	=rows[1][0+2*NROWS*NCH*NVAL],
-					NEEE	=rows[1][0+3*NROWS*NCH*NVAL],
-					NEEEE	=rows[1][0+4*NROWS*NCH*NVAL],
-					WWWWW	=rows[0][0-5*NROWS*NCH*NVAL],
-					WWWW	=rows[0][0-4*NROWS*NCH*NVAL],
-					WWW	=rows[0][0-3*NROWS*NCH*NVAL],
-					WW	=rows[0][0-2*NROWS*NCH*NVAL],
-					W	=rows[0][0-1*NROWS*NCH*NVAL];
-				int vmax=N, vmin=W;
-				if(N<W)vmin=N, vmax=W;
-				//if(vmin>NE)vmin=NE;
-				//if(vmax<NE)vmax=NE;
-				//if(vmin>NEEE)vmin=NEEE;
-				//if(vmax<NEEE)vmax=NEEE;
+				{
+					int16_t
+						NNNW	=rows[3][0-1*NROWS*NCH*NVAL],
+						NNN	=rows[3][0+0*NROWS*NCH*NVAL],
+						NNNE	=rows[3][0+1*NROWS*NCH*NVAL],
+						NNWW	=rows[2][0-2*NROWS*NCH*NVAL],
+						NNW	=rows[2][0-1*NROWS*NCH*NVAL],
+						NN	=rows[2][0+0*NROWS*NCH*NVAL],
+						NNE	=rows[2][0+1*NROWS*NCH*NVAL],
+						NNEE	=rows[2][0+2*NROWS*NCH*NVAL],
+						NWWW	=rows[1][0-3*NROWS*NCH*NVAL],
+						NWW	=rows[1][0-2*NROWS*NCH*NVAL],
+						NW	=rows[1][0-1*NROWS*NCH*NVAL],
+						N	=rows[1][0+0*NROWS*NCH*NVAL],
+						NE	=rows[1][0+1*NROWS*NCH*NVAL],
+						NEE	=rows[1][0+2*NROWS*NCH*NVAL],
+						NEEE	=rows[1][0+3*NROWS*NCH*NVAL],
+						NEEEE	=rows[1][0+4*NROWS*NCH*NVAL],
+						WWWWW	=rows[0][0-5*NROWS*NCH*NVAL],
+						WWWW	=rows[0][0-4*NROWS*NCH*NVAL],
+						WWW	=rows[0][0-3*NROWS*NCH*NVAL],
+						WW	=rows[0][0-2*NROWS*NCH*NVAL],
+						W	=rows[0][0-1*NROWS*NCH*NVAL];
+					double estim[4]={0}, fpred, p0;
+					LPCInfo *currlpc;
+					int vmax, vmin;
 
-				//predict
-				double estim[4]={0};
-				LPCInfo *currlpc=lpc+4*kc;
+#if 1
+					(void)NNNW;
+					(void)NNN;
+					(void)NNNE;
+					(void)NNWW;
+					(void)NNW;
+					(void)NN;
+					(void)NNE;
+					(void)NNEE;
+					(void)NWWW;
+					(void)NWW;
+					(void)NW;
+					(void)N;
+					(void)NE;
+					(void)NEE;
+					(void)NEEE;
+					(void)NEEEE;
+					(void)WWWWW;
+					(void)WWWW;
+					(void)WWW;
+					(void)WW;
+					(void)W;
+#endif
+					vmax=N; vmin=W;
+					if(N<W)vmin=N, vmax=W;
+#if 0
+					if(vmin>NE)vmin=NE;
+					if(vmax<NE)vmax=NE;
+					if(vmin>NEEE)vmin=NEEE;
+					if(vmax<NEEE)vmax=NEEE;
+#endif
+
+					/*predict*/
+					currlpc=lpc+4*kc;
 #define PRED(E) estim[0]+=currlpc[0].coeffs[j]*(currlpc[0].estim[j]=E); ++j;
-				j=0;
-				PREDLIST0
+					j=0;
+					PREDLIST0
 #undef  PRED
 #if 0
 #define PRED(E) estim[1]+=currlpc[1].coeffs[j]*(currlpc[1].estim[j]=E); ++j;
-				j=0;
-				PREDLIST1
+					j=0;
+					PREDLIST1
 #undef  PRED
 #define PRED(E) estim[2]+=currlpc[2].coeffs[j]*(currlpc[2].estim[j]=E); ++j;
-				j=0;
-				PREDLIST2
+					j=0;
+					PREDLIST2
 #undef  PRED
 #define PRED(E) estim[3]+=currlpc[3].coeffs[j]*(currlpc[3].estim[j]=E); ++j;
-				j=0;
-				PREDLIST3
+					j=0;
+					PREDLIST3
 #undef  PRED
 #endif
-				double fpred=
-					+coeffs[kc][0]*estim[0]
-					+coeffs[kc][1]*estim[1]
-					+coeffs[kc][2]*estim[2]
-					+coeffs[kc][3]*estim[3]
-				;
-				double p0=fpred;
-				//CLAMP2(fpred, vmin, vmax);	//TUNE
-				//pred=(int)CVTFP64_I64(estim[0]);
-				pred=N+W-NW;
-				CLAMP2(pred, vmin, vmax);
+					fpred=
+						+coeffs[kc][0]*estim[0]
+						+coeffs[kc][1]*estim[1]
+						+coeffs[kc][2]*estim[2]
+						+coeffs[kc][3]*estim[3]
+					;
+					p0=fpred;
+#if 0
+					CLAMP2(fpred, vmin, vmax);	//TUNE
+					pred=(int)ROUND64(estim[0]);
+#endif
+					pred=N+W-NW;
+					CLAMP2(pred, vmin, vmax);
 
-				curr=src->data[idx];
-				if(fwd)
-				{
-					int error=curr-pred;
-					error<<=32-src->depth[kc];
-					error>>=32-src->depth[kc];
-					src->data[idx]=error;
-				}
-				else
-				{
-					curr+=pred;
-					curr<<=32-src->depth[kc];
-					curr>>=32-src->depth[kc];
-					src->data[idx]=curr;
-				}
-				rows[0][0]=curr;
-				
-				//if(ky>=src->ih/2&&kx>=src->iw/2&&!kc)//
-				//	printf("");//
+					curr=((int32_t*)HDR_DATA(src))[idx];
+					if(fwd)
+					{
+						int e=curr-pred;
+						e<<=32-src->depth[kc];
+						e>>=32-src->depth[kc];
+						((int32_t*)HDR_DATA(src))[idx]=e;
+					}
+					else
+					{
+						curr+=pred;
+						curr<<=32-src->depth[kc];
+						curr>>=32-src->depth[kc];
+						((int32_t*)HDR_DATA(src))[idx]=curr;
+					}
+					rows[0][0]=curr;
 
-				//update
-				double e=(double)((curr>p0)-(curr<p0))/0x40000;
-				coeffs[kc][0]+=e*estim[0];
-				coeffs[kc][1]+=e*estim[1];
-				coeffs[kc][2]+=e*estim[2];
-				coeffs[kc][3]+=e*estim[3];
+					/*update*/
+					{
+						double e=(double)((curr>p0)-(curr<p0))/0x40000;
+						coeffs[kc][0]+=e*estim[0];
+						coeffs[kc][1]+=e*estim[1];
+						coeffs[kc][2]+=e*estim[2];
+						coeffs[kc][3]+=e*estim[3];
+					}
 
-				currlpc[0].estim[NPREDS0-1]=curr;//special
-#define PRED(...) currlpc[0].autocorr[j]+=currlpc[0].estim[j]*curr-currlpc[0].autocorr[j]*0.00; ++j;
-				j=0;
-				PREDLIST0
+					currlpc[0].estim[NPREDS0-1]=curr;/*special*/
+#define PRED(E) currlpc[0].autocorr[j]+=currlpc[0].estim[j]*curr-currlpc[0].autocorr[j]*0.00; ++j;
+					j=0;
+					PREDLIST0
 #undef  PRED
 #if 0
-#define PRED(...) currlpc[1].autocorr[j]+=currlpc[1].estim[j]*curr-currlpc[1].autocorr[j]*0.01; ++j;
-				j=0;
-				PREDLIST1
+#define PRED(E) currlpc[1].autocorr[j]+=currlpc[1].estim[j]*curr-currlpc[1].autocorr[j]*0.01; ++j;
+					j=0;
+					PREDLIST1
 #undef  PRED
-#define PRED(...) currlpc[2].autocorr[j]+=currlpc[2].estim[j]*curr-currlpc[2].autocorr[j]*0.01; ++j;
-				j=0;
-				PREDLIST2
+#define PRED(E) currlpc[2].autocorr[j]+=currlpc[2].estim[j]*curr-currlpc[2].autocorr[j]*0.01; ++j;
+					j=0;
+					PREDLIST2
 #undef  PRED
-#define PRED(...) currlpc[3].autocorr[j]+=currlpc[3].estim[j]*curr-currlpc[3].autocorr[j]*0.01; ++j;
-				j=0;
-				PREDLIST3
+#define PRED(E) currlpc[3].autocorr[j]+=currlpc[3].estim[j]*curr-currlpc[3].autocorr[j]*0.01; ++j;
+					j=0;
+					PREDLIST3
 #undef  PRED
 #endif
-				lpc_update(currlpc+0, NPREDS0, 1);
-				//lpc_update(currlpc+1, NPREDS1, 0.001);
-				//lpc_update(currlpc+2, NPREDS2, 0.001);
-				//lpc_update(currlpc+3, NPREDS3, 0.001);
+					lpc_update(currlpc+0, NPREDS0, 1);
+#if 0
+					lpc_update(currlpc+1, NPREDS1, 0.001);
+					lpc_update(currlpc+2, NPREDS2, 0.001);
+					lpc_update(currlpc+3, NPREDS3, 0.001);
+#endif
+				}
 			}
 		}
 	}

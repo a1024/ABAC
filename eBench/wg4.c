@@ -6,11 +6,13 @@
 #include<math.h>
 #include<process.h>
 #include<immintrin.h>
-static const char file[]=__FILE__;
 
 
-//	#define ENABLE_SSE
-//	#define USE_L1
+#if 0
+#	define ENABLE_SSE
+#	define USE_L1
+#endif
+
 
 #ifdef ENABLE_SSE
 #define SSEBITS 8
@@ -40,9 +42,7 @@ static const char file[]=__FILE__;
 #define L1PREDLISTSSE L1PREDLIST
 #endif
 
-//WG:
-#define WG_NBITS 0	//why 0 is best?
-
+/*WG:*/
 #define L1PREDLIST\
 	L1PRED(eN)\
 	L1PRED(eW)\
@@ -60,16 +60,18 @@ static const char file[]=__FILE__;
 	L1PRED(3*(eN-eNN)+eNNN)\
 	L1PRED(3*(eW-eWW)+eWWW)\
 	L1PRED(4*(eN+eNNN)-6*eNN-eNNNN)\
-	L1PRED(4*(eW+eWWW)-6*eWW-eWWWW)
+	L1PRED(4*(eW+eWWW)-6*eWW-eWWWW)\
+
 #if 0
 	L1PRED(eW+eNE-eN)\
 	L1PRED(eN+eW-eNW)\
 	L1PRED(eN+eNE-eNNE)\
-	L1PRED((eWWWW+eWWW+eNNN+eNEE+eNEEE+eNEEEE-2*NW)/4)
+	L1PRED((eWWWW+eWWW+eNNN+eNEE+eNEEE+eNEEEE-2*NW)/4)\
+
 #endif
 
 #if 1
-//multiple of 4 preds
+/*multiple of 4 preds*/
 #define WG_PREDLIST0\
 	WG_PRED(210,	N+(23*eN-2*(eNN+eNW)+9*eW)/110)\
 	WG_PRED(210,	W+(23*eW-2*(eWW+eNW)+9*eN)/110)\
@@ -82,7 +84,8 @@ static const char file[]=__FILE__;
 	WG_PRED(45,	(4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2+NNE+NNW-NE-NW-eN-eNN+eNNN)/3)\
 	WG_PRED(97,	(6*(W+WWW)+20*WW+(eW-eWW+eWWW)/3)/32)\
 	WG_PRED(65,	(W+3*NW-NWW-NNWW)/2+eNW/4+eW/6)\
-	WG_PRED(40,	(3*NE+NEE+NEEEE-NNEE-NNEEE+(3*eNE+6*eNEE+3*eNEEE)/2)/3)
+	WG_PRED(40,	(3*NE+NEE+NEEEE-NNEE-NNEEE+(3*eNE+6*eNEE+3*eNEEE)/2)/3)\
+
 #define WG_PREDLIST1\
 	WG_PRED(250,	N+(3*eN+eNW+eW)/6)\
 	WG_PRED(250,	W+(3*eW+eNW+eN)/6)\
@@ -95,7 +98,8 @@ static const char file[]=__FILE__;
 	WG_PRED(45,	(4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2+NNE+NNW-NE-NW-2*eN-eNN+eNNN)/3)\
 	WG_PRED(57,	(W+WW+(eW-eWW+eWWW)/4)/2)\
 	WG_PRED(35,	(W+3*NW-NWW-NNWW+eNW)/2+eW/3)\
-	WG_PRED(40,	(3*NE+NEE+NEEEE-NNEE-NNEEE+(3*eNE+6*eNEE+3*eNEEE)/2)/3)
+	WG_PRED(40,	(3*NE+NEE+NEEEE-NNEE-NNEEE+(3*eNE+6*eNEE+3*eNEEE)/2)/3)\
+
 #define WG_PREDLIST2\
 	WG_PRED(270,	N+(3*eN+eW)/6)\
 	WG_PRED(270,	W+(3*eW+eN)/6)\
@@ -108,10 +112,11 @@ static const char file[]=__FILE__;
 	WG_PRED(55,	(4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2+NNE+NNW-NE-NW)/3-eN-eNN+eNNN)\
 	WG_PRED(47,	(W+WW+(eW+eWWW)/3)/2)\
 	WG_PRED(22,	(W+3*NW-NWW-NNWW+eNW)/2+eW/3)\
-	WG_PRED(40,	(3*NE+NEE+NEEEE-NNEE-NNEEE+(3*eNE+6*eNEE+3*eNEEE)/2)/3)
+	WG_PRED(40,	(3*NE+NEE+NEEEE-NNEE-NNEEE+(3*eNE+6*eNEE+3*eNEEE)/2)/3)\
+
 #endif
 #if 0
-#define WG_NPREDS	8	//multiple of 4
+#define WG_NPREDS	8	/*multiple of 4*/
 #define WG_PREDLIST0\
 	WG_PRED(210,	N+(23*eN-2*(eNN+eNW)+9*eW)/110)\
 	WG_PRED(210,	W+(23*eW-2*(eWW+eNW)+9*eN)/110)\
@@ -120,7 +125,8 @@ static const char file[]=__FILE__;
 	WG_PRED(140,	W+NE-N+((-13*eN)>>4)+eW*13/32-(eW>>7))\
 	WG_PRED(230,	(WWW+NN-2*NW+NEE+NEEE+NEEEE+(N-W)/6+(NNN-NE-(5*(eN+eW)+eWW))/2)/3)\
 	WG_PRED(120,	N+W-NW+(eN+eW-eNW)/3)\
-	WG_PRED(140,	N+NE-NNE+((eN+eNE+eNNE+4)>>3))
+	WG_PRED(140,	N+NE-NNE+((eN+eNE+eNNE+4)>>3))\
+
 #define WG_PREDLIST1\
 	WG_PRED(250,	N+(3*eN+eNW+eW)/6)\
 	WG_PRED(250,	W+(3*eW+eNW+eN)/6)\
@@ -129,7 +135,8 @@ static const char file[]=__FILE__;
 	WG_PRED(180,	W+NE-N-((eN+eW+31)>>5))\
 	WG_PRED(175,	(WWW+NN-2*NW+NEE+NEEE+NEEEE+(W-N+NNN-NE)/2-eN-eW-eWW/3)/3)\
 	WG_PRED(130,	N+W-NW+(2*(eN+eW)-eNW)/5)\
-	WG_PRED(150,	N+NE-NNE+((eN+eNE+eNNE+8)>>4))
+	WG_PRED(150,	N+NE-NNE+((eN+eNE+eNNE+8)>>4))\
+
 #define WG_PREDLIST2\
 	WG_PRED(270,	N+(3*eN+eW)/6)\
 	WG_PRED(270,	W+(3*eW+eN)/6)\
@@ -138,7 +145,8 @@ static const char file[]=__FILE__;
 	WG_PRED(180,	W+NE-N-((2*eN+eW+31)>>5))\
 	WG_PRED(165,	(WWW+NN-2*NW+NEE+NEEE+NEEEE+(W-N+NNN-NE)/2-eN-eW-eWW/3)/3)\
 	WG_PRED(140,	N+W-NW+(2*(eN+eW)-eNW)/5)\
-	WG_PRED(150,	N+NE-NNE+(eN+eNE+eNNE)/16)
+	WG_PRED(150,	N+NE-NNE+(eN+eNE+eNNE)/16)\
+
 #endif
 #if 0
 #define WG_NPREDS	20
@@ -162,7 +170,8 @@ static const char file[]=__FILE__;
 	WG_PRED(25,	N+NE-NNE+((eN+eNE-eNNE)>>2))\
 	WG_PRED(165,	3*(N-NN)+NNN)\
 	WG_PRED(165,	3*(W-WW)+WWW)\
-	WG_PRED(150,	(W+NEEE)/2)
+	WG_PRED(150,	(W+NEEE)/2)\
+
 #endif
 #if 0
 #define WG_PREDLIST\
@@ -177,15 +186,19 @@ static const char file[]=__FILE__;
 	WG_PRED(40,				(4*(N+NNN)-6*NN+NNNW+NNNE-(NNWW+NNEE)/2+NNE+NNW-NE-NW-eN)/3)\
 	WG_PRED(kc?37:67,			kc2==0 ? (6*(W+WWW)+20*WW+(eW-eWW+eWWW)/3)/32 : (kc2==2 ? (W+WW+(eW-eWW+eWWW)/4)/2 : (W+WW+(eW+eWWW)/3)/2))\
 	WG_PRED(40,				(W+3*NW-NWW-NNWW)/2+eW/6+eNW)\
-	WG_PRED(30,				(3*NE+NEE+NEEEE-NNEE-NNEEE+(3*eNE+6*eNEE+3*eNEEE)/2)/3)
+	WG_PRED(30,				(3*NE+NEE+NEEEE-NNEE-NNEEE+(3*eNE+6*eNEE+3*eNEEE)/2)/3)\
+
 #endif
-//	WG_PRED(0, (W+2*NE-NNE+(eW+2*eNE-eNNE)/4)/2)
-//	WG_PRED(0, N+W-NW)
-//	WG_PRED(0, (-WW+3*W+N)/3)
-//	WG_PRED(0, (4*(N+W)-WW-NN)/6)
-//	WG_PRED(0, (10*W+5*(N-WW)-NN+WWW)/10)
-//	WG_PRED(0, (15*(N+W)-6*(NN+WW)+NNN+WWW)/20)
-//	WG_PRED(0, N+NE-NNE+((eN+eNE-eNNE)>>2))
+#if 0
+	WG_PRED(0, (W+2*NE-NNE+(eW+2*eNE-eNNE)/4)/2)\
+	WG_PRED(0, N+W-NW)\
+	WG_PRED(0, (-WW+3*W+N)/3)\
+	WG_PRED(0, (4*(N+W)-WW-NN)/6)\
+	WG_PRED(0, (10*W+5*(N-WW)-NN+WWW)/10)\
+	WG_PRED(0, (15*(N+W)-6*(NN+WW)+NNN+WWW)/20)\
+	WG_PRED(0, N+NE-NNE+((eN+eNE-eNNE)>>2))\
+
+#endif
 #if 0
 #define WG_NPREDS	16
 #define WG_PREDLIST\
@@ -204,26 +217,31 @@ static const char file[]=__FILE__;
 	WG_PRED(25, N+NE-NNE+((eN+eNE-eNNE)>>2))\
 	WG_PRED(165, 3*(N-NN)+NNN)\
 	WG_PRED(165, 3*(W-WW)+WWW)\
-	WG_PRED(150, (W+NEEE)/2)
+	WG_PRED(150, (W+NEEE)/2)\
+
 #endif
 
 enum
 {
-#define WG_PRED(...) +1
+	WG_NBITS=0,	/*why 0 is best?*/
+#define WG_PRED(W, E) +1
 	WG_NPREDS=WG_PREDLIST0,
 #undef  WG_PRED
 
 	L1SH=18,
-#define L1PRED(...) +1
-	L1PREDS=L1PREDLIST,
+#define L1PRED(E) +1
+	L1PREDS=L1PREDLIST
 #undef  L1PRED
 };
 static void wg_init(double *weights, int kc)
 {
 	int j=0;
-//#define WG_PRED(WEIGHT, EXPR) weights[j++]=WEIGHT;
-//	WG_PREDLIST
-//#undef  WG_PRED
+
+#if 0
+#define WG_PRED(WEIGHT, EXPR) weights[j++]=WEIGHT;
+	WG_PREDLIST
+#undef  WG_PRED
+#endif
 #if 1
 	switch(kc)
 	{
@@ -246,11 +264,11 @@ static void wg_init(double *weights, int kc)
 #endif
 }
 FORCE_INLINE int wg_predict(
-	const double *weights, const int **rows, const int stride, int kc2,
+	const double *weights, const int *const *rows, const int stride, int kc2,
 	int spred, const int *perrors, const int *NWerrors, const int *Nerrors, const int *NEerrors, const int *NNEerrors, int *preds
 )
 {
-	//double fpred=0, wsum=0;
+	/*double fpred=0, wsum=0;*/
 	int j=0;
 	ALIGN(16) int pred[4];
 	int
@@ -293,17 +311,59 @@ FORCE_INLINE int wg_predict(
 		eWWW	=rows[0][kc2-3*stride+1],
 		eWW	=rows[0][kc2-2*stride+1],
 		eW	=rows[0][kc2-1*stride+1];
-	//int sh=kc2?1:2;
-	//int gy=abs(eN)+1, gx=abs(eW)+1;
-	//int wgrad=(N*gy+W*gx)/(gy+gx);
+#if 0
+	int sh=kc2?1:2;
+	int gy=abs(eN)+1, gx=abs(eW)+1;
+	int wgrad=(N*gy+W*gx)/(gy+gx);
 
-	//int cgrad, cgrad2;
-	//MEDIAN3_32(cgrad, N, W, N+W-NW);
-	//MEDIAN3_32(cgrad2, N, NE, N+NE-NNE);
-
-//#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
-//	WG_PREDLIST
-//#undef  WG_PRED
+	int cgrad, cgrad2;
+	MEDIAN3_32(cgrad, N, W, N+W-NW);
+	MEDIAN3_32(cgrad2, N, NE, N+NE-NNE);
+#endif
+	(void)NNNWWWW;
+	(void)NNNWWW;
+	(void)NNNW;
+	(void)NNN;
+	(void)NNNE;
+	(void)NNNEEE;
+	(void)NNWWWW;
+	(void)NNWW;
+	(void)NNW;
+	(void)NN;
+	(void)NNE;
+	(void)NNEE;
+	(void)NNEEE;
+	(void)NNEEEE;
+	(void)NWWW;
+	(void)NWW;
+	(void)NW;
+	(void)N;
+	(void)NE;
+	(void)NEE;
+	(void)NEEE;
+	(void)NEEEE;
+	(void)WWWWW;
+	(void)WWWW;
+	(void)WWW;
+	(void)WW;
+	(void)W;
+	(void)eNNN;
+	(void)eNN;
+	(void)eNNE;
+	(void)eNW;
+	(void)eN;
+	(void)eNE;
+	(void)eNEE;
+	(void)eNEEE;
+	(void)eWWWW;
+	(void)eWWW;
+	(void)eWW;
+	(void)eW;
+#if 0
+#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+	WG_PREDLIST
+#undef  WG_PRED
+#endif
 #if 1
 	switch(kc2)
 	{
@@ -324,107 +384,122 @@ FORCE_INLINE int wg_predict(
 		break;
 	}
 #endif
-	//if((eW*47>>7)!=(eW*3>>3)-(eW>>7))
-	//	LOG_ERROR("%d", eW);
 #if 1
-	__m128i one=_mm_set1_epi32(1);
-	__m128i me0=_mm_load_si128((__m128i*)perrors+0);
-	__m128i me1=_mm_load_si128((__m128i*)perrors+1);
-	__m128i me2=_mm_load_si128((__m128i*)perrors+2);
-//	__m128i me3=_mm_load_si128((__m128i*)perrors+3);
-	__m256d w0=_mm256_load_pd(weights+0*4);
-	__m256d w1=_mm256_load_pd(weights+1*4);
-	__m256d w2=_mm256_load_pd(weights+2*4);
-//	__m256d w3=_mm256_load_pd(weights+3*4);
-	//me0=_mm_srai_epi32(me0, 1);
-	//me1=_mm_srai_epi32(me1, 1);
-	//me2=_mm_srai_epi32(me2, 1);
-	//me3=_mm_srai_epi32(me3, 1);
-	me0=_mm_add_epi32(me0, _mm_load_si128((__m128i*)NWerrors+0));
-	me1=_mm_add_epi32(me1, _mm_load_si128((__m128i*)NWerrors+1));
-	me2=_mm_add_epi32(me2, _mm_load_si128((__m128i*)NWerrors+2));
-//	me3=_mm_add_epi32(me3, _mm_load_si128((__m128i*)NWerrors+3));
-	me0=_mm_add_epi32(me0, _mm_slli_epi32(_mm_load_si128((__m128i*)Nerrors+0), 1));
-	me1=_mm_add_epi32(me1, _mm_slli_epi32(_mm_load_si128((__m128i*)Nerrors+1), 1));
-	me2=_mm_add_epi32(me2, _mm_slli_epi32(_mm_load_si128((__m128i*)Nerrors+2), 1));
-//	me3=_mm_add_epi32(me3, _mm_slli_epi32(_mm_load_si128((__m128i*)Nerrors+3), 1));
-	me0=_mm_add_epi32(me0, _mm_load_si128((__m128i*)NEerrors+0));
-	me1=_mm_add_epi32(me1, _mm_load_si128((__m128i*)NEerrors+1));
-	me2=_mm_add_epi32(me2, _mm_load_si128((__m128i*)NEerrors+2));
-//	me3=_mm_add_epi32(me3, _mm_load_si128((__m128i*)NEerrors+3));
-	me0=_mm_add_epi32(me0, _mm_load_si128((__m128i*)NNEerrors+0));
-	me1=_mm_add_epi32(me1, _mm_load_si128((__m128i*)NNEerrors+1));
-	me2=_mm_add_epi32(me2, _mm_load_si128((__m128i*)NNEerrors+2));
-//	me3=_mm_add_epi32(me3, _mm_load_si128((__m128i*)NNEerrors+3));
-#if 1
-	me0=_mm_srli_epi32(me0, 1);
-	me1=_mm_srli_epi32(me1, 1);
-	me2=_mm_srli_epi32(me2, 1);
-//	me3=_mm_srli_epi32(me3, 1);
-#endif
-	me0=_mm_add_epi32(me0, one);
-	me1=_mm_add_epi32(me1, one);
-	me2=_mm_add_epi32(me2, one);
-//	me3=_mm_add_epi32(me3, one);
-#if 0
-	__m128i emax=_mm_set1_epi32(0x3FFF);
-	me0=_mm_min_epi32(me0, emax);
-	me1=_mm_min_epi32(me1, emax);
-	me2=_mm_min_epi32(me2, emax);
-//	me3=_mm_min_epi32(me3, emax);
-#endif
-	__m256d de0=_mm256_cvtepi32_pd(me0);
-	__m256d de1=_mm256_cvtepi32_pd(me1);
-	__m256d de2=_mm256_cvtepi32_pd(me2);
-//	__m256d de3=_mm256_cvtepi32_pd(me3);
-	w0=_mm256_div_pd(w0, de0);
-	w1=_mm256_div_pd(w1, de1);
-	w2=_mm256_div_pd(w2, de2);
-//	w3=_mm256_div_pd(w3, de3);
-	de0=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)preds+0));
-	de1=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)preds+1));
-	de2=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)preds+2));
-//	de3=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)preds+3));
-	de0=_mm256_mul_pd(de0, w0);
-	de1=_mm256_mul_pd(de1, w1);
-	de2=_mm256_mul_pd(de2, w2);
-//	de3=_mm256_mul_pd(de3, w3);
-	w0=_mm256_add_pd(w0, w1);
-	w0=_mm256_add_pd(w0, w2);
-//	w0=_mm256_add_pd(w0, w3);
-	de0=_mm256_add_pd(de0, de1);
-	de0=_mm256_add_pd(de0, de2);
-//	de0=_mm256_add_pd(de0, de3);
-	
-	//[num3 num2 num1 num0]
-	//[den3 den2 den1 den0]
-	//r = hadd(num, den) = [den3+den2 num3+num2 den1+den0 num1+num0]
-	//lo=_mm256_extractf128_pd(r, 0)
-	//hi=_mm256_extractf128_pd(r, 1)
-	//hi+lo = [den3+den2+den1+den0 num3+num2+num1+num0]
-	w0=_mm256_hadd_pd(de0, w0);
-	__m128d dp=_mm_add_pd(_mm256_extractf128_pd(w0, 1), _mm256_extractf128_pd(w0, 0));
-	dp=_mm_div_pd(dp, _mm_permute_pd(dp, 3));
-	__m128i mp=_mm_cvtpd_epi32(dp);
-	__m128i mN	=_mm_set_epi32(0, 0, 0, N);
-	__m128i mW	=_mm_set_epi32(0, 0, 0, W);
-	__m128i mNE	=_mm_set_epi32(0, 0, 0, NE);
-	__m128i mNEEE	=_mm_set_epi32(0, 0, 0, NEEE);
-	__m128i vmin=_mm_min_epi32(mN, mW);
-	__m128i vmax=_mm_max_epi32(mN, mW);
-	vmin=_mm_min_epi32(vmin, mNE);
-	vmax=_mm_max_epi32(vmax, mNE);
-	vmin=_mm_min_epi32(vmin, mNEEE);
-	vmax=_mm_max_epi32(vmax, mNEEE);
-	mp=_mm_max_epi32(mp, vmin);
-	mp=_mm_min_epi32(mp, vmax);
-	_mm_store_si128((__m128i*)pred, mp);
-#else
-	for(int k=0;k<WG_NPREDS;++k)
 	{
-		double weight=(double)weights[k]/(perrors[k]+1);
-		fpred+=weight*preds[k];
-		wsum+=weight;
+		__m128i one=_mm_set1_epi32(1);
+		__m128i me0=_mm_load_si128((const __m128i*)perrors+0);
+		__m128i me1=_mm_load_si128((const __m128i*)perrors+1);
+		__m128i me2=_mm_load_si128((const __m128i*)perrors+2);
+	/*	__m128i me3=_mm_load_si128((const __m128i*)perrors+3);*/
+		__m256d w0=_mm256_load_pd(weights+0*4);
+		__m256d w1=_mm256_load_pd(weights+1*4);
+		__m256d w2=_mm256_load_pd(weights+2*4);
+	/*	__m256d w3=_mm256_load_pd(weights+3*4);*/
+#if 0
+		me0=_mm_srai_epi32(me0, 1);
+		me1=_mm_srai_epi32(me1, 1);
+		me2=_mm_srai_epi32(me2, 1);
+		me3=_mm_srai_epi32(me3, 1);
+#endif
+		me0=_mm_add_epi32(me0, _mm_load_si128((const __m128i*)NWerrors+0));
+		me1=_mm_add_epi32(me1, _mm_load_si128((const __m128i*)NWerrors+1));
+		me2=_mm_add_epi32(me2, _mm_load_si128((const __m128i*)NWerrors+2));
+	/*	me3=_mm_add_epi32(me3, _mm_load_si128((const __m128i*)NWerrors+3));*/
+		me0=_mm_add_epi32(me0, _mm_slli_epi32(_mm_load_si128((const __m128i*)Nerrors+0), 1));
+		me1=_mm_add_epi32(me1, _mm_slli_epi32(_mm_load_si128((const __m128i*)Nerrors+1), 1));
+		me2=_mm_add_epi32(me2, _mm_slli_epi32(_mm_load_si128((const __m128i*)Nerrors+2), 1));
+	/*	me3=_mm_add_epi32(me3, _mm_slli_epi32(_mm_load_si128((const __m128i*)Nerrors+3), 1));*/
+		me0=_mm_add_epi32(me0, _mm_load_si128((const __m128i*)NEerrors+0));
+		me1=_mm_add_epi32(me1, _mm_load_si128((const __m128i*)NEerrors+1));
+		me2=_mm_add_epi32(me2, _mm_load_si128((const __m128i*)NEerrors+2));
+	/*	me3=_mm_add_epi32(me3, _mm_load_si128((const __m128i*)NEerrors+3));*/
+		me0=_mm_add_epi32(me0, _mm_load_si128((const __m128i*)NNEerrors+0));
+		me1=_mm_add_epi32(me1, _mm_load_si128((const __m128i*)NNEerrors+1));
+		me2=_mm_add_epi32(me2, _mm_load_si128((const __m128i*)NNEerrors+2));
+	/*	me3=_mm_add_epi32(me3, _mm_load_si128((const __m128i*)NNEerrors+3));*/
+#if 1
+		me0=_mm_srli_epi32(me0, 1);
+		me1=_mm_srli_epi32(me1, 1);
+		me2=_mm_srli_epi32(me2, 1);
+	/*	me3=_mm_srli_epi32(me3, 1);*/
+#endif
+		me0=_mm_add_epi32(me0, one);
+		me1=_mm_add_epi32(me1, one);
+		me2=_mm_add_epi32(me2, one);
+	/*	me3=_mm_add_epi32(me3, one);*/
+#if 0
+		__m128i emax=_mm_set1_epi32(0x3FFF);
+		me0=_mm_min_epi32(me0, emax);
+		me1=_mm_min_epi32(me1, emax);
+		me2=_mm_min_epi32(me2, emax);
+	/*	me3=_mm_min_epi32(me3, emax);*/
+#endif
+		{
+			__m256d de0=_mm256_cvtepi32_pd(me0);
+			__m256d de1=_mm256_cvtepi32_pd(me1);
+			__m256d de2=_mm256_cvtepi32_pd(me2);
+		/*	__m256d de3=_mm256_cvtepi32_pd(me3);*/
+			w0=_mm256_div_pd(w0, de0);
+			w1=_mm256_div_pd(w1, de1);
+			w2=_mm256_div_pd(w2, de2);
+		/*	w3=_mm256_div_pd(w3, de3);*/
+			de0=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)preds+0));
+			de1=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)preds+1));
+			de2=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)preds+2));
+		/*	de3=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)preds+3));*/
+			de0=_mm256_mul_pd(de0, w0);
+			de1=_mm256_mul_pd(de1, w1);
+			de2=_mm256_mul_pd(de2, w2);
+		/*	de3=_mm256_mul_pd(de3, w3);*/
+			w0=_mm256_add_pd(w0, w1);
+			w0=_mm256_add_pd(w0, w2);
+		/*	w0=_mm256_add_pd(w0, w3);*/
+			de0=_mm256_add_pd(de0, de1);
+			de0=_mm256_add_pd(de0, de2);
+		/*	de0=_mm256_add_pd(de0, de3);*/
+			
+			/*
+			[num3 num2 num1 num0]
+			[den3 den2 den1 den0]
+			r = hadd(num, den) = [den3+den2 num3+num2 den1+den0 num1+num0]
+			lo=_mm256_extractf128_pd(r, 0)
+			hi=_mm256_extractf128_pd(r, 1)
+			hi+lo = [den3+den2+den1+den0 num3+num2+num1+num0]
+			*/
+			w0=_mm256_hadd_pd(de0, w0);
+		}
+		{
+			__m128d dp;
+			__m128i mp, mN, mW, mNE, mNEEE, vmin, vmax;
+
+			dp=_mm_add_pd(_mm256_extractf128_pd(w0, 1), _mm256_extractf128_pd(w0, 0));
+			dp=_mm_div_pd(dp, _mm_permute_pd(dp, 3));
+			mp=_mm_cvtpd_epi32(dp);
+			mN	=_mm_set_epi32(0, 0, 0, N);
+			mW	=_mm_set_epi32(0, 0, 0, W);
+			mNE	=_mm_set_epi32(0, 0, 0, NE);
+			mNEEE	=_mm_set_epi32(0, 0, 0, NEEE);
+			vmin=_mm_min_epi32(mN, mW);
+			vmax=_mm_max_epi32(mN, mW);
+			vmin=_mm_min_epi32(vmin, mNE);
+			vmax=_mm_max_epi32(vmax, mNE);
+			vmin=_mm_min_epi32(vmin, mNEEE);
+			vmax=_mm_max_epi32(vmax, mNEEE);
+			mp=_mm_max_epi32(mp, vmin);
+			mp=_mm_min_epi32(mp, vmax);
+			_mm_store_si128((__m128i*)pred, mp);
+		}
+	}
+#else
+	{
+		int k;
+
+		for(k=0;k<WG_NPREDS;++k)
+		{
+			double weight=(double)weights[k]/(perrors[k]+1);
+			fpred+=weight*preds[k];
+			wsum+=weight;
+		}
 	}
 	fpred/=wsum;
 #ifdef _MSC_VER
@@ -434,6 +509,8 @@ FORCE_INLINE int wg_predict(
 #endif
 	CLAMP3_32(pred, pred, N, W, NE);
 #endif
+
+	(void)spred;
 	return pred[0];
 }
 FORCE_INLINE int wg_predict2(
@@ -441,7 +518,6 @@ FORCE_INLINE int wg_predict2(
 	int spred, const int *perrors, const int *NWerrors, const int *Nerrors, const int *NEerrors, const int *NNEerrors, int *preds
 )
 {
-	int j=0;
 	int
 		NNNWWWW	=rows[3][kc2-4*stride+0],
 		NNNWWW	=rows[3][kc2-3*stride+0],
@@ -482,25 +558,70 @@ FORCE_INLINE int wg_predict2(
 		eWWW	=rows[0][kc2-3*stride+1],
 		eWW	=rows[0][kc2-2*stride+1],
 		eW	=rows[0][kc2-1*stride+1];
-	
-//#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
-//	WG_PREDLIST
-//#undef  WG_PRED
+	int j, pred;
+
+		(void)NNNWWWW;
+		(void)NNNWWW;
+		(void)NNNW;
+		(void)NNN;
+		(void)NNNE;
+		(void)NNNEEE;
+		(void)NNWWWW;
+		(void)NNWW;
+		(void)NNW;
+		(void)NN;
+		(void)NNE;
+		(void)NNEE;
+		(void)NNEEE;
+		(void)NNEEEE;
+		(void)NWWW;
+		(void)NWW;
+		(void)NW;
+		(void)N;
+		(void)NE;
+		(void)NEE;
+		(void)NEEE;
+		(void)NEEEE;
+		(void)WWWWW;
+		(void)WWWW;
+		(void)WWW;
+		(void)WW;
+		(void)W;
+		(void)eNNN;
+		(void)eNN;
+		(void)eNNE;
+		(void)eNW;
+		(void)eN;
+		(void)eNE;
+		(void)eNEE;
+		(void)eNEEE;
+		(void)eWWWW;
+		(void)eWWW;
+		(void)eWW;
+		(void)eW;
+#if 0
+#define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+	WG_PREDLIST
+#undef  WG_PRED
+#endif
 #if 1
 	switch(kc2)
 	{
 	case 0:
 #define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+		j=0;
 		WG_PREDLIST0
 #undef  WG_PRED
 		break;
 	case 2:
 #define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+		j=0;
 		WG_PREDLIST1
 #undef  WG_PRED
 		break;
 	case 4:
 #define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+		j=0;
 		WG_PREDLIST2
 #undef  WG_PRED
 		break;
@@ -508,171 +629,68 @@ FORCE_INLINE int wg_predict2(
 #endif
 	if(N==W)
 		return N;
-
-	int coeffs[]=
 	{
-		perrors[ 0]+NWerrors[ 0]+(Nerrors[ 0]<<1)+NEerrors[ 0]+NNEerrors[ 0],
-		perrors[ 1]+NWerrors[ 1]+(Nerrors[ 1]<<1)+NEerrors[ 1]+NNEerrors[ 1],
-		perrors[ 2]+NWerrors[ 2]+(Nerrors[ 2]<<1)+NEerrors[ 2]+NNEerrors[ 2],
-		perrors[ 3]+NWerrors[ 3]+(Nerrors[ 3]<<1)+NEerrors[ 3]+NNEerrors[ 3],
-		perrors[ 4]+NWerrors[ 4]+(Nerrors[ 4]<<1)+NEerrors[ 4]+NNEerrors[ 4],
-		perrors[ 5]+NWerrors[ 5]+(Nerrors[ 5]<<1)+NEerrors[ 5]+NNEerrors[ 5],
-		perrors[ 6]+NWerrors[ 6]+(Nerrors[ 6]<<1)+NEerrors[ 6]+NNEerrors[ 6],
-		perrors[ 7]+NWerrors[ 7]+(Nerrors[ 7]<<1)+NEerrors[ 7]+NNEerrors[ 7],
-		perrors[ 8]+NWerrors[ 8]+(Nerrors[ 8]<<1)+NEerrors[ 8]+NNEerrors[ 8],
-		perrors[ 9]+NWerrors[ 9]+(Nerrors[ 9]<<1)+NEerrors[ 9]+NNEerrors[ 9],
-		perrors[10]+NWerrors[10]+(Nerrors[10]<<1)+NEerrors[10]+NNEerrors[10],
-		perrors[11]+NWerrors[11]+(Nerrors[11]<<1)+NEerrors[11]+NNEerrors[11],
-	//	perrors[12]+NWerrors[12]+(Nerrors[12]<<1)+NEerrors[12]+NNEerrors[12],
-	//	perrors[13]+NWerrors[13]+(Nerrors[13]<<1)+NEerrors[13]+NNEerrors[13],
-	//	perrors[14]+NWerrors[14]+(Nerrors[14]<<1)+NEerrors[14]+NNEerrors[14],
-	//	perrors[15]+NWerrors[15]+(Nerrors[15]<<1)+NEerrors[15]+NNEerrors[15],
-	//	perrors[16]+NWerrors[16]+(Nerrors[16]<<1)+NEerrors[16]+NNEerrors[16],
-	//	perrors[17]+NWerrors[17]+(Nerrors[17]<<1)+NEerrors[17]+NNEerrors[17],
-	//	perrors[18]+NWerrors[18]+(Nerrors[18]<<1)+NEerrors[18]+NNEerrors[18],
-	//	perrors[19]+NWerrors[19]+(Nerrors[19]<<1)+NEerrors[19]+NNEerrors[19],
-	};
-	int cmax=coeffs[0];
-	if(cmax<coeffs[ 1])cmax=coeffs[ 1];
-	if(cmax<coeffs[ 2])cmax=coeffs[ 2];
-	if(cmax<coeffs[ 3])cmax=coeffs[ 3];
-	if(cmax<coeffs[ 4])cmax=coeffs[ 4];
-	if(cmax<coeffs[ 5])cmax=coeffs[ 5];
-	if(cmax<coeffs[ 6])cmax=coeffs[ 6];
-	if(cmax<coeffs[ 7])cmax=coeffs[ 7];
-	if(cmax<coeffs[ 8])cmax=coeffs[ 8];
-	if(cmax<coeffs[ 9])cmax=coeffs[ 9];
-	if(cmax<coeffs[10])cmax=coeffs[10];
-	if(cmax<coeffs[11])cmax=coeffs[11];
-	//if(cmax<coeffs[12])cmax=coeffs[12];
-	//if(cmax<coeffs[13])cmax=coeffs[13];
-	//if(cmax<coeffs[14])cmax=coeffs[14];
-	//if(cmax<coeffs[15])cmax=coeffs[15];
-	//if(cmax<coeffs[16])cmax=coeffs[16];
-	//if(cmax<coeffs[17])cmax=coeffs[17];
-	//if(cmax<coeffs[18])cmax=coeffs[18];
-	//if(cmax<coeffs[19])cmax=coeffs[19];
-	++cmax;
-	coeffs[ 0]=cmax-coeffs[ 0];
-	coeffs[ 1]=cmax-coeffs[ 1];
-	coeffs[ 2]=cmax-coeffs[ 2];
-	coeffs[ 3]=cmax-coeffs[ 3];
-	coeffs[ 4]=cmax-coeffs[ 4];
-	coeffs[ 5]=cmax-coeffs[ 5];
-	coeffs[ 6]=cmax-coeffs[ 6];
-	coeffs[ 7]=cmax-coeffs[ 7];
-	coeffs[ 8]=cmax-coeffs[ 8];
-	coeffs[ 9]=cmax-coeffs[ 9];
-	coeffs[10]=cmax-coeffs[10];
-	coeffs[11]=cmax-coeffs[11];
-	//coeffs[12]=cmax-coeffs[12];
-	//coeffs[13]=cmax-coeffs[13];
-	//coeffs[14]=cmax-coeffs[14];
-	//coeffs[15]=cmax-coeffs[15];
-	//coeffs[16]=cmax-coeffs[16];
-	//coeffs[17]=cmax-coeffs[17];
-	//coeffs[18]=cmax-coeffs[18];
-	//coeffs[19]=cmax-coeffs[19];
-	coeffs[ 0]*=coeffs[ 0];
-	coeffs[ 1]*=coeffs[ 1];
-	coeffs[ 2]*=coeffs[ 2];
-	coeffs[ 3]*=coeffs[ 3];
-	coeffs[ 4]*=coeffs[ 4];
-	coeffs[ 5]*=coeffs[ 5];
-	coeffs[ 6]*=coeffs[ 6];
-	coeffs[ 7]*=coeffs[ 7];
-	coeffs[ 8]*=coeffs[ 8];
-	coeffs[ 9]*=coeffs[ 9];
-	coeffs[10]*=coeffs[10];
-	coeffs[11]*=coeffs[11];
-	//coeffs[12]*=coeffs[12];
-	//coeffs[13]*=coeffs[13];
-	//coeffs[14]*=coeffs[14];
-	//coeffs[15]*=coeffs[15];
-	//coeffs[16]*=coeffs[16];
-	//coeffs[17]*=coeffs[17];
-	//coeffs[18]*=coeffs[18];
-	//coeffs[19]*=coeffs[19];
-	int pred=(int)((
-		+(long long)coeffs[ 0]*preds[ 0]
-		+(long long)coeffs[ 1]*preds[ 1]
-		+(long long)coeffs[ 2]*preds[ 2]
-		+(long long)coeffs[ 3]*preds[ 3]
-		+(long long)coeffs[ 4]*preds[ 4]
-		+(long long)coeffs[ 5]*preds[ 5]
-		+(long long)coeffs[ 6]*preds[ 6]
-		+(long long)coeffs[ 7]*preds[ 7]
-		+(long long)coeffs[ 8]*preds[ 8]
-		+(long long)coeffs[ 9]*preds[ 9]
-		+(long long)coeffs[10]*preds[10]
-		+(long long)coeffs[11]*preds[11]
-	//	+(long long)coeffs[12]*preds[12]
-	//	+(long long)coeffs[13]*preds[13]
-	//	+(long long)coeffs[14]*preds[14]
-	//	+(long long)coeffs[15]*preds[15]
-	//	+(long long)coeffs[16]*preds[16]
-	//	+(long long)coeffs[17]*preds[17]
-	//	+(long long)coeffs[18]*preds[18]
-	//	+(long long)coeffs[19]*preds[19]
-	)/(
-		+(long long)coeffs[ 0]
-		+(long long)coeffs[ 1]
-		+(long long)coeffs[ 2]
-		+(long long)coeffs[ 3]
-		+(long long)coeffs[ 4]
-		+(long long)coeffs[ 5]
-		+(long long)coeffs[ 6]
-		+(long long)coeffs[ 7]
-		+(long long)coeffs[ 8]
-		+(long long)coeffs[ 9]
-		+(long long)coeffs[10]
-		+(long long)coeffs[11]
-	//	+(long long)coeffs[12]
-	//	+(long long)coeffs[13]
-	//	+(long long)coeffs[14]
-	//	+(long long)coeffs[15]
-	//	+(long long)coeffs[16]
-	//	+(long long)coeffs[17]
-	//	+(long long)coeffs[18]
-	//	+(long long)coeffs[19]
-	));
+		int64_t num, den;
+		int coeffs[WG_NPREDS], cmax;
+
+		for(j=0;j<WG_NPREDS;++j)
+			coeffs[j]=perrors[j]+NWerrors[j]+(Nerrors[j]<<1)+NEerrors[j]+NNEerrors[j];
+		cmax=coeffs[0];
+		for(j=1;j<WG_NPREDS;++j)
+			if(cmax<coeffs[j])cmax=coeffs[j];
+		++cmax;
+		for(j=0;j<WG_NPREDS;++j)
+			coeffs[j]=cmax-coeffs[j];
+		for(j=0;j<WG_NPREDS;++j)
+			coeffs[j]*=coeffs[j];
+		num=0;
+		den=0;
+		for(j=0;j<WG_NPREDS;++j)
+		{
+			num+=(int64_t)coeffs[j]*preds[j];
+			den+=coeffs[j];
+		}
+		pred=(int)(num/den);
+	}
 #if 0
 	__m128i one=_mm_set1_epi32(1);
 	__m128i me0=_mm_load_si128((__m128i*)perrors+0);
 	__m128i me1=_mm_load_si128((__m128i*)perrors+1);
 	__m128i me2=_mm_load_si128((__m128i*)perrors+2);
-//	__m128i me3=_mm_load_si128((__m128i*)perrors+3);
-//	__m256d w0=_mm256_load_pd(weights+0*4);
-//	__m256d w1=_mm256_load_pd(weights+1*4);
-//	__m256d w2=_mm256_load_pd(weights+2*4);
-//	__m256d w3=_mm256_load_pd(weights+3*4);
-	//me0=_mm_srai_epi32(me0, 1);
-	//me1=_mm_srai_epi32(me1, 1);
-	//me2=_mm_srai_epi32(me2, 1);
-	//me3=_mm_srai_epi32(me3, 1);
+/*	__m128i me3=_mm_load_si128((__m128i*)perrors+3);*/
+#if 0
+	__m256d w0=_mm256_load_pd(weights+0*4);
+	__m256d w1=_mm256_load_pd(weights+1*4);
+	__m256d w2=_mm256_load_pd(weights+2*4);
+	__m256d w3=_mm256_load_pd(weights+3*4);
+	me0=_mm_srai_epi32(me0, 1);
+	me1=_mm_srai_epi32(me1, 1);
+	me2=_mm_srai_epi32(me2, 1);
+	me3=_mm_srai_epi32(me3, 1);
+#endif
 	me0=_mm_add_epi32(me0, _mm_load_si128((__m128i*)NWerrors+0));
 	me1=_mm_add_epi32(me1, _mm_load_si128((__m128i*)NWerrors+1));
 	me2=_mm_add_epi32(me2, _mm_load_si128((__m128i*)NWerrors+2));
-//	me3=_mm_add_epi32(me3, _mm_load_si128((__m128i*)NWerrors+3));
+/*	me3=_mm_add_epi32(me3, _mm_load_si128((__m128i*)NWerrors+3));*/
 	me0=_mm_add_epi32(me0, _mm_slli_epi32(_mm_load_si128((__m128i*)Nerrors+0), 1));
 	me1=_mm_add_epi32(me1, _mm_slli_epi32(_mm_load_si128((__m128i*)Nerrors+1), 1));
 	me2=_mm_add_epi32(me2, _mm_slli_epi32(_mm_load_si128((__m128i*)Nerrors+2), 1));
-//	me3=_mm_add_epi32(me3, _mm_slli_epi32(_mm_load_si128((__m128i*)Nerrors+3), 1));
+/*	me3=_mm_add_epi32(me3, _mm_slli_epi32(_mm_load_si128((__m128i*)Nerrors+3), 1));*/
 	me0=_mm_add_epi32(me0, _mm_load_si128((__m128i*)NEerrors+0));
 	me1=_mm_add_epi32(me1, _mm_load_si128((__m128i*)NEerrors+1));
 	me2=_mm_add_epi32(me2, _mm_load_si128((__m128i*)NEerrors+2));
-//	me3=_mm_add_epi32(me3, _mm_load_si128((__m128i*)NEerrors+3));
+/*	me3=_mm_add_epi32(me3, _mm_load_si128((__m128i*)NEerrors+3));*/
 	me0=_mm_add_epi32(me0, _mm_load_si128((__m128i*)NNEerrors+0));
 	me1=_mm_add_epi32(me1, _mm_load_si128((__m128i*)NNEerrors+1));
 	me2=_mm_add_epi32(me2, _mm_load_si128((__m128i*)NNEerrors+2));
-//	me3=_mm_add_epi32(me3, _mm_load_si128((__m128i*)NNEerrors+3));
+/*	me3=_mm_add_epi32(me3, _mm_load_si128((__m128i*)NNEerrors+3));*/
 	me0=_mm_add_epi32(me0, one);
 	me1=_mm_add_epi32(me1, one);
 	me2=_mm_add_epi32(me2, one);
-//	me3=_mm_add_epi32(me3, one);
+/*	me3=_mm_add_epi32(me3, one);*/
 
 	__m128i fbias=_mm_set1_epi32(127);
-	me0=_mm_castps_si128(_mm_cvtepi32_ps(me0));//FLOOR_LOG2
+	me0=_mm_castps_si128(_mm_cvtepi32_ps(me0));/*FLOOR_LOG2*/
 	me1=_mm_castps_si128(_mm_cvtepi32_ps(me1));
 	me2=_mm_castps_si128(_mm_cvtepi32_ps(me2));
 	me0=_mm_srli_epi32(me0, 23);
@@ -705,32 +723,33 @@ FORCE_INLINE int wg_predict2(
 		(t0+t4)+esums[10]+esums[11],
 		(t0+t4)+esums[ 9]+esums[11],
 		(t0+t4)+esums[ 9]+esums[10],
+#if 0
+		esums[1]+esums[2]+(t3+t1)+1,
+		esums[0]+esums[2]+(t3+t1)+1,
+		esums[0]+esums[1]+(t3+t1)+1,
+		(t2+t1)+esums[4]+esums[5]+1,
+		(t2+t1)+esums[3]+esums[5]+1,
+		(t2+t1)+esums[3]+esums[4]+1,
+		esums[7]+esums[8]+(t0+t5)+1,
+		esums[6]+esums[8]+(t0+t5)+1,
+		esums[6]+esums[7]+(t0+t5)+1,
+		(t0+t4)+esums[10]+esums[11]+1,
+		(t0+t4)+esums[ 9]+esums[11]+1,
+		(t0+t4)+esums[ 9]+esums[10]+1,
 
-		//esums[1]+esums[2]+(t3+t1)+1,
-		//esums[0]+esums[2]+(t3+t1)+1,
-		//esums[0]+esums[1]+(t3+t1)+1,
-		//(t2+t1)+esums[4]+esums[5]+1,
-		//(t2+t1)+esums[3]+esums[5]+1,
-		//(t2+t1)+esums[3]+esums[4]+1,
-		//esums[7]+esums[8]+(t0+t5)+1,
-		//esums[6]+esums[8]+(t0+t5)+1,
-		//esums[6]+esums[7]+(t0+t5)+1,
-		//(t0+t4)+esums[10]+esums[11]+1,
-		//(t0+t4)+esums[ 9]+esums[11]+1,
-		//(t0+t4)+esums[ 9]+esums[10]+1,
-
-		//esums[1]+esums[2]+(esums[3]+esums[4]+esums[5])+(esums[6]+esums[7]+esums[8]+esums[9]+esums[10]+esums[11]),
-		//esums[0]+esums[2]+(esums[3]+esums[4]+esums[5])+(esums[6]+esums[7]+esums[8]+esums[9]+esums[10]+esums[11]),
-		//esums[0]+esums[1]+(esums[3]+esums[4]+esums[5])+(esums[6]+esums[7]+esums[8]+esums[9]+esums[10]+esums[11]),
-		//(esums[0]+esums[1]+esums[2])+esums[4]+esums[5]+(esums[6]+esums[7]+esums[8]+esums[9]+esums[10]+esums[11]),
-		//(esums[0]+esums[1]+esums[2])+esums[3]+esums[5]+(esums[6]+esums[7]+esums[8]+esums[9]+esums[10]+esums[11]),
-		//(esums[0]+esums[1]+esums[2])+esums[3]+esums[4]+(esums[6]+esums[7]+esums[8]+esums[9]+esums[10]+esums[11]),
-		//(esums[0]+esums[1]+esums[2]+esums[3]+esums[4]+esums[5])+esums[7]+esums[8]+(esums[9]+esums[10]+esums[11]),
-		//(esums[0]+esums[1]+esums[2]+esums[3]+esums[4]+esums[5])+esums[6]+esums[8]+(esums[9]+esums[10]+esums[11]),
-		//(esums[0]+esums[1]+esums[2]+esums[3]+esums[4]+esums[5])+esums[6]+esums[7]+(esums[9]+esums[10]+esums[11]),
-		//(esums[0]+esums[1]+esums[2]+esums[3]+esums[4]+esums[5])+(esums[6]+esums[7]+esums[8])+esums[10]+esums[11],
-		//(esums[0]+esums[1]+esums[2]+esums[3]+esums[4]+esums[5])+(esums[6]+esums[7]+esums[8])+esums[ 9]+esums[11],
-		//(esums[0]+esums[1]+esums[2]+esums[3]+esums[4]+esums[5])+(esums[6]+esums[7]+esums[8])+esums[ 9]+esums[10],
+		esums[1]+esums[2]+(esums[3]+esums[4]+esums[5])+(esums[6]+esums[7]+esums[8]+esums[9]+esums[10]+esums[11]),
+		esums[0]+esums[2]+(esums[3]+esums[4]+esums[5])+(esums[6]+esums[7]+esums[8]+esums[9]+esums[10]+esums[11]),
+		esums[0]+esums[1]+(esums[3]+esums[4]+esums[5])+(esums[6]+esums[7]+esums[8]+esums[9]+esums[10]+esums[11]),
+		(esums[0]+esums[1]+esums[2])+esums[4]+esums[5]+(esums[6]+esums[7]+esums[8]+esums[9]+esums[10]+esums[11]),
+		(esums[0]+esums[1]+esums[2])+esums[3]+esums[5]+(esums[6]+esums[7]+esums[8]+esums[9]+esums[10]+esums[11]),
+		(esums[0]+esums[1]+esums[2])+esums[3]+esums[4]+(esums[6]+esums[7]+esums[8]+esums[9]+esums[10]+esums[11]),
+		(esums[0]+esums[1]+esums[2]+esums[3]+esums[4]+esums[5])+esums[7]+esums[8]+(esums[9]+esums[10]+esums[11]),
+		(esums[0]+esums[1]+esums[2]+esums[3]+esums[4]+esums[5])+esums[6]+esums[8]+(esums[9]+esums[10]+esums[11]),
+		(esums[0]+esums[1]+esums[2]+esums[3]+esums[4]+esums[5])+esums[6]+esums[7]+(esums[9]+esums[10]+esums[11]),
+		(esums[0]+esums[1]+esums[2]+esums[3]+esums[4]+esums[5])+(esums[6]+esums[7]+esums[8])+esums[10]+esums[11],
+		(esums[0]+esums[1]+esums[2]+esums[3]+esums[4]+esums[5])+(esums[6]+esums[7]+esums[8])+esums[ 9]+esums[11],
+		(esums[0]+esums[1]+esums[2]+esums[3]+esums[4]+esums[5])+(esums[6]+esums[7]+esums[8])+esums[ 9]+esums[10],
+#endif
 	};
 	int wsum=
 		+lweights[ 0]
@@ -746,30 +765,32 @@ FORCE_INLINE int wg_predict2(
 		+lweights[10]
 		+lweights[11]
 	;
-//	int wmin=lweights[0];
-//	int wmax=lweights[0];
-//	if(wmin>lweights[ 1])wmin=lweights[ 1];
-//	if(wmax<lweights[ 1])wmax=lweights[ 1];
-//	if(wmin>lweights[ 2])wmin=lweights[ 2];
-//	if(wmax<lweights[ 2])wmax=lweights[ 2];
-//	if(wmin>lweights[ 3])wmin=lweights[ 3];
-//	if(wmax<lweights[ 3])wmax=lweights[ 3];
-//	if(wmin>lweights[ 4])wmin=lweights[ 4];
-//	if(wmax<lweights[ 4])wmax=lweights[ 4];
-//	if(wmin>lweights[ 5])wmin=lweights[ 5];
-//	if(wmax<lweights[ 5])wmax=lweights[ 5];
-//	if(wmin>lweights[ 6])wmin=lweights[ 6];
-//	if(wmax<lweights[ 6])wmax=lweights[ 6];
-//	if(wmin>lweights[ 7])wmin=lweights[ 7];
-//	if(wmax<lweights[ 7])wmax=lweights[ 7];
-//	if(wmin>lweights[ 8])wmin=lweights[ 8];
-//	if(wmax<lweights[ 8])wmax=lweights[ 8];
-//	if(wmin>lweights[ 9])wmin=lweights[ 9];
-//	if(wmax<lweights[ 9])wmax=lweights[ 9];
-//	if(wmin>lweights[10])wmin=lweights[10];
-//	if(wmax<lweights[10])wmax=lweights[10];
-//	if(wmin>lweights[11])wmin=lweights[11];
-//	if(wmax<lweights[11])wmax=lweights[11];
+#if 0
+	int wmin=lweights[0];
+	int wmax=lweights[0];
+	if(wmin>lweights[ 1])wmin=lweights[ 1];
+	if(wmax<lweights[ 1])wmax=lweights[ 1];
+	if(wmin>lweights[ 2])wmin=lweights[ 2];
+	if(wmax<lweights[ 2])wmax=lweights[ 2];
+	if(wmin>lweights[ 3])wmin=lweights[ 3];
+	if(wmax<lweights[ 3])wmax=lweights[ 3];
+	if(wmin>lweights[ 4])wmin=lweights[ 4];
+	if(wmax<lweights[ 4])wmax=lweights[ 4];
+	if(wmin>lweights[ 5])wmin=lweights[ 5];
+	if(wmax<lweights[ 5])wmax=lweights[ 5];
+	if(wmin>lweights[ 6])wmin=lweights[ 6];
+	if(wmax<lweights[ 6])wmax=lweights[ 6];
+	if(wmin>lweights[ 7])wmin=lweights[ 7];
+	if(wmax<lweights[ 7])wmax=lweights[ 7];
+	if(wmin>lweights[ 8])wmin=lweights[ 8];
+	if(wmax<lweights[ 8])wmax=lweights[ 8];
+	if(wmin>lweights[ 9])wmin=lweights[ 9];
+	if(wmax<lweights[ 9])wmax=lweights[ 9];
+	if(wmin>lweights[10])wmin=lweights[10];
+	if(wmax<lweights[10])wmax=lweights[10];
+	if(wmin>lweights[11])wmin=lweights[11];
+	if(wmax<lweights[11])wmax=lweights[11];
+#endif
 	int sh=FLOOR_LOG2(wsum);
 	lweights[ 0]<<=3;
 	lweights[ 1]<<=3;
@@ -808,63 +829,72 @@ FORCE_INLINE int wg_predict2(
 	if(lweights[10]>8)lweights[10]=8;
 	if(lweights[11]>8)lweights[11]=8;
 	int pred=(int)((
-		+((long long)preds[ 0]<<lweights[ 0])
-		+((long long)preds[ 1]<<lweights[ 1])
-		+((long long)preds[ 2]<<lweights[ 2])
-		+((long long)preds[ 3]<<lweights[ 3])
-		+((long long)preds[ 4]<<lweights[ 4])
-		+((long long)preds[ 5]<<lweights[ 5])
-		+((long long)preds[ 6]<<lweights[ 6])
-		+((long long)preds[ 7]<<lweights[ 7])
-		+((long long)preds[ 8]<<lweights[ 8])
-		+((long long)preds[ 9]<<lweights[ 9])
-		+((long long)preds[10]<<lweights[10])
-		+((long long)preds[11]<<lweights[11])
+		+((int64_t)preds[ 0]<<lweights[ 0])
+		+((int64_t)preds[ 1]<<lweights[ 1])
+		+((int64_t)preds[ 2]<<lweights[ 2])
+		+((int64_t)preds[ 3]<<lweights[ 3])
+		+((int64_t)preds[ 4]<<lweights[ 4])
+		+((int64_t)preds[ 5]<<lweights[ 5])
+		+((int64_t)preds[ 6]<<lweights[ 6])
+		+((int64_t)preds[ 7]<<lweights[ 7])
+		+((int64_t)preds[ 8]<<lweights[ 8])
+		+((int64_t)preds[ 9]<<lweights[ 9])
+		+((int64_t)preds[10]<<lweights[10])
+		+((int64_t)preds[11]<<lweights[11])
 	)/(
-		+(1ULL<<lweights[ 0])
-		+(1ULL<<lweights[ 1])
-		+(1ULL<<lweights[ 2])
-		+(1ULL<<lweights[ 3])
-		+(1ULL<<lweights[ 4])
-		+(1ULL<<lweights[ 5])
-		+(1ULL<<lweights[ 6])
-		+(1ULL<<lweights[ 7])
-		+(1ULL<<lweights[ 8])
-		+(1ULL<<lweights[ 9])
-		+(1ULL<<lweights[10])
-		+(1ULL<<lweights[11])
+		+((uint64_t)1<<lweights[ 0])
+		+((uint64_t)1<<lweights[ 1])
+		+((uint64_t)1<<lweights[ 2])
+		+((uint64_t)1<<lweights[ 3])
+		+((uint64_t)1<<lweights[ 4])
+		+((uint64_t)1<<lweights[ 5])
+		+((uint64_t)1<<lweights[ 6])
+		+((uint64_t)1<<lweights[ 7])
+		+((uint64_t)1<<lweights[ 8])
+		+((uint64_t)1<<lweights[ 9])
+		+((uint64_t)1<<lweights[10])
+		+((uint64_t)1<<lweights[11])
 	));
-	//int pred=(
-	//	+lweights[ 0]*preds[ 0]
-	//	+lweights[ 1]*preds[ 1]
-	//	+lweights[ 2]*preds[ 2]
-	//	+lweights[ 3]*preds[ 3]
-	//	+lweights[ 4]*preds[ 4]
-	//	+lweights[ 5]*preds[ 5]
-	//	+lweights[ 6]*preds[ 6]
-	//	+lweights[ 7]*preds[ 7]
-	//	+lweights[ 8]*preds[ 8]
-	//	+lweights[ 9]*preds[ 9]
-	//	+lweights[10]*preds[10]
-	//	+lweights[11]*preds[11]
-	//)/((t0+t1+WG_NPREDS)*(WG_NPREDS-1));
+#if 0
+	int pred=(
+		+lweights[ 0]*preds[ 0]
+		+lweights[ 1]*preds[ 1]
+		+lweights[ 2]*preds[ 2]
+		+lweights[ 3]*preds[ 3]
+		+lweights[ 4]*preds[ 4]
+		+lweights[ 5]*preds[ 5]
+		+lweights[ 6]*preds[ 6]
+		+lweights[ 7]*preds[ 7]
+		+lweights[ 8]*preds[ 8]
+		+lweights[ 9]*preds[ 9]
+		+lweights[10]*preds[10]
+		+lweights[11]*preds[11]
+	)/((t0+t1+WG_NPREDS)*(WG_NPREDS-1));
 #endif
-	int vmax=N, vmin=W;
-	if(N<W)vmin=N, vmax=W;
-	if(vmin>NE)vmin=NE;
-	if(vmax<NE)vmax=NE;
-	CLAMP2(pred, vmin, vmax);
-	return pred;
+#endif
+	{
+		int vmax=N, vmin=W;
+		if(N<W)vmin=N, vmax=W;
+		if(vmin>NE)vmin=NE;
+		if(vmax<NE)vmax=NE;
+		CLAMP2(pred, vmin, vmax);
+
+		(void)weights;
+		(void)spred;
+		return pred;
+	}
 }
 FORCE_INLINE void wg_update(int curr, int kc, const int *preds, int *perrors, int *Werrors, int *currerrors, int *NEerrors)
 {
-	static const int factors[]={97, 99, 99};
-	int factor=factors[kc];
-	for(int k=0;k<WG_NPREDS;++k)
+	const int factors[]={97, 99, 99};
+	int factor, k;
+
+	factor=factors[kc];
+	for(k=0;k<WG_NPREDS;++k)
 	{
 		int e2=abs(curr-preds[k])<<1;
 		perrors[k]=(perrors[k]+e2)*factor>>7;
-	//	perrors[k]=(e2-perrors[k]+(1<<5>>1))>>5;//slightly worse
+	/*	perrors[k]=(e2-perrors[k]+(1<<5>>1))>>5;*/ /*slightly worse*/
 		currerrors[k]=(2*Werrors[k]+e2+NEerrors[k])>>2;
 		NEerrors[k]+=e2;
 	}
@@ -872,12 +902,14 @@ FORCE_INLINE void wg_update(int curr, int kc, const int *preds, int *perrors, in
 
 FORCE_INLINE void wg_init_v3(int *weights)
 {
-//	int j=0;
-//#define WG_PRED(WEIGHT, EXPR) weights[j++]=WEIGHT;
-//	WG_PREDLIST0
-//#undef  WG_PRED
-
-	for(int k=0;k<WG_NPREDS+1;++k)
+	int k;
+#if 0
+	int j=0;
+#define WG_PRED(WEIGHT, EXPR) weights[j++]=WEIGHT;
+	WG_PREDLIST0
+#undef  WG_PRED
+#endif
+	for(k=0;k<WG_NPREDS+1;++k)
 		weights[k]=k*(0x10000/WG_NPREDS);
 }
 FORCE_INLINE int wg_predict_v3(const int *weights, const int *currptr, const int *Nptr, const int *NNptr, const int *NNNptr, int *preds)
@@ -922,15 +954,56 @@ FORCE_INLINE int wg_predict_v3(const int *weights, const int *currptr, const int
 		eWWW	=currptr[-3*4*2+1],
 		eWW	=currptr[-2*4*2+1],
 		eW	=currptr[-1*4*2+1];
-	int j=0;
+	int j, pred, vmin, vmax;
 
+	(void)NNNWWWW;
+	(void)NNNWWW;
+	(void)NNNW;
+	(void)NNN;
+	(void)NNNE;
+	(void)NNNEEE;
+	(void)NNWWWW;
+	(void)NNWW;
+	(void)NNW;
+	(void)NN;
+	(void)NNE;
+	(void)NNEE;
+	(void)NNEEE;
+	(void)NNEEEE;
+	(void)NWWW;
+	(void)NWW;
+	(void)NW;
+	(void)N;
+	(void)NE;
+	(void)NEE;
+	(void)NEEE;
+	(void)NEEEE;
+	(void)WWWWW;
+	(void)WWWW;
+	(void)WWW;
+	(void)WW;
+	(void)W;
+	(void)eNNN;
+	(void)eNN;
+	(void)eNNE;
+	(void)eNW;
+	(void)eN;
+	(void)eNE;
+	(void)eNEE;
+	(void)eNEEE;
+	(void)eWWWW;
+	(void)eWWW;
+	(void)eWW;
+	(void)eW;
 #define WG_PRED(WEIGHT, EXPR) preds[j++]=EXPR;
+	j=0;
 	WG_PREDLIST0
 #undef  WG_PRED
 	if(N==W)
 		return N;
 
-	int pred=(
+	pred=(
+		+(1<<16>>1)
 		+(weights[ 1]-weights[ 0])*preds[ 0]
 		+(weights[ 2]-weights[ 1])*preds[ 1]
 		+(weights[ 3]-weights[ 2])*preds[ 2]
@@ -943,112 +1016,94 @@ FORCE_INLINE int wg_predict_v3(const int *weights, const int *currptr, const int
 		+(weights[10]-weights[ 9])*preds[ 9]
 		+(weights[11]-weights[10])*preds[10]
 		+(weights[12]-weights[11])*preds[11]
-		+(1<<16>>1)
 	)>>16;
-	{
-		int vmax=N, vmin=W;
-		if(N<W)vmin=N, vmin=W;
-		if(vmin>NE)vmin=NE;
-		if(vmax>NE)vmax=NE;
-		CLAMP2(pred, vmin, vmax);
-	}
+	vmax=N, vmin=W;
+	if(N<W)vmin=N, vmin=W;
+	if(vmin>NE)vmin=NE;
+	if(vmax>NE)vmax=NE;
+	CLAMP2(pred, vmin, vmax);
 	return pred;
 }
 FORCE_INLINE void wg_update_v3(int target, const int *preds, int *weights)
 {
-	int mixin[WG_NPREDS], wsum=0;
-	for(int k=0;k<WG_NPREDS;++k)
+	int mixin[WG_NPREDS], wsum, sum2, k;
+
+	wsum=0;
+	for(k=0;k<WG_NPREDS;++k)
 	{
 		int e=abs(target-preds[k])+1;
-		e=0x1000000/e;//(NPREDS*2) DIVs per subpixel is too slow
+		e=0x1000000/e;/*(NPREDS*2) DIVs per subpixel is too slow*/
 		mixin[k]=e;
 		wsum+=e;
 	}
-	int sum2=0;
-	for(int k=0;k<WG_NPREDS;++k)
+	sum2=0;
+	for(k=0;k<WG_NPREDS;++k)
 	{
 		int val=mixin[k];
-		weights[k]+=((int)(((long long)sum2<<16)/wsum)-weights[k])>>0;
-	//	mixin[k]=(int)(((long long)sum2<<16)/wsum);
+		weights[k]+=((int)(((int64_t)sum2<<16)/wsum)-weights[k])>>0;
+	/*	mixin[k]=(int)(((int64_t)sum2<<16)/wsum);*/
 		sum2+=val;
 	}
 
-	//for(int k=0;k<WG_NPREDS;++k)//slow O(N^2)	X  inefficient
-	//{
-	//	int e=target-preds[k];
-	//	e*=e;//instead of abs()
-	//	e=FLOOR_LOG2(e+1);
-	//	for(int k2=1;k2<WG_NPREDS;++k2)
-	//		weights[k2]+=(((k2>k)<<16)-weights[k2])>>e;//FIXME SIMD
-	//}
+#if 0
+	for(k=0;k<WG_NPREDS;++k)/*slow O(N^2)	X  inefficient*/
+	{
+		int e=target-preds[k], k2;
+		e*=e;/*instead of abs()*/
+		e=FLOOR_LOG2(e+1);
+		for(k2=1;k2<WG_NPREDS;++k2)
+			weights[k2]+=(((k2>k)<<16)-weights[k2])>>e;/*FIXME SIMD*/
+	}
+#endif
 }
 void pred_wgrad4(Image *src, int fwd)
 {
-	int amin[]=
-	{
-		-(1<<src->depth[0]>>1),
-		-(1<<src->depth[1]>>1),
-		-(1<<src->depth[2]>>1),
-		-(1<<src->depth[3]>>1),
-	};
-	int amax[]=
-	{
-		(1<<src->depth[0]>>1)-1,
-		(1<<src->depth[1]>>1)-1,
-		(1<<src->depth[2]>>1)-1,
-		(1<<src->depth[3]>>1)-1,
-	};
-//	ALIGN(32) int wg_weights_v3[4][(WG_NPREDS+7)&~7];
 	ALIGN(32) double wg_weights[4][WG_NPREDS]={0};
 	ALIGN(32) int wg_perrors[4][WG_NPREDS]={0}, wg_preds[WG_NPREDS]={0};
-	int nch;
-	int fwdmask=-fwd;
-	int bufsize;
-	int *pixels;
+	int amin[4], amax[4], nch, bufsize, *pixels, *rows[4], invdist, pesize, *ebuf, *erows[4], ky, kx, kc, idx;
 	
-	int invdist=((1<<16)+g_dist-1)/g_dist;
-	int pesize=(src->iw+16)*(int)sizeof(int[4][4][WG_NPREDS]);//4 padded rows * 3 channels * WG_NPREDS
-	int *ebuf=(int*)_mm_malloc(pesize, sizeof(__m256i));
-	bufsize=(src->iw+16LL)*sizeof(int[4*4*2]);//4 padded rows * 4 channels max
+	amin[0]=-(1<<src->depth[0]>>1);
+	amin[1]=-(1<<src->depth[1]>>1);
+	amin[2]=-(1<<src->depth[2]>>1);
+	amin[3]=-(1<<src->depth[3]>>1);
+	amax[0]=(1<<src->depth[0]>>1)-1;
+	amax[1]=(1<<src->depth[1]>>1)-1;
+	amax[2]=(1<<src->depth[2]>>1)-1;
+	amax[3]=(1<<src->depth[3]>>1)-1;
+	invdist=((1<<16)+g_dist-1)/g_dist;
+	pesize=(src->iw+16)*(int)sizeof(int[4][4][WG_NPREDS]);/*4 padded rows * 3 channels * WG_NPREDS*/
+	ebuf=(int*)_mm_malloc(pesize, sizeof(__m256i));
+	bufsize=(src->iw+16)*(int)sizeof(int[4*4*2]);/*4 padded rows * 4 channels max*/
 	pixels=(int*)malloc(bufsize);
 	if(!pixels||!ebuf)
 	{
-		LOG_ERROR("Alloc error");
+		CRASH("Alloc error");
 		return;
 	}
 	memset(ebuf, 0, pesize);
 	memset(pixels, 0, bufsize);
 	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
 	UPDATE_MAX(nch, src->nch);
-	for(int kc=0;kc<nch;++kc)
-	//	wg_init_v3(wg_weights_v3[kc]);
+	for(kc=0;kc<nch;++kc)
 		wg_init(wg_weights[kc], kc);
-	for(int ky=0, idx=0;ky<src->ih;++ky)
+	for(ky=0, idx=0;ky<src->ih;++ky)
 	{
-		int *rows[]=
-		{
-			pixels+((src->iw+16LL)*((ky-0LL)&3)+8LL)*4*2,
-			pixels+((src->iw+16LL)*((ky-1LL)&3)+8LL)*4*2,
-			pixels+((src->iw+16LL)*((ky-2LL)&3)+8LL)*4*2,
-			pixels+((src->iw+16LL)*((ky-3LL)&3)+8LL)*4*2,
-		};
-		int *erows[]=
-		{
-			ebuf+((src->iw+16LL)*((ky-0LL)&3)+8LL)*4*WG_NPREDS,
-			ebuf+((src->iw+16LL)*((ky-1LL)&3)+8LL)*4*WG_NPREDS,
-			ebuf+((src->iw+16LL)*((ky-2LL)&3)+8LL)*4*WG_NPREDS,
-			ebuf+((src->iw+16LL)*((ky-3LL)&3)+8LL)*4*WG_NPREDS,
-		};
-		for(int kx=0;kx<src->iw;++kx, idx+=4)
+		rows[0]=pixels+((src->iw+(intptr_t)16)*((ky-(intptr_t)0)&3)+8)*4*2;
+		rows[1]=pixels+((src->iw+(intptr_t)16)*((ky-(intptr_t)1)&3)+8)*4*2;
+		rows[2]=pixels+((src->iw+(intptr_t)16)*((ky-(intptr_t)2)&3)+8)*4*2;
+		rows[3]=pixels+((src->iw+(intptr_t)16)*((ky-(intptr_t)3)&3)+8)*4*2;
+		erows[0]=ebuf+((src->iw+(intptr_t)16)*((ky-(intptr_t)0)&3)+8)*4*WG_NPREDS;
+		erows[1]=ebuf+((src->iw+(intptr_t)16)*((ky-(intptr_t)1)&3)+8)*4*WG_NPREDS;
+		erows[2]=ebuf+((src->iw+(intptr_t)16)*((ky-(intptr_t)2)&3)+8)*4*WG_NPREDS;
+		erows[3]=ebuf+((src->iw+(intptr_t)16)*((ky-(intptr_t)3)&3)+8)*4*WG_NPREDS;
+		for(kx=0;kx<src->iw;++kx, idx+=4)
 		{
 #if 0
-			//if(ky==src->ih/2&&kx==src->iw/2)
-			//	printf("");
-			for(int kc=0;kc<src->nch;++kc)
+			for(kc=0;kc<src->nch;++kc)
 			{
 				int pred=wg_predict_v3(wg_weights_v3[kc], rows[0]+kc, rows[1]+kc, rows[2]+kc, rows[3]+kc, wg_preds);
 				{
-					int curr=src->data[idx+kc], pred0=pred;
+					int curr=((int32_t*)HDR_DATA(src))[idx+kc], pred0=pred;
 					pred+=1<<WG_NBITS>>1;
 					pred>>=WG_NBITS;
 					pred^=fwdmask;
@@ -1058,7 +1113,7 @@ void pred_wgrad4(Image *src, int fwd)
 					pred<<=32-src->depth[kc];
 					pred>>=32-src->depth[kc];
 
-					src->data[idx+kc]=pred;
+					((int32_t*)HDR_DATA(src))[idx+kc]=pred;
 					rows[0][kc+0]=(fwd?curr:pred)<<WG_NBITS;
 					rows[0][kc+4]=rows[0][kc]-pred0;
 				}
@@ -1070,92 +1125,59 @@ void pred_wgrad4(Image *src, int fwd)
 			rows[3]+=4*2;
 #endif
 #if 1
-			for(int kc=0;kc<src->nch;++kc)
+			for(kc=0;kc<src->nch;++kc)
 			{
-				int pred;
 				int
 					kc2=kc<<1,
 					kc3=kc*WG_NPREDS,
-				//	*eNNW	=erows[2]+kc3-1*4*WG_NPREDS,
-				//	*eNN	=erows[2]+kc3+0*4*WG_NPREDS,
 					*eNNE	=erows[2]+kc3+1*4*WG_NPREDS,
-				//	*eNNEE	=erows[2]+kc3+2*4*WG_NPREDS,
 					*eNW	=erows[1]+kc3-1*4*WG_NPREDS,
 					*eN	=erows[1]+kc3+0*4*WG_NPREDS,
 					*eNE	=erows[1]+kc3+1*4*WG_NPREDS,
-				//	*eNEE	=erows[1]+kc3+2*4*WG_NPREDS,
-				//	*eNEEE	=erows[1]+kc3+3*4*WG_NPREDS,
 					*eW	=erows[0]+kc3-1*4*WG_NPREDS,
 					*ecurr	=erows[0]+kc3+0*4*WG_NPREDS;
-				pred=wg_predict(wg_weights[kc], (const int**)rows, 4*2, kc2, 0, wg_perrors[kc], eNW, eN, eNE, eNNE, wg_preds);
-				int curr=src->data[idx+kc];
+				int pred, curr, e;
+
+				pred=wg_predict(wg_weights[kc], (const int* const*)rows, 4*2, kc2, 0, wg_perrors[kc], eNW, eN, eNE, eNNE, wg_preds);
+				curr=((int32_t*)HDR_DATA(src))[idx+kc];
 				if(g_dist>1)
 				{
 					if(fwd)
 					{
 						curr-=(int)pred;
-						curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));//curr/=g_dist
-						src->data[idx+kc]=curr;
+						curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));/*curr/=g_dist*/
+						((int32_t*)HDR_DATA(src))[idx+kc]=curr;
 
 						curr=g_dist*curr+(int)pred;
 						CLAMP2(curr, amin[kc], amax[kc]);
 					}
 					else
 					{
-						curr=g_dist*src->data[idx+kc]+(int)pred;
+						curr=g_dist*((int32_t*)HDR_DATA(src))[idx+kc]+(int)pred;
 						CLAMP2(curr, amin[kc], amax[kc]);
 
-						src->data[idx+kc]=curr;
+						((int32_t*)HDR_DATA(src))[idx+kc]=curr;
 					}
 				}
 				else
 				{
 					if(fwd)
 					{
-						int error=curr-pred;
-						error<<=32-src->depth[kc];
-						error>>=32-src->depth[kc];
-						src->data[idx+kc]=error;
+						e=curr-pred;
+						e<<=32-src->depth[kc];
+						e>>=32-src->depth[kc];
+						((int32_t*)HDR_DATA(src))[idx+kc]=e;
 					}
 					else
 					{
 						curr+=pred;
 						curr<<=32-src->depth[kc];
 						curr>>=32-src->depth[kc];
-						src->data[idx+kc]=curr;
+						((int32_t*)HDR_DATA(src))[idx+kc]=curr;
 					}
 				}
-				//int val;
-				//if(fwd)
-				//{
-				//	val=(curr-(int)pred+g_dist/2)/g_dist;
-				//	curr=g_dist*val+(int)pred;
-				//}
-				//else
-				//{
-				//	val=g_dist*curr+(int)pred;
-				//	curr=val;
-				//	CLAMP2(val, amin[kc], amax[kc]);
-				//}
-				//src->data[idx+kc]=keyboard[KEY_ALT]?pred:val;
 				rows[0][kc2+0]=curr;
 				rows[0][kc2+1]=curr-pred;
-				//{
-				//	int curr=src->data[idx+kc], pred0=pred;
-				//	pred+=1<<WG_NBITS>>1;
-				//	pred>>=WG_NBITS;
-				//	int p2=pred;
-				//	pred^=fwdmask;
-				//	pred-=fwdmask;
-				//	pred+=curr;
-				//
-				//	pred<<=32-src->depth[kc];
-				//	pred>>=32-src->depth[kc];
-				//
-				//	src->data[idx+kc]=keyboard[KEY_ALT]?p2:pred;
-				//	rows[0][kc2+0]=(fwd?curr:pred)<<WG_NBITS;
-				//	rows[0][kc2+1]=rows[0][kc2]-pred0;
-				//}
 				wg_update(rows[0][kc2], kc, wg_preds, wg_perrors[kc], eW, ecurr, eNE);
 			}
 			rows[0]+=4*2;
@@ -1174,116 +1196,109 @@ void pred_wgrad4(Image *src, int fwd)
 }
 void pred_wgrad4c(Image *src, int fwd)
 {
-	int amin[]=
-	{
-		-(1<<src->depth[0]>>1),
-		-(1<<src->depth[1]>>1),
-		-(1<<src->depth[2]>>1),
-		-(1<<src->depth[3]>>1),
-	};
-	int amax[]=
-	{
-		(1<<src->depth[0]>>1)-1,
-		(1<<src->depth[1]>>1)-1,
-		(1<<src->depth[2]>>1)-1,
-		(1<<src->depth[3]>>1)-1,
-	};
-	int coeffs[4][L1PREDS+1]={0};
-	ALIGN(32) int wg_weights[4][WG_NPREDS]={0};
-	ALIGN(32) int wg_perrors[4][WG_NPREDS]={0}, wg_preds[WG_NPREDS]={0};
-	int nch;
-	int fwdmask=-fwd;
-	int bufsize;
-	int *pixels;
-	int invdist=((1<<16)+g_dist-1)/g_dist;
-	int pesize=(src->iw+16)*(int)sizeof(int[4][4][WG_NPREDS]);//4 padded rows * 3 channels * WG_NPREDS
-	int *ebuf=(int*)_mm_malloc(pesize, sizeof(__m256i));
 #if 0
-//#define NUMBITS 15
-//#define DENBITS 7
-//#define DIVLUTSIZE (1<<DENBITS)
-//	int divlookup[DIVLUTSIZE]={0};
+	enum
+	{
+		NUMBITS=15,
+		DENBITS=7,
+		DIVLUTSIZE=1<<DENBITS
+	};
+	int divlookup[DIVLUTSIZE]={0};
+#endif
+#if 0
+	enum
+	{
+		DIVLSIZE=16,
+		DIVNORM=16
+	};
+	int divsize, *divtable;
+#endif
+	__m256d mweights[12];
+	ALIGN(32) int wg_weights[4][WG_NPREDS]={0}, wg_perrors[4][WG_NPREDS]={0}, wg_preds[WG_NPREDS]={0}, weights[WG_NPREDS];
+	int amin[4], amax[4], coeffs[4][L1PREDS+1]={0}, nch, bufsize, *pixels, *rows[4], invdist, pesize, *ebuf, *erows[4], j, ky, kx, kc, kp, idx;
 
-#define DIVLSIZE 16
-#define DIVNORM 16
-	int divsize=(int)sizeof(int[1<<DIVLSIZE]);
-	int *divtable=(int*)malloc(divsize);
-
+#if 0
+	for(k=0;k<DIVLUTSIZE;++k)
+		divlookup[k]=(1<<NUMBITS)/(k+1);
+#endif
+#if 0
+	divsize=(int)sizeof(int[1<<DIVLSIZE]);
+	divtable=(int*)malloc(divsize);
 	if(!divtable)
 	{
-		LOG_ERROR("Alloc error");
+		CRASH("Alloc error");
 		return;
 	}
-//	for(int k=0;k<DIVLUTSIZE;++k)
-//		divlookup[k]=(1<<NUMBITS)/(k+1);
-
-	for(int k=0;k<(1<<DIVLSIZE);++k)
+	for(k=0;k<1<<DIVLSIZE;++k)
 		divtable[k]=(1<<DIVNORM)/(k+1);
 #endif
-	bufsize=(src->iw+16LL)*sizeof(int[4*4*2]);//4 padded rows * 4 channels max
+	pesize=(src->iw+16)*(int)sizeof(int[4][4][WG_NPREDS]);/*4 padded rows * 3 channels * WG_NPREDS*/
+	ebuf=(int*)_mm_malloc(pesize, sizeof(__m256i));
+	invdist=((1<<16)+g_dist-1)/g_dist;
+	amin[0]=-(1<<src->depth[0]>>1);
+	amin[1]=-(1<<src->depth[1]>>1);
+	amin[2]=-(1<<src->depth[2]>>1);
+	amin[3]=-(1<<src->depth[3]>>1);
+	amax[0]=(1<<src->depth[0]>>1)-1;
+	amax[1]=(1<<src->depth[1]>>1)-1;
+	amax[2]=(1<<src->depth[2]>>1)-1;
+	amax[3]=(1<<src->depth[3]>>1)-1;
+	bufsize=(src->iw+16)*(int)sizeof(int[4*4*2]);/*4 padded rows * 4 channels max*/
 	pixels=(int*)malloc(bufsize);
 	if(!pixels||!ebuf)
 	{
-		LOG_ERROR("Alloc error");
+		CRASH("Alloc error");
 		return;
 	}
 	memset(ebuf, 0, pesize);
 	memset(pixels, 0, bufsize);
 	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
 	UPDATE_MAX(nch, src->nch);
-	int j=0;
 #define WG_PRED(WEIGHT, EXPR) wg_weights[0][j++]=WEIGHT;
-	WG_PREDLIST0
+	j=0;
+	WG_PREDLIST0;
 #undef  WG_PRED
 
-	j=0;
 #define WG_PRED(WEIGHT, EXPR) wg_weights[1][j++]=WEIGHT;
-	WG_PREDLIST1
+	j=0;
+	WG_PREDLIST1;
 #undef  WG_PRED
 
-	j=0;
 #define WG_PRED(WEIGHT, EXPR) wg_weights[2][j++]=WEIGHT;
-	WG_PREDLIST2
+	j=0;
+	WG_PREDLIST2;
 #undef  WG_PRED
 
-	j=0;
 #define WG_PRED(WEIGHT, EXPR) wg_weights[3][j++]=WEIGHT;
-	WG_PREDLIST0
+	j=0;
+	WG_PREDLIST0;
 #undef  WG_PRED
-	__m256d mweights[]=
+	j=0;
+	mweights[j++]=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[0]+0));
+	mweights[j++]=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[0]+1));
+	mweights[j++]=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[0]+2));
+	mweights[j++]=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[1]+0));
+	mweights[j++]=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[1]+1));
+	mweights[j++]=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[1]+2));
+	mweights[j++]=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[2]+0));
+	mweights[j++]=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[2]+1));
+	mweights[j++]=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[2]+2));
+	mweights[j++]=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[3]+0));
+	mweights[j++]=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[3]+1));
+	mweights[j++]=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[3]+2));
+	for(ky=0, idx=0;ky<src->ih;++ky)
 	{
-		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[0]+0)),
-		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[0]+1)),
-		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[0]+2)),
-		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[1]+0)),
-		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[1]+1)),
-		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[1]+2)),
-		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[2]+0)),
-		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[2]+1)),
-		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[2]+2)),
-		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[3]+0)),
-		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[3]+1)),
-		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[3]+2)),
-	};
-	for(int ky=0, idx=0;ky<src->ih;++ky)
-	{
-		int *rows[]=
+		rows[0]=pixels+((src->iw+(intptr_t)16)*((ky-(intptr_t)0)&3)+8)*4*2;
+		rows[1]=pixels+((src->iw+(intptr_t)16)*((ky-(intptr_t)1)&3)+8)*4*2;
+		rows[2]=pixels+((src->iw+(intptr_t)16)*((ky-(intptr_t)2)&3)+8)*4*2;
+		rows[3]=pixels+((src->iw+(intptr_t)16)*((ky-(intptr_t)3)&3)+8)*4*2;
+		erows[0]=ebuf+((src->iw+(intptr_t)16)*((ky-(intptr_t)0)&3)+8)*4*WG_NPREDS;
+		erows[1]=ebuf+((src->iw+(intptr_t)16)*((ky-(intptr_t)1)&3)+8)*4*WG_NPREDS;
+		erows[2]=ebuf+((src->iw+(intptr_t)16)*((ky-(intptr_t)2)&3)+8)*4*WG_NPREDS;
+		erows[3]=ebuf+((src->iw+(intptr_t)16)*((ky-(intptr_t)3)&3)+8)*4*WG_NPREDS;
+		for(kx=0;kx<src->iw;++kx, idx+=4)
 		{
-			pixels+((src->iw+16LL)*((ky-0LL)&3)+8LL)*4*2,
-			pixels+((src->iw+16LL)*((ky-1LL)&3)+8LL)*4*2,
-			pixels+((src->iw+16LL)*((ky-2LL)&3)+8LL)*4*2,
-			pixels+((src->iw+16LL)*((ky-3LL)&3)+8LL)*4*2,
-		};
-		int *erows[]=
-		{
-			ebuf+((src->iw+16LL)*((ky-0LL)&3)+8LL)*4*WG_NPREDS,
-			ebuf+((src->iw+16LL)*((ky-1LL)&3)+8LL)*4*WG_NPREDS,
-			ebuf+((src->iw+16LL)*((ky-2LL)&3)+8LL)*4*WG_NPREDS,
-			ebuf+((src->iw+16LL)*((ky-3LL)&3)+8LL)*4*WG_NPREDS,
-		};
-		for(int kx=0;kx<src->iw;++kx, idx+=4)
-		{
-			for(int kc=0;kc<4;++kc)
+			for(kc=0;kc<4;++kc)
 			{
 				rows[0]+=2;
 				rows[1]+=2;
@@ -1295,436 +1310,494 @@ void pred_wgrad4c(Image *src, int fwd)
 				erows[3]+=WG_NPREDS;
 				if(!src->depth[kc])
 					continue;
-				int
-					NNNWWWW	=rows[3][-4*4*2+0],
-					NNNWWW	=rows[3][-3*4*2+0],
-					NNNW	=rows[3][-1*4*2+0],
-					NNN	=rows[3][+0*4*2+0],
-					NNNE	=rows[3][+1*4*2+0],
-					NNNEEE	=rows[3][+3*4*2+0],
-					NNWWWW	=rows[2][-4*4*2+0],
-					NNWW	=rows[2][-2*4*2+0],
-					NNW	=rows[2][-1*4*2+0],
-					NN	=rows[2][+0*4*2+0],
-					NNE	=rows[2][+1*4*2+0],
-					NNEE	=rows[2][+2*4*2+0],
-					NNEEE	=rows[2][+3*4*2+0],
-					NNEEEE	=rows[2][+4*4*2+0],
-					NWWW	=rows[1][-3*4*2+0],
-					NWW	=rows[1][-2*4*2+0],
-					NW	=rows[1][-1*4*2+0],
-					N	=rows[1][+0*4*2+0],
-					NE	=rows[1][+1*4*2+0],
-					NEE	=rows[1][+2*4*2+0],
-					NEEE	=rows[1][+3*4*2+0],
-					NEEEE	=rows[1][+4*4*2+0],
-					WWWWW	=rows[0][-5*4*2+0],
-					WWWW	=rows[0][-4*4*2+0],
-					WWW	=rows[0][-3*4*2+0],
-					WW	=rows[0][-2*4*2+0],
-					W	=rows[0][-1*4*2+0],
-					eNNNN	=rows[0][+0*4*2+1],
-					eNNN	=rows[3][+0*4*2+1],
-					eNNW	=rows[2][-1*4*2+1],
-					eNN	=rows[2][+0*4*2+1],
-					eNNE	=rows[2][+1*4*2+1],
-					eNWW	=rows[1][-2*4*2+1],
-					eNW	=rows[1][-1*4*2+1],
-					eN	=rows[1][+0*4*2+1],
-					eNE	=rows[1][+1*4*2+1],
-					eNEE	=rows[1][+2*4*2+1],
-					eNEEE	=rows[1][+3*4*2+1],
-					eNEEEE	=rows[1][+4*4*2+1],
-					eWWWW	=rows[0][-4*4*2+1],
-					eWWW	=rows[0][-3*4*2+1],
-					eWW	=rows[0][-2*4*2+1],
-					eW	=rows[0][-1*4*2+1];
-				int
-					*peNNN	=erows[3]+0*4*WG_NPREDS,
-					*peNNW	=erows[2]-1*4*WG_NPREDS,
-					*peNN	=erows[2]+0*4*WG_NPREDS,
-					*peNNE	=erows[2]+1*4*WG_NPREDS,
-					*peNNEE	=erows[2]+2*4*WG_NPREDS,
-					*peNW	=erows[1]-1*4*WG_NPREDS,
-					*peN	=erows[1]+0*4*WG_NPREDS,
-					*peNE	=erows[1]+1*4*WG_NPREDS,
-					*peNEE	=erows[1]+2*4*WG_NPREDS,
-					*peNEEE	=erows[1]+3*4*WG_NPREDS,
-					*peWW	=erows[0]-2*4*WG_NPREDS,
-					*peW	=erows[0]-1*4*WG_NPREDS,
-					*pecurr	=erows[0]+0*4*WG_NPREDS;
-				j=0;
-				switch(kc)
 				{
-				case 3:
-				case 0:
-#define WG_PRED(WEIGHT, EXPR) wg_preds[j++]=EXPR;
-					WG_PREDLIST0
-#undef  WG_PRED
-					break;
-				case 1:
-#define WG_PRED(WEIGHT, EXPR) wg_preds[j++]=EXPR;
-					WG_PREDLIST1
-#undef  WG_PRED
-					break;
-				case 2:
-#define WG_PRED(WEIGHT, EXPR) wg_preds[j++]=EXPR;
-					WG_PREDLIST2
-#undef  WG_PRED
-					break;
-				}
+					int
+						NNNWWWW	=rows[3][-4*4*2+0],
+						NNNWWW	=rows[3][-3*4*2+0],
+						NNNW	=rows[3][-1*4*2+0],
+						NNN	=rows[3][+0*4*2+0],
+						NNNE	=rows[3][+1*4*2+0],
+						NNNEEE	=rows[3][+3*4*2+0],
+						NNWWWW	=rows[2][-4*4*2+0],
+						NNWW	=rows[2][-2*4*2+0],
+						NNW	=rows[2][-1*4*2+0],
+						NN	=rows[2][+0*4*2+0],
+						NNE	=rows[2][+1*4*2+0],
+						NNEE	=rows[2][+2*4*2+0],
+						NNEEE	=rows[2][+3*4*2+0],
+						NNEEEE	=rows[2][+4*4*2+0],
+						NWWW	=rows[1][-3*4*2+0],
+						NWW	=rows[1][-2*4*2+0],
+						NW	=rows[1][-1*4*2+0],
+						N	=rows[1][+0*4*2+0],
+						NE	=rows[1][+1*4*2+0],
+						NEE	=rows[1][+2*4*2+0],
+						NEEE	=rows[1][+3*4*2+0],
+						NEEEE	=rows[1][+4*4*2+0],
+						WWWWW	=rows[0][-5*4*2+0],
+						WWWW	=rows[0][-4*4*2+0],
+						WWW	=rows[0][-3*4*2+0],
+						WW	=rows[0][-2*4*2+0],
+						W	=rows[0][-1*4*2+0],
+						eNNNN	=rows[0][+0*4*2+1],
+						eNNN	=rows[3][+0*4*2+1],
+						eNNW	=rows[2][-1*4*2+1],
+						eNN	=rows[2][+0*4*2+1],
+						eNNE	=rows[2][+1*4*2+1],
+						eNWW	=rows[1][-2*4*2+1],
+						eNW	=rows[1][-1*4*2+1],
+						eN	=rows[1][+0*4*2+1],
+						eNE	=rows[1][+1*4*2+1],
+						eNEE	=rows[1][+2*4*2+1],
+						eNEEE	=rows[1][+3*4*2+1],
+						eNEEEE	=rows[1][+4*4*2+1],
+						eWWWW	=rows[0][-4*4*2+1],
+						eWWW	=rows[0][-3*4*2+1],
+						eWW	=rows[0][-2*4*2+1],
+						eW	=rows[0][-1*4*2+1];
+					int
+						*peNNN	=erows[3]+0*4*WG_NPREDS,
+						*peNNW	=erows[2]-1*4*WG_NPREDS,
+						*peNN	=erows[2]+0*4*WG_NPREDS,
+						*peNNE	=erows[2]+1*4*WG_NPREDS,
+						*peNNEE	=erows[2]+2*4*WG_NPREDS,
+						*peNW	=erows[1]-1*4*WG_NPREDS,
+						*peN	=erows[1]+0*4*WG_NPREDS,
+						*peNE	=erows[1]+1*4*WG_NPREDS,
+						*peNEE	=erows[1]+2*4*WG_NPREDS,
+						*peNEEE	=erows[1]+3*4*WG_NPREDS,
+						*peWW	=erows[0]-2*4*WG_NPREDS,
+						*peW	=erows[0]-1*4*WG_NPREDS,
+						*pecurr	=erows[0]+0*4*WG_NPREDS;
+					int pred1, preds2[L1PREDS], pred2, predu, pred, vmin, vmax, curr, e;
 
-				//if(ky==src->ih/2&&kx==src->iw/2)//
-				//if(ky==10&&kx==10)//
-				//	printf("");
-				
-				//mix
-				ALIGN(32) int weights[WG_NPREDS];
-			//	int weights0[WG_NPREDS];//
-				for(int kp=0;kp<WG_NPREDS;++kp)
-				{
-					//		1
-					//		2
-					//		5	1
-					//	5	?
-					weights[kp]=
-						+peNNN	[kp]		//+eNNN
-						+peNN	[kp]*2		//+eNN
-						+peN	[kp]*5		//+eN
-						+peNE	[kp]		//+eNE
-						+peW	[kp]*5		//+eW
-						+wg_perrors[kc][kp]	//+I
-						+2
-					;
-#if 0
-					//				1
-					//		1	2	1
-					//	1	1	?
-					weights[kp]=((
-						+wg_perrors[kc][kp]		//+I
-						+peN	[kp-1*4*WG_NPREDS]	//+eNW
-						+peN	[kp+0*4*WG_NPREDS]	//+eN
-						+peN	[kp+1*4*WG_NPREDS]	//+eNE
-						+peNNE	[kp+0*4*WG_NPREDS]	//+eNNE
-					)>>1)+1;
-#endif
-#if 0
-					weights[kp]=
-						+(wg_perrors[kc][kp]>>3)	//+I	*8
-						+peN	[-1*4*WG_NPREDS]*2	//+eNW	*2
-						+peN	[+0*4*WG_NPREDS]*2	//+eN	*2
-						+pecurr	[-1*4*WG_NPREDS]*2	//+eW	*2
-						+pecurr	[+0*4*WG_NPREDS]	//+eNN	*1
-						+pecurr	[+1*4*WG_NPREDS]	//+eNNE	*1
-						+peN	[+1*4*WG_NPREDS]	//+eNE	*1
-						+pecurr	[-2*4*WG_NPREDS]	//+eWW	*1
-					//	+1
-					;
-#endif
-				//	weights0[kp]=weights[kp];//
-				}
 #if 1
-				__m256d mp0=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_preds+0));
-				__m256d mp1=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_preds+1));
-				__m256d mp2=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_preds+2));
-				__m256d me0=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)weights+0));
-				__m256d me1=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)weights+1));
-				__m256d me2=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)weights+2));
-				me0=_mm256_div_pd(mweights[3*kc+0], me0);
-				me1=_mm256_div_pd(mweights[3*kc+1], me1);
-				me2=_mm256_div_pd(mweights[3*kc+2], me2);
-				mp0=_mm256_mul_pd(mp0, me0);
-				mp1=_mm256_mul_pd(mp1, me1);
-				mp2=_mm256_mul_pd(mp2, me2);
-				me0=_mm256_add_pd(me0, me1);
-				me0=_mm256_add_pd(me0, me2);
-				mp0=_mm256_add_pd(mp0, mp1);
-				mp0=_mm256_add_pd(mp0, mp2);
-				mp0=_mm256_hadd_pd(mp0, me0);
-				__m128d mp=_mm_add_pd(_mm256_extractf128_pd(mp0, 1), _mm256_extractf128_pd(mp0, 0));
-				mp=_mm_div_pd(mp, _mm_permute_pd(mp, 3));
-				int pred1=_mm_cvtsi128_si32(_mm_cvtpd_epi32(mp));
+					(void)NNNWWWW;
+					(void)NNNWWW;
+					(void)NNNW;
+					(void)NNN;
+					(void)NNNE;
+					(void)NNNEEE;
+					(void)NNWWWW;
+					(void)NNWW;
+					(void)NNW;
+					(void)NN;
+					(void)NNE;
+					(void)NNEE;
+					(void)NNEEE;
+					(void)NNEEEE;
+					(void)NWWW;
+					(void)NWW;
+					(void)NW;
+					(void)N;
+					(void)NE;
+					(void)NEE;
+					(void)NEEE;
+					(void)NEEEE;
+					(void)WWWWW;
+					(void)WWWW;
+					(void)WWW;
+					(void)WW;
+					(void)W;
+					(void)eNNNN;
+					(void)eNNN;
+					(void)eNNW;
+					(void)eNN;
+					(void)eNNE;
+					(void)eNWW;
+					(void)eNW;
+					(void)eN;
+					(void)eNE;
+					(void)eNEE;
+					(void)eNEEE;
+					(void)eNEEEE;
+					(void)eWWWW;
+					(void)eWWW;
+					(void)eWW;
+					(void)eW;
+					(void)peNNN;
+					(void)peNNW;
+					(void)peNN;
+					(void)peNNE;
+					(void)peNNEE;
+					(void)peNW;
+					(void)peN;
+					(void)peNE;
+					(void)peNEE;
+					(void)peNEEE;
+					(void)peWW;
+					(void)peW;
+					(void)pecurr;
+#endif
+					j=0;
+					switch(kc)
+					{
+					case 3:
+					case 0:
+#define WG_PRED(WEIGHT, EXPR) wg_preds[j++]=EXPR;
+						WG_PREDLIST0
+#undef  WG_PRED
+						break;
+					case 1:
+#define WG_PRED(WEIGHT, EXPR) wg_preds[j++]=EXPR;
+						WG_PREDLIST1
+#undef  WG_PRED
+						break;
+					case 2:
+#define WG_PRED(WEIGHT, EXPR) wg_preds[j++]=EXPR;
+						WG_PREDLIST2
+#undef  WG_PRED
+						break;
+					}
+					
+					/*mix*/
+					for(kp=0;kp<WG_NPREDS;++kp)
+					{
+						/*
+						|		1
+						|		2
+						|		5	1
+						|	5	?
+						*/
+						weights[kp]=
+							+peNNN	[kp]		/*+eNNN	*/
+							+peNN	[kp]*2		/*+eNN	*/
+							+peN	[kp]*5		/*+eN	*/
+							+peNE	[kp]		/*+eNE	*/
+							+peW	[kp]*5		/*+eW	*/
+							+wg_perrors[kc][kp]	/*+I	*/
+							+2
+						;
+#if 0
+						/*
+						|				1
+						|		1	2	1
+						|	1	1	?
+						*/
+						weights[kp]=((
+							+wg_perrors[kc][kp]		/*+I	*/
+							+peN	[kp-1*4*WG_NPREDS]	/*+eNW	*/
+							+peN	[kp+0*4*WG_NPREDS]	/*+eN	*/
+							+peN	[kp+1*4*WG_NPREDS]	/*+eNE	*/
+							+peNNE	[kp+0*4*WG_NPREDS]	/*+eNNE	*/
+						)>>1)+1;
 #endif
 #if 0
-				double fpred=0, wsum=0;
-				for(int kp=0;kp<WG_NPREDS;++kp)
-				{
-					double weight=(double)wg_weights[kc][kp]/weights[kp];
-					fpred+=weight*wg_preds[kp];
-					wsum+=weight;
-				}
-				fpred/=wsum;
-				int pred1=(int)CVTFP64_I64(fpred);
+						weights[kp]=
+							+(wg_perrors[kc][kp]>>3)	/*+I	*8	*/
+							+peN	[-1*4*WG_NPREDS]*2	/*+eNW	*2	*/
+							+peN	[+0*4*WG_NPREDS]*2	/*+eN	*2	*/
+							+pecurr	[-1*4*WG_NPREDS]*2	/*+eW	*2	*/
+							+pecurr	[+0*4*WG_NPREDS]	/*+eNN	*1	*/
+							+pecurr	[+1*4*WG_NPREDS]	/*+eNNE	*1	*/
+							+peN	[+1*4*WG_NPREDS]	/*+eNE	*1	*/
+							+pecurr	[-2*4*WG_NPREDS]	/*+eWW	*1	*/
+						/*	+1*/
+						;
+#endif
+					/*	weights0[kp]=weights[kp];*/
+					}
+#if 1
+					{
+						__m256d mp0, mp1, mp2, me0, me1, me2;
+						__m128d mp;
+
+						mp0=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_preds+0));
+						mp1=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_preds+1));
+						mp2=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_preds+2));
+						me0=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)weights+0));
+						me1=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)weights+1));
+						me2=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)weights+2));
+						me0=_mm256_div_pd(mweights[3*kc+0], me0);
+						me1=_mm256_div_pd(mweights[3*kc+1], me1);
+						me2=_mm256_div_pd(mweights[3*kc+2], me2);
+						mp0=_mm256_mul_pd(mp0, me0);
+						mp1=_mm256_mul_pd(mp1, me1);
+						mp2=_mm256_mul_pd(mp2, me2);
+						me0=_mm256_add_pd(me0, me1);
+						me0=_mm256_add_pd(me0, me2);
+						mp0=_mm256_add_pd(mp0, mp1);
+						mp0=_mm256_add_pd(mp0, mp2);
+						mp0=_mm256_hadd_pd(mp0, me0);
+						mp=_mm_add_pd(_mm256_extractf128_pd(mp0, 1), _mm256_extractf128_pd(mp0, 0));
+						mp=_mm_div_pd(mp, _mm_permute_pd(mp, 3));
+						pred1=_mm_cvtsi128_si32(_mm_cvtpd_epi32(mp));
+					}
+#endif
+#if 0
+					double fpred=0, wsum=0;
+					for(kp=0;kp<WG_NPREDS;++kp)
+					{
+						double weight=(double)wg_weights[kc][kp]/weights[kp];
+						fpred+=weight*wg_preds[kp];
+						wsum+=weight;
+					}
+					fpred/=wsum;
+					int pred1=(int)CVTFP64_I64(fpred);
 #endif
 
-				int preds2[]=
-				{
-#define L1PRED(EXPR) EXPR,
-					L1PREDLIST
+#define L1PRED(EXPR) preds2[j++]=EXPR;
+					j=0;
+					L1PREDLIST;
 #undef  L1PRED
-				};
-				int pred2=(1<<L1SH>>1);
-				pred2+=coeffs[kc][L1PREDS];
-				for(int kp=0;kp<L1PREDS;++kp)
-					pred2+=coeffs[kc][kp]*preds2[kp];
-				pred2>>=L1SH;
-				int predu=pred1+pred2;
-				int pred=predu;
+					pred2=(1<<L1SH>>1);
+					pred2+=coeffs[kc][L1PREDS];
+					for(kp=0;kp<L1PREDS;++kp)
+						pred2+=coeffs[kc][kp]*preds2[kp];
+					pred2>>=L1SH;
+					predu=pred1+pred2;
+					pred=predu;
 #if 0
-				long long ipred=0;
-				unsigned wsum=0;
-				for(int kp=0;kp<WG_NPREDS;++kp)
-				{
-					//if(weights[kp]>=(1<<DIVLSIZE))
-					//	LOG_ERROR("");
-					weights[kp]=divtable[weights[kp]];
-				}
-				for(int kp=0;kp<WG_NPREDS;++kp)
-				{
-					int weight=weights[kp];
-					ipred+=(long long)weight*wg_preds[kp];
-					wsum+=weight;
-				}
-				ipred=CVTFP64_I64((double)ipred/wsum);
-#if 0
-				ipred-=wsum>>1;
-				//ipred+=wsum;
-				ipred/=wsum;
-#endif
-				int pred=(int)ipred;
-#endif
-
-#if 0
-				unsigned coeff[WG_NPREDS], wsum=0;
-				int ipred=0;
-				int pred=0;
-				for(int kp=0;kp<WG_NPREDS;++kp)
-				{
-					//			1	1
-					//		2	2	1
-					//	1	2	?
-					coeff[kp]=//maxerror = 18<<depth
-						+(wg_perrors[kc][kp]>>3)	//+I	*8
-						+peN	[-1*4*WG_NPREDS]*2	//+eNW	*2
-						+peN	[+0*4*WG_NPREDS]*2	//+eN	*2
-						+pecurr	[-1*4*WG_NPREDS]*2	//+eW	*2
-						+pecurr	[+0*4*WG_NPREDS]	//+eNN	*1
-						+pecurr	[+1*4*WG_NPREDS]	//+eNNE	*1
-						+peN	[+1*4*WG_NPREDS]	//+eNE	*1
-						+pecurr	[-2*4*WG_NPREDS]	//+eWW	*1
-					//	+1
-					;
-				}
-				int sh[WG_NPREDS];
-				for(int k=0;k<WG_NPREDS;++k)
-					sh[k]=31-(DENBITS-1)-_lzcnt_u32(coeff[k]+1);//invert errros
-				for(int k=0;k<WG_NPREDS;++k)
-					if(sh[k]<0)sh[k]=0;
-				for(int k=0;k<WG_NPREDS;++k)
-					coeff[k]=(wg_weights[kc][k]*divlookup[coeff[k]>>sh[k]]>>sh[k])+(1<<DENBITS>>2)/WG_NPREDS;
-				wsum=0;
-				for(int k=0;k<WG_NPREDS;++k)
-					wsum+=coeff[k];
-				sh[0]=FLOOR_LOG2(wsum)-(DENBITS-2);//invert coeff sum
-				wsum=0;
-				for(int k=0;k<WG_NPREDS;++k)
-					coeff[k]>>=sh[0];
-				wsum=0;
-				for(int k=0;k<WG_NPREDS;++k)
-					wsum+=coeff[k];
-				ipred=0;
-				//ipred=(wsum>>1);
-				for(int k=0;k<WG_NPREDS;++k)
-					ipred+=coeff[k]*wg_preds[k];
-				pred=ipred*divlookup[wsum-1]>>NUMBITS;
-				ipred=(ipred+16)>>5;
-#endif
-				int vmax=N, vmin=W;
-				if(N<W)vmin=N, vmax=W;
-				if(vmin>NE)vmin=NE;
-				if(vmax<NE)vmax=NE;
-				if(vmin>NEEE)vmin=NEEE;
-				if(vmax<NEEE)vmax=NEEE;
-				if(vmin>NW)vmin=NW;
-				if(vmax<NW)vmax=NW;
-				CLAMP2(pred, vmin, vmax);
-
-				int curr=src->data[idx+kc];
-				if(g_dist>1)
-				{
-					if(fwd)
+					int64_t ipred=0;
+					unsigned wsum=0;
+					for(kp=0;kp<WG_NPREDS;++kp)
 					{
-						curr-=(int)pred;
-						curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));//curr/=g_dist
-						src->data[idx+kc]=curr;
+#if 0
+						if(weights[kp]>=(1<<DIVLSIZE))
+							CRASH("");
+#endif
+						weights[kp]=divtable[weights[kp]];
+					}
+					for(kp=0;kp<WG_NPREDS;++kp)
+					{
+						int weight=weights[kp];
+						ipred+=(int64_t)weight*wg_preds[kp];
+						wsum+=weight;
+					}
+					ipred=CVTFP64_I64((double)ipred/wsum);
+#if 0
+					ipred-=wsum>>1;
+					/*ipred+=wsum;*/
+					ipred/=wsum;
+#endif
+					int pred=(int)ipred;
+#endif
 
-						curr=g_dist*curr+(int)pred;
-						CLAMP2(curr, amin[kc], amax[kc]);
+#if 0
+					unsigned coeff[WG_NPREDS], wsum=0;
+					int ipred=0;
+					int pred=0;
+					for(kp=0;kp<WG_NPREDS;++kp)
+					{
+						/*
+						|			1	1
+						|		2	2	1
+						|	1	2	?
+						*/
+						coeff[kp]=/*maxerror = 18<<depth*/
+							+(wg_perrors[kc][kp]>>3)	/*+I	*8	*/
+							+peN	[-1*4*WG_NPREDS]*2	/*+eNW	*2	*/
+							+peN	[+0*4*WG_NPREDS]*2	/*+eN	*2	*/
+							+pecurr	[-1*4*WG_NPREDS]*2	/*+eW	*2	*/
+							+pecurr	[+0*4*WG_NPREDS]	/*+eNN	*1	*/
+							+pecurr	[+1*4*WG_NPREDS]	/*+eNNE	*1	*/
+							+peN	[+1*4*WG_NPREDS]	/*+eNE	*1	*/
+							+pecurr	[-2*4*WG_NPREDS]	/*+eWW	*1	*/
+						/*	+1*/
+						;
+					}
+					int sh[WG_NPREDS];
+					for(k=0;k<WG_NPREDS;++k)
+						sh[k]=31-(DENBITS-1)-_lzcnt_u32(coeff[k]+1);/*invert errros*/
+					for(k=0;k<WG_NPREDS;++k)
+						if(sh[k]<0)sh[k]=0;
+					for(k=0;k<WG_NPREDS;++k)
+						coeff[k]=(wg_weights[kc][k]*divlookup[coeff[k]>>sh[k]]>>sh[k])+(1<<DENBITS>>2)/WG_NPREDS;
+					wsum=0;
+					for(k=0;k<WG_NPREDS;++k)
+						wsum+=coeff[k];
+					sh[0]=FLOOR_LOG2(wsum)-(DENBITS-2);/*invert coeff sum*/
+					wsum=0;
+					for(k=0;k<WG_NPREDS;++k)
+						coeff[k]>>=sh[0];
+					wsum=0;
+					for(k=0;k<WG_NPREDS;++k)
+						wsum+=coeff[k];
+					ipred=0;
+					/*ipred=(wsum>>1);*/
+					for(k=0;k<WG_NPREDS;++k)
+						ipred+=coeff[k]*wg_preds[k];
+					pred=ipred*divlookup[wsum-1]>>NUMBITS;
+					ipred=(ipred+16)>>5;
+#endif
+					vmax=N; vmin=W;
+					if(N<W)vmin=N, vmax=W;
+					if(vmin>NE)vmin=NE;
+					if(vmax<NE)vmax=NE;
+					if(vmin>NEEE)vmin=NEEE;
+					if(vmax<NEEE)vmax=NEEE;
+					if(vmin>NW)vmin=NW;
+					if(vmax<NW)vmax=NW;
+					CLAMP2(pred, vmin, vmax);
+
+					curr=((int32_t*)HDR_DATA(src))[idx+kc];
+					if(g_dist>1)
+					{
+						if(fwd)
+						{
+							curr-=(int)pred;
+							curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));/*curr/=g_dist*/
+							((int32_t*)HDR_DATA(src))[idx+kc]=curr;
+
+							curr=g_dist*curr+(int)pred;
+							CLAMP2(curr, amin[kc], amax[kc]);
+						}
+						else
+						{
+							curr=g_dist*((int32_t*)HDR_DATA(src))[idx+kc]+(int)pred;
+							CLAMP2(curr, amin[kc], amax[kc]);
+
+							((int32_t*)HDR_DATA(src))[idx+kc]=curr;
+						}
 					}
 					else
 					{
-						curr=g_dist*src->data[idx+kc]+(int)pred;
-						CLAMP2(curr, amin[kc], amax[kc]);
-
-						src->data[idx+kc]=curr;
+						if(fwd)
+						{
+							e=curr-pred;
+							e<<=32-src->depth[kc];
+							e>>=32-src->depth[kc];
+							((int32_t*)HDR_DATA(src))[idx+kc]=e;
+						}
+						else
+						{
+							curr+=pred;
+							curr<<=32-src->depth[kc];
+							curr>>=32-src->depth[kc];
+							((int32_t*)HDR_DATA(src))[idx+kc]=curr;
+						}
 					}
-				}
-				else
-				{
-					if(fwd)
+					rows[0][0]=curr;
+					rows[0][1]=curr-pred1;
+
+
+					/*update*/
 					{
-						int error=curr-pred;
-						error<<=32-src->depth[kc];
-						error>>=32-src->depth[kc];
-						src->data[idx+kc]=error;
+						const int factors[]={97, 99, 99};
+						int factor, k, errors[WG_NPREDS], best;
+
+						factor=factors[kc];
+						best=0x7FFFFFFF;
+						for(k=0;k<WG_NPREDS;++k)
+						{
+							int e2=(curr-wg_preds[k])<<1;
+							e2=e2<<1^e2>>31;
+							errors[k]=e2;
+							if(best>e2)
+								best=e2;
+						}
+
+						for(k=0;k<WG_NPREDS;++k)
+						{
+							int e2=errors[k]-best;
+							wg_perrors[kc][k]=(wg_perrors[kc][k]+e2)*factor>>7;
+							pecurr[k]=(2*peW[k]+e2+peNEE[k])>>2;
+						}
+						e=(curr>predu)-(curr<predu);
+						coeffs[kc][L1PREDS]+=e;/*bias*/
+						for(k=0;k<L1PREDS;++k)
+							coeffs[kc][k]+=e*preds2[k];/*coeffs*/
 					}
-					else
-					{
-						curr+=pred;
-						curr<<=32-src->depth[kc];
-						curr>>=32-src->depth[kc];
-						src->data[idx+kc]=curr;
-					}
 				}
-				rows[0][0]=curr;
-				rows[0][1]=curr-pred1;
-
-
-				//update
-				static const int factors[]={97, 99, 99};
-				int factor=factors[kc];
-
-				int errors[WG_NPREDS], best=0x7FFFFFFF;
-				for(int k=0;k<WG_NPREDS;++k)
-				{
-					int e2=(curr-wg_preds[k])<<1;
-					e2=e2<<1^e2>>31;
-					errors[k]=e2;
-					if(best>e2)
-						best=e2;
-				}
-
-				for(int k=0;k<WG_NPREDS;++k)
-				{
-					int e2=errors[k]-best;
-				//	int e2=(curr-wg_preds[k])<<1;
-				//	e2=e2<<1^e2>>31;
-					wg_perrors[kc][k]=(wg_perrors[kc][k]+e2)*factor>>7;
-				//	wg_perrors[kc][k]=(e2-wg_perrors[kc][k]+(1<<5>>1))>>5;//slightly worse
-					pecurr[k]=(2*peW[k]+e2+peNEE[k])>>2;
-				//	peNE[k]+=e2;
-				}
-				int e=(curr>predu)-(curr<predu);
-				coeffs[kc][L1PREDS]+=e;//bias
-				for(int k=0;k<L1PREDS;++k)
-					coeffs[kc][k]+=e*preds2[k];//coeffs
 			}
 		}
 	}
 	free(pixels);
 	_mm_free(ebuf);
-	//free(divtable);
 }
 void pred_wgrad4c_crct(Image *src, int fwd)
 {
-	int amin[]=
-	{
-		-(1<<src->depth[0]>>1),
-		-(1<<src->depth[1]>>1),
-		-(1<<src->depth[2]>>1),
-		-(1<<src->depth[3]>>1),
-	};
-	int amax[]=
-	{
-		(1<<src->depth[0]>>1)-1,
-		(1<<src->depth[1]>>1)-1,
-		(1<<src->depth[2]>>1)-1,
-		(1<<src->depth[3]>>1)-1,
-	};
-	int coeffs[4][L1PREDSSSE+1]={0};
-	ALIGN(32) int wg_weights[4][WG_NPREDS]={0};
-	ALIGN(32) int wg_perrors[4][WG_NPREDS]={0}, wg_preds[WG_NPREDS]={0};
-	int nch;
-	int fwdmask=-fwd;
-	int bufsize;
-	int *pixels;
-	int invdist=((1<<16)+g_dist-1)/g_dist;
-	int pesize=(src->iw+16)*(int)sizeof(int[4][4][WG_NPREDS]);//4 padded rows * 3 channels * WG_NPREDS
-	int *ebuf=(int*)_mm_malloc(pesize, sizeof(__m256i));
-#ifdef ENABLE_SSE
-	int ssesize=(int)sizeof(int[4*256]);
-	int *sse=(int*)malloc(ssesize);
-	int *sse2=(int*)malloc(ssesize);
-	if(!sse||!sse2)
-	{
-		LOG_ERROR("Alloc error");
-		return;
-	}
-#endif
-	if(fwd)
-		src->rct=crct_analysis(src);
-	const unsigned char *combination=rct_combinations[src->rct];
-	int
-		yidx=combination[II_PERM_Y],
-		uidx=combination[II_PERM_U],
-		vidx=combination[II_PERM_V];
-	int vfromy=-(combination[II_COEFF_U_SUB_Y]!=0);
-	bufsize=(src->iw+16LL)*sizeof(int[4*4*2]);//4 padded rows * 4 channels max
-	pixels=(int*)malloc(bufsize);
-	
-	if(!pixels||!ebuf)
-	{
-		LOG_ERROR("Alloc error");
-		return;
-	}
-	memset(ebuf, 0, pesize);
-	memset(pixels, 0, bufsize);
-#ifdef ENABLE_SSE
-	memset(sse, 0, ssesize);
-	memset(sse2, 0, ssesize);
-#endif
-	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
-	UPDATE_MAX(nch, src->nch);
-	int j=0;
-#define WG_PRED(WEIGHT, EXPR) wg_weights[0][j++]=WEIGHT;
-	WG_PREDLIST0
-#undef  WG_PRED
-
-	j=0;
-#define WG_PRED(WEIGHT, EXPR) wg_weights[1][j++]=WEIGHT;
-	WG_PREDLIST1
-#undef  WG_PRED
-
-	j=0;
-#define WG_PRED(WEIGHT, EXPR) wg_weights[2][j++]=WEIGHT;
-	WG_PREDLIST2
-#undef  WG_PRED
-
-	j=0;
-#define WG_PRED(WEIGHT, EXPR) wg_weights[3][j++]=WEIGHT;
-	WG_PREDLIST0
-#undef  WG_PRED
-	__m256d mweights[]=
-	{
-		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[0]+0)),
-		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[0]+1)),
-		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[0]+2)),
-		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[1]+0)),
-		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[1]+1)),
-		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[1]+2)),
-		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[2]+0)),
-		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[2]+1)),
-		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[2]+2)),
-		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[3]+0)),
-		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[3]+1)),
-		_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[3]+2)),
-	};
 #ifdef USE_L1
 	enum
 	{
 		L1SHIFT=18,
 	};
-	for(int k=0;k<WG_NPREDS;++k)
+#endif
+	__m256d mweights[12];
+	ALIGN(32) int wg_weights[4][WG_NPREDS]={0}, wg_perrors[4][WG_NPREDS]={0}, wg_preds[WG_NPREDS]={0}, weights[WG_NPREDS];
+	const uint8_t *combination;
+	int amin[4], amax[4], coeffs[4][L1PREDSSSE+1]={0}, nch, bufsize, *pixels, *rows[4], invdist, pesize, *ebuf, *erows[4], yidx, uidx, vidx, uc0, vc0, vc1, j, k, kp, ky, kx, kc, idx;
+#ifdef ENABLE_SSE
+	int ssesize, *sse, *sse2;
+#endif
+
+	amin[0]=-(1<<src->depth[0]>>1);
+	amin[1]=-(1<<src->depth[1]>>1);
+	amin[2]=-(1<<src->depth[2]>>1);
+	amin[3]=-(1<<src->depth[3]>>1);
+	amax[0]=(1<<src->depth[0]>>1)-1;
+	amax[1]=(1<<src->depth[1]>>1)-1;
+	amax[2]=(1<<src->depth[2]>>1)-1;
+	amax[3]=(1<<src->depth[3]>>1)-1;
+	invdist=((1<<16)+g_dist-1)/g_dist;
+	pesize=(src->iw+16)*(int)sizeof(int[4][4][WG_NPREDS]);/*4 padded rows * 3 channels * WG_NPREDS*/
+	ebuf=(int*)_mm_malloc(pesize, sizeof(__m256i));
+	if(fwd)
+		src->rct=crct_analysis(src);
+	combination=rct_combinations[src->rct];
+	yidx=combination[II_PERM_Y];
+	uidx=combination[II_PERM_U];
+	vidx=combination[II_PERM_V];
+	uc0=combination[II_COEFF_U_SUB_Y];
+	vc0=combination[II_COEFF_V_SUB_Y];
+	vc1=combination[II_COEFF_V_SUB_U];
+	bufsize=(src->iw+16)*(int)sizeof(int[4*4*2]);/*4 padded rows * 4 channels max*/
+	pixels=(int*)malloc(bufsize);
+	if(!pixels||!ebuf)
+	{
+		CRASH("Alloc error");
+		return;
+	}
+#ifdef ENABLE_SSE
+	ssesize=(int)sizeof(int[4*256]);
+	sse=(int*)malloc(ssesize);
+	sse2=(int*)malloc(ssesize);
+	if(!sse||!sse2)
+	{
+		CRASH("Alloc error");
+		return;
+	}
+	memset(sse, 0, ssesize);
+	memset(sse2, 0, ssesize);
+#endif
+	memset(ebuf, 0, pesize);
+	memset(pixels, 0, bufsize);
+	nch=(src->depth[0]!=0)+(src->depth[1]!=0)+(src->depth[2]!=0)+(src->depth[3]!=0);
+	UPDATE_MAX(nch, src->nch);
+#define WG_PRED(WEIGHT, EXPR) wg_weights[0][j++]=WEIGHT;
+	j=0;
+	WG_PREDLIST0
+#undef  WG_PRED
+
+#define WG_PRED(WEIGHT, EXPR) wg_weights[1][j++]=WEIGHT;
+	j=0;
+	WG_PREDLIST1
+#undef  WG_PRED
+
+#define WG_PRED(WEIGHT, EXPR) wg_weights[2][j++]=WEIGHT;
+	j=0;
+	WG_PREDLIST2
+#undef  WG_PRED
+
+#define WG_PRED(WEIGHT, EXPR) wg_weights[3][j++]=WEIGHT;
+	j=0;
+	WG_PREDLIST0
+#undef  WG_PRED
+	j=0;
+	mweights[j++]=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[0]+0));
+	mweights[j++]=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[0]+1));
+	mweights[j++]=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[0]+2));
+	mweights[j++]=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[1]+0));
+	mweights[j++]=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[1]+1));
+	mweights[j++]=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[1]+2));
+	mweights[j++]=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[2]+0));
+	mweights[j++]=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[2]+1));
+	mweights[j++]=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[2]+2));
+	mweights[j++]=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[3]+0));
+	mweights[j++]=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[3]+1));
+	mweights[j++]=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_weights[3]+2));
+#ifdef USE_L1
+	for(k=0;k<WG_NPREDS;++k)
 	{
 		wg_weights[0][k]=(1<<L1SHIFT)/WG_NPREDS;
 		wg_weights[1][k]=(1<<L1SHIFT)/WG_NPREDS;
@@ -1732,32 +1805,25 @@ void pred_wgrad4c_crct(Image *src, int fwd)
 		wg_weights[3][k]=(1<<L1SHIFT)/WG_NPREDS;
 	}
 #endif
-	for(int ky=0, idx=0;ky<src->ih;++ky)
+	for(ky=0, idx=0;ky<src->ih;++ky)
 	{
-		int *rows[]=
+		rows[0]=pixels+((src->iw+(intptr_t)16)*((ky-(intptr_t)0)&3)+8)*4*2;
+		rows[1]=pixels+((src->iw+(intptr_t)16)*((ky-(intptr_t)1)&3)+8)*4*2;
+		rows[2]=pixels+((src->iw+(intptr_t)16)*((ky-(intptr_t)2)&3)+8)*4*2;
+		rows[3]=pixels+((src->iw+(intptr_t)16)*((ky-(intptr_t)3)&3)+8)*4*2;
+		erows[0]=ebuf+((src->iw+(intptr_t)16)*((ky-(intptr_t)0)&3)+8)*4*WG_NPREDS;
+		erows[1]=ebuf+((src->iw+(intptr_t)16)*((ky-(intptr_t)1)&3)+8)*4*WG_NPREDS;
+		erows[2]=ebuf+((src->iw+(intptr_t)16)*((ky-(intptr_t)2)&3)+8)*4*WG_NPREDS;
+		erows[3]=ebuf+((src->iw+(intptr_t)16)*((ky-(intptr_t)3)&3)+8)*4*WG_NPREDS;
+		for(kx=0;kx<src->iw;++kx, idx+=4)
 		{
-			pixels+((src->iw+16LL)*((ky-0LL)&3)+8LL)*4*2,
-			pixels+((src->iw+16LL)*((ky-1LL)&3)+8LL)*4*2,
-			pixels+((src->iw+16LL)*((ky-2LL)&3)+8LL)*4*2,
-			pixels+((src->iw+16LL)*((ky-3LL)&3)+8LL)*4*2,
-		};
-		int *erows[]=
-		{
-			ebuf+((src->iw+16LL)*((ky-0LL)&3)+8LL)*4*WG_NPREDS,
-			ebuf+((src->iw+16LL)*((ky-1LL)&3)+8LL)*4*WG_NPREDS,
-			ebuf+((src->iw+16LL)*((ky-2LL)&3)+8LL)*4*WG_NPREDS,
-			ebuf+((src->iw+16LL)*((ky-3LL)&3)+8LL)*4*WG_NPREDS,
-		};
-		for(int kx=0;kx<src->iw;++kx, idx+=4)
-		{
-			int offset=0;
-			int yuv[]=
-			{
-				src->data[idx+yidx],
-				src->data[idx+uidx],
-				src->data[idx+vidx],
-			};
-			for(int kc=0;kc<4;++kc)
+			int yuv[3], offset;
+
+			offset=0;
+			yuv[0]=((int32_t*)HDR_DATA(src))[idx+yidx];
+			yuv[1]=((int32_t*)HDR_DATA(src))[idx+uidx];
+			yuv[2]=((int32_t*)HDR_DATA(src))[idx+vidx];
+			for(kc=0;kc<4;++kc)
 			{
 				rows[0]+=2;
 				rows[1]+=2;
@@ -1769,264 +1835,336 @@ void pred_wgrad4c_crct(Image *src, int fwd)
 				erows[3]+=WG_NPREDS;
 				if(!src->depth[kc])
 					continue;
-				int
-					NNNWWWW	=rows[3][-4*4*2+0],
-					NNNWWW	=rows[3][-3*4*2+0],
-					NNNW	=rows[3][-1*4*2+0],
-					NNN	=rows[3][+0*4*2+0],
-					NNNE	=rows[3][+1*4*2+0],
-					NNNEEE	=rows[3][+3*4*2+0],
-					NNWWWW	=rows[2][-4*4*2+0],
-					NNWW	=rows[2][-2*4*2+0],
-					NNW	=rows[2][-1*4*2+0],
-					NN	=rows[2][+0*4*2+0],
-					NNE	=rows[2][+1*4*2+0],
-					NNEE	=rows[2][+2*4*2+0],
-					NNEEE	=rows[2][+3*4*2+0],
-					NNEEEE	=rows[2][+4*4*2+0],
-					NWWW	=rows[1][-3*4*2+0],
-					NWW	=rows[1][-2*4*2+0],
-					NW	=rows[1][-1*4*2+0],
-					N	=rows[1][+0*4*2+0],
-					NE	=rows[1][+1*4*2+0],
-					NEE	=rows[1][+2*4*2+0],
-					NEEE	=rows[1][+3*4*2+0],
-					NEEEE	=rows[1][+4*4*2+0],
-					WWWWW	=rows[0][-5*4*2+0],
-					WWWW	=rows[0][-4*4*2+0],
-					WWW	=rows[0][-3*4*2+0],
-					WW	=rows[0][-2*4*2+0],
-					W	=rows[0][-1*4*2+0],
-					eNNNN	=rows[0][+0*4*2+1],
-					eNNN	=rows[3][+0*4*2+1],
-					eNNW	=rows[2][-1*4*2+1],
-					eNN	=rows[2][+0*4*2+1],
-					eNNE	=rows[2][+1*4*2+1],
-					eNWW	=rows[1][-2*4*2+1],
-					eNW	=rows[1][-1*4*2+1],
-					eN	=rows[1][+0*4*2+1],
-					eNE	=rows[1][+1*4*2+1],
-					eNEE	=rows[1][+2*4*2+1],
-					eNEEE	=rows[1][+3*4*2+1],
-					eNEEEE	=rows[1][+4*4*2+1],
-					eWWWW	=rows[0][-4*4*2+1],
-					eWWW	=rows[0][-3*4*2+1],
-					eWW	=rows[0][-2*4*2+1],
-					eW	=rows[0][-1*4*2+1];
-				int
-					*peNNN	=erows[3]+0*4*WG_NPREDS,
-					*peNNW	=erows[2]-1*4*WG_NPREDS,
-					*peNN	=erows[2]+0*4*WG_NPREDS,
-					*peNNE	=erows[2]+1*4*WG_NPREDS,
-					*peNNEE	=erows[2]+2*4*WG_NPREDS,
-					*peNW	=erows[1]-1*4*WG_NPREDS,
-					*peN	=erows[1]+0*4*WG_NPREDS,
-					*peNE	=erows[1]+1*4*WG_NPREDS,
-					*peNEE	=erows[1]+2*4*WG_NPREDS,
-					*peNEEE	=erows[1]+3*4*WG_NPREDS,
-					*peWW	=erows[0]-2*4*WG_NPREDS,
-					*peW	=erows[0]-1*4*WG_NPREDS,
-					*pecurr	=erows[0]+0*4*WG_NPREDS;
-				j=0;
-				switch(kc)
 				{
-				case 3:
-				case 0:
-#define WG_PRED(WEIGHT, EXPR) wg_preds[j++]=EXPR;
-					WG_PREDLIST0
-#undef  WG_PRED
-					break;
-				case 1:
-#define WG_PRED(WEIGHT, EXPR) wg_preds[j++]=EXPR;
-					WG_PREDLIST1
-#undef  WG_PRED
-					break;
-				case 2:
-#define WG_PRED(WEIGHT, EXPR) wg_preds[j++]=EXPR;
-					WG_PREDLIST2
-#undef  WG_PRED
-					break;
-				}
-
-				//mix
+					int
+						NNNWWWW	=rows[3][-4*4*2+0],
+						NNNWWW	=rows[3][-3*4*2+0],
+						NNNW	=rows[3][-1*4*2+0],
+						NNN	=rows[3][+0*4*2+0],
+						NNNE	=rows[3][+1*4*2+0],
+						NNNEEE	=rows[3][+3*4*2+0],
+						NNWWWW	=rows[2][-4*4*2+0],
+						NNWW	=rows[2][-2*4*2+0],
+						NNW	=rows[2][-1*4*2+0],
+						NN	=rows[2][+0*4*2+0],
+						NNE	=rows[2][+1*4*2+0],
+						NNEE	=rows[2][+2*4*2+0],
+						NNEEE	=rows[2][+3*4*2+0],
+						NNEEEE	=rows[2][+4*4*2+0],
+						NWWW	=rows[1][-3*4*2+0],
+						NWW	=rows[1][-2*4*2+0],
+						NW	=rows[1][-1*4*2+0],
+						N	=rows[1][+0*4*2+0],
+						NE	=rows[1][+1*4*2+0],
+						NEE	=rows[1][+2*4*2+0],
+						NEEE	=rows[1][+3*4*2+0],
+						NEEEE	=rows[1][+4*4*2+0],
+						WWWWW	=rows[0][-5*4*2+0],
+						WWWW	=rows[0][-4*4*2+0],
+						WWW	=rows[0][-3*4*2+0],
+						WW	=rows[0][-2*4*2+0],
+						W	=rows[0][-1*4*2+0],
+						eNNNN	=rows[0][+0*4*2+1],
+						eNNN	=rows[3][+0*4*2+1],
+						eNNW	=rows[2][-1*4*2+1],
+						eNN	=rows[2][+0*4*2+1],
+						eNNE	=rows[2][+1*4*2+1],
+						eNWW	=rows[1][-2*4*2+1],
+						eNW	=rows[1][-1*4*2+1],
+						eN	=rows[1][+0*4*2+1],
+						eNE	=rows[1][+1*4*2+1],
+						eNEE	=rows[1][+2*4*2+1],
+						eNEEE	=rows[1][+3*4*2+1],
+						eNEEEE	=rows[1][+4*4*2+1],
+						eWWWW	=rows[0][-4*4*2+1],
+						eWWW	=rows[0][-3*4*2+1],
+						eWW	=rows[0][-2*4*2+1],
+						eW	=rows[0][-1*4*2+1];
+					int
+						*peNNN	=erows[3]+0*4*WG_NPREDS,
+						*peNNW	=erows[2]-1*4*WG_NPREDS,
+						*peNN	=erows[2]+0*4*WG_NPREDS,
+						*peNNE	=erows[2]+1*4*WG_NPREDS,
+						*peNNEE	=erows[2]+2*4*WG_NPREDS,
+						*peNW	=erows[1]-1*4*WG_NPREDS,
+						*peN	=erows[1]+0*4*WG_NPREDS,
+						*peNE	=erows[1]+1*4*WG_NPREDS,
+						*peNEE	=erows[1]+2*4*WG_NPREDS,
+						*peNEEE	=erows[1]+3*4*WG_NPREDS,
+						*peWW	=erows[0]-2*4*WG_NPREDS,
+						*peW	=erows[0]-1*4*WG_NPREDS,
+						*pecurr	=erows[0]+0*4*WG_NPREDS;
+					int pred1, preds2[L1PREDS], pred2, predu, pred, vmin, vmax, curr, e;
 #ifdef USE_L1
-				int64_t p1=1LL<<L1SHIFT>>1;
-				for(int k=0;k<WG_NPREDS;++k)
-					p1+=(int64_t)wg_weights[kc][k]*wg_preds[k];
-				p1>>=L1SHIFT;
-				int pred1=(int)p1;
-#else
-				ALIGN(32) int weights[WG_NPREDS];
-				for(int kp=0;kp<WG_NPREDS;++kp)
-				{
-					//		1
-					//		2
-					//		5	1
-					//	5	?
-					weights[kp]=
-						+peNNN	[kp]		//+eNNN
-						+peNN	[kp]*2		//+eNN
-						+peN	[kp]*5		//+eN
-						+peNE	[kp]		//+eNE
-						+peW	[kp]*5		//+eW
-						+wg_perrors[kc][kp]	//+I
-						+2
-					;
-				}
+					int64_t p1;
+#endif
+#ifdef ENABLE_SSE
+					int *sseptr, *sseptr2, ssecell, ssecell2;
+#endif
+
 #if 1
-				__m256d mp0=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_preds+0));
-				__m256d mp1=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_preds+1));
-				__m256d mp2=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_preds+2));
-				__m256d me0=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)weights+0));
-				__m256d me1=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)weights+1));
-				__m256d me2=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)weights+2));
-				me0=_mm256_div_pd(mweights[3*kc+0], me0);
-				me1=_mm256_div_pd(mweights[3*kc+1], me1);
-				me2=_mm256_div_pd(mweights[3*kc+2], me2);
-				mp0=_mm256_mul_pd(mp0, me0);
-				mp1=_mm256_mul_pd(mp1, me1);
-				mp2=_mm256_mul_pd(mp2, me2);
-				me0=_mm256_add_pd(me0, me1);
-				me0=_mm256_add_pd(me0, me2);
-				mp0=_mm256_add_pd(mp0, mp1);
-				mp0=_mm256_add_pd(mp0, mp2);
-				mp0=_mm256_hadd_pd(mp0, me0);
-				__m128d mp=_mm_add_pd(_mm256_extractf128_pd(mp0, 1), _mm256_extractf128_pd(mp0, 0));
-				mp=_mm_div_pd(mp, _mm_permute_pd(mp, 3));
-				int pred1=_mm_cvtsi128_si32(_mm_cvtpd_epi32(mp));
+					(void)NNNWWWW;
+					(void)NNNWWW;
+					(void)NNNW;
+					(void)NNN;
+					(void)NNNE;
+					(void)NNNEEE;
+					(void)NNWWWW;
+					(void)NNWW;
+					(void)NNW;
+					(void)NN;
+					(void)NNE;
+					(void)NNEE;
+					(void)NNEEE;
+					(void)NNEEEE;
+					(void)NWWW;
+					(void)NWW;
+					(void)NW;
+					(void)N;
+					(void)NE;
+					(void)NEE;
+					(void)NEEE;
+					(void)NEEEE;
+					(void)WWWWW;
+					(void)WWWW;
+					(void)WWW;
+					(void)WW;
+					(void)W;
+					(void)eNNNN;
+					(void)eNNN;
+					(void)eNNW;
+					(void)eNN;
+					(void)eNNE;
+					(void)eNWW;
+					(void)eNW;
+					(void)eN;
+					(void)eNE;
+					(void)eNEE;
+					(void)eNEEE;
+					(void)eNEEEE;
+					(void)eWWWW;
+					(void)eWWW;
+					(void)eWW;
+					(void)eW;
+					(void)peNNN;
+					(void)peNNW;
+					(void)peNN;
+					(void)peNNE;
+					(void)peNNEE;
+					(void)peNW;
+					(void)peN;
+					(void)peNE;
+					(void)peNEE;
+					(void)peNEEE;
+					(void)peWW;
+					(void)peW;
+					(void)pecurr;
+#endif
+					j=0;
+					switch(kc)
+					{
+					case 3:
+					case 0:
+#define WG_PRED(WEIGHT, EXPR) wg_preds[j++]=EXPR;
+						WG_PREDLIST0
+#undef  WG_PRED
+						break;
+					case 1:
+#define WG_PRED(WEIGHT, EXPR) wg_preds[j++]=EXPR;
+						WG_PREDLIST1
+#undef  WG_PRED
+						break;
+					case 2:
+#define WG_PRED(WEIGHT, EXPR) wg_preds[j++]=EXPR;
+						WG_PREDLIST2
+#undef  WG_PRED
+						break;
+					}
+
+					/*mix*/
+#ifdef USE_L1
+					p1=(int64_t)1<<L1SHIFT>>1;
+					for(k=0;k<WG_NPREDS;++k)
+						p1+=(int64_t)wg_weights[kc][k]*wg_preds[k];
+					p1>>=L1SHIFT;
+					pred1=(int)p1;
+#else
+					for(kp=0;kp<WG_NPREDS;++kp)
+					{
+						/*
+						|		1
+						|		2
+						|		5	1
+						|	5	?
+						*/
+						weights[kp]=
+							+peNNN	[kp]		/*+eNNN	*/
+							+peNN	[kp]*2		/*+eNN	*/
+							+peN	[kp]*5		/*+eN	*/
+							+peNE	[kp]		/*+eNE	*/
+							+peW	[kp]*5		/*+eW	*/
+							+wg_perrors[kc][kp]	/*+I	*/
+							+2
+						;
+					}
+#if 1
+					{
+						__m256d mp0, mp1, mp2, me0, me1, me2;
+						__m128d mp;
+
+						mp0=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_preds+0));
+						mp1=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_preds+1));
+						mp2=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)wg_preds+2));
+						me0=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)weights+0));
+						me1=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)weights+1));
+						me2=_mm256_cvtepi32_pd(_mm_load_si128((__m128i*)weights+2));
+						me0=_mm256_div_pd(mweights[3*kc+0], me0);
+						me1=_mm256_div_pd(mweights[3*kc+1], me1);
+						me2=_mm256_div_pd(mweights[3*kc+2], me2);
+						mp0=_mm256_mul_pd(mp0, me0);
+						mp1=_mm256_mul_pd(mp1, me1);
+						mp2=_mm256_mul_pd(mp2, me2);
+						me0=_mm256_add_pd(me0, me1);
+						me0=_mm256_add_pd(me0, me2);
+						mp0=_mm256_add_pd(mp0, mp1);
+						mp0=_mm256_add_pd(mp0, mp2);
+						mp0=_mm256_hadd_pd(mp0, me0);
+						mp=_mm_add_pd(_mm256_extractf128_pd(mp0, 1), _mm256_extractf128_pd(mp0, 0));
+						mp=_mm_div_pd(mp, _mm_permute_pd(mp, 3));
+						pred1=_mm_cvtsi128_si32(_mm_cvtpd_epi32(mp));
+					}
 #endif
 #if 0
-				double fpred=0, wsum=0;
-				for(int kp=0;kp<WG_NPREDS;++kp)
-				{
-					double weight=(double)wg_weights[kc][kp]/weights[kp];
-					fpred+=weight*wg_preds[kp];
-					wsum+=weight;
-				}
-				fpred/=wsum;
-				int pred1=(int)CVTFP64_I64(fpred);
+					{
+						double fpred=0, wsum=0;
+						for(kp=0;kp<WG_NPREDS;++kp)
+						{
+							double weight=(double)wg_weights[kc][kp]/weights[kp];
+							fpred+=weight*wg_preds[kp];
+							wsum+=weight;
+						}
+						fpred/=wsum;
+						pred1=(int)ROUND64(fpred);
+					}
 #endif
 #endif
 #ifdef ENABLE_SSE
-				int *sseptr=sse+kc*256+(((pred1>>(src->depth[kc]-8))+128)&255);
-				int *sseptr2=sse2+kc*256+((((N-W)>>(src->depth[kc]+1-8))+128)&255);
-			//	int *sseptr=sse+(kc*256+(((pred1>>(src->depth[kc]-8))+128)&255))*16+((N-W)>>(src->depth[kc]-4)&15);
-				int ssecell=*sseptr;
-				int ssecell2=*sseptr2;
-				//pred+=ssecell>>(SSEBITS+1);
+					sseptr=sse+kc*256+(((pred1>>(src->depth[kc]-8))+128)&255);
+					sseptr2=sse2+kc*256+((((N-W)>>(src->depth[kc]+1-8))+128)&255);
+					ssecell=*sseptr;
+					ssecell2=*sseptr2;
 #endif
 
-				int preds2[]=
-				{
-#define L1PRED(EXPR) EXPR,
-					L1PREDLISTSSE
+#define L1PRED(EXPR) preds2[j++]=EXPR;
+					j=0;
+					L1PREDLISTSSE;
 #undef  L1PRED
-				};
-				int pred2=(1<<L1SH>>1);
-				pred2+=coeffs[kc][L1PREDSSSE];
-				for(int kp=0;kp<L1PREDSSSE;++kp)
-					pred2+=coeffs[kc][kp]*preds2[kp];
-				pred2>>=L1SH;
-				int predu=pred1+pred2;
-				int pred=predu;
+					pred2=(1<<L1SH>>1);
+					pred2+=coeffs[kc][L1PREDSSSE];
+					for(kp=0;kp<L1PREDSSSE;++kp)
+						pred2+=coeffs[kc][kp]*preds2[kp];
+					pred2>>=L1SH;
+					predu=pred1+pred2;
+					pred=predu;
 
-				int vmax=N, vmin=W;
-				if(N<W)vmin=N, vmax=W;
-				if(vmin>NE)vmin=NE;
-				if(vmax<NE)vmax=NE;
-				if(vmin>NEEE)vmin=NEEE;
-				if(vmax<NEEE)vmax=NEEE;
-				if(vmin>NW)vmin=NW;
-				if(vmax<NW)vmax=NW;
-				CLAMP2(pred, vmin, vmax);
-				if(kc)
-				{
-					pred+=offset;
-					CLAMP2(pred, amin[kc], amax[kc]);
-				}
-				int curr=yuv[kc];
-				if(g_dist>1)
-				{
-					if(fwd)
+					vmax=N; vmin=W;
+					if(N<W)vmin=N, vmax=W;
+					if(vmin>NE)vmin=NE;
+					if(vmax<NE)vmax=NE;
+					if(vmin>NEEE)vmin=NEEE;
+					if(vmax<NEEE)vmax=NEEE;
+					if(vmin>NW)vmin=NW;
+					if(vmax<NW)vmax=NW;
+					CLAMP2(pred, vmin, vmax);
+					if(kc)
 					{
-						curr-=pred;
-						curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));//curr/=g_dist
-						src->data[idx+kc]=curr;
+						pred+=offset;
+						CLAMP2(pred, amin[kc], amax[kc]);
 					}
-					else
-						curr=src->data[idx+kc];
-						
-					curr=g_dist*curr+pred;
-					CLAMP2(curr, amin[kc], amax[kc]);
-					yuv[kc]=curr;
-				}
-				else
-				{
-					if(fwd)
+					curr=yuv[kc];
+					if(g_dist>1)
 					{
-						int error=curr-pred;
-						error<<=32-src->depth[kc];
-						error>>=32-src->depth[kc];
-						src->data[idx+kc]=error;
-					}
-					else
-					{
-						curr=src->data[idx+kc]+pred;
-						curr<<=32-src->depth[kc];
-						curr>>=32-src->depth[kc];
+						if(fwd)
+						{
+							curr-=pred;
+							curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));/*curr/=g_dist*/
+							((int32_t*)HDR_DATA(src))[idx+kc]=curr;
+						}
+						else
+							curr=((int32_t*)HDR_DATA(src))[idx+kc];
+							
+						curr=g_dist*curr+pred;
+						CLAMP2(curr, amin[kc], amax[kc]);
 						yuv[kc]=curr;
 					}
-				}
-				curr-=offset;
-				rows[0][0]=curr;
-				rows[0][1]=curr-pred1;
+					else
+					{
+						if(fwd)
+						{
+							e=curr-pred;
+							e<<=32-src->depth[kc];
+							e>>=32-src->depth[kc];
+							((int32_t*)HDR_DATA(src))[idx+kc]=e;
+						}
+						else
+						{
+							curr=((int32_t*)HDR_DATA(src))[idx+kc]+pred;
+							curr<<=32-src->depth[kc];
+							curr>>=32-src->depth[kc];
+							yuv[kc]=curr;
+						}
+					}
+					curr-=offset;
+					rows[0][0]=curr;
+					rows[0][1]=curr-pred1;
 
 
-				//update
+					/*update*/
 #ifdef USE_L1
-				int e0=(curr>p1)-(curr<p1);
-				for(int k=0;k<WG_NPREDS;++k)
-					wg_weights[kc][k]+=e0*wg_preds[k];
+					e=(curr>p1)-(curr<p1);
+					for(k=0;k<WG_NPREDS;++k)
+						wg_weights[kc][k]+=e*wg_preds[k];
 #else
-				static const int factors[]={97, 99, 99};
-				int factor=factors[kc];
+					{
+						static const int factors[]={97, 99, 99};
+						int factor, errors[WG_NPREDS], best;
 
-				int errors[WG_NPREDS], best=0x7FFFFFFF;
-				for(int k=0;k<WG_NPREDS;++k)
-				{
-					int e2=(curr-wg_preds[k])<<1;
-					e2=e2<<1^e2>>31;
-					errors[k]=e2;
-					if(best>e2)
-						best=e2;
-				}
-
-				for(int k=0;k<WG_NPREDS;++k)
-				{
-					int e2=errors[k]-best;
-				//	int e2=(curr-wg_preds[k])<<1;
-				//	e2=e2<<1^e2>>31;
-					wg_perrors[kc][k]=(wg_perrors[kc][k]+e2)*factor>>7;
-					pecurr[k]=(2*peW[k]+e2+peNEE[k])>>2;
-				}
+						factor=factors[kc];
+						best=0x7FFFFFFF;
+						for(k=0;k<WG_NPREDS;++k)
+						{
+							int e2=(curr-wg_preds[k])<<1;
+							e2=e2<<1^e2>>31;
+							errors[k]=e2;
+							if(best>e2)
+								best=e2;
+						}
+						for(k=0;k<WG_NPREDS;++k)
+						{
+							int e2=errors[k]-best;
+							wg_perrors[kc][k]=(wg_perrors[kc][k]+e2)*factor>>7;
+							pecurr[k]=(2*peW[k]+e2+peNEE[k])>>2;
+						}
+					}
 #endif
-				int e=(curr>predu)-(curr<predu);
-				coeffs[kc][L1PREDSSSE]+=e;//bias
-				for(int k=0;k<L1PREDSSSE;++k)
-					coeffs[kc][k]+=e*preds2[k];//coeffs
+					e=(curr>predu)-(curr<predu);
+					coeffs[kc][L1PREDSSSE]+=e;/*bias*/
+					for(k=0;k<L1PREDSSSE;++k)
+						coeffs[kc][k]+=e*preds2[k];/*coeffs*/
 #ifdef ENABLE_SSE
-				ssecell+=(((yuv[kc]-pred)<<SSEBITS)-ssecell+(1<<5>>1))>>5;
-				ssecell2+=(((yuv[kc]-pred)<<SSEBITS)-ssecell2+(1<<5>>1))>>5;
-				*sseptr=ssecell;
-				*sseptr2=ssecell2;
+					ssecell+=(((yuv[kc]-pred)<<SSEBITS)-ssecell+(1<<5>>1))>>5;
+					ssecell2+=(((yuv[kc]-pred)<<SSEBITS)-ssecell2+(1<<5>>1))>>5;
+					*sseptr=ssecell;
+					*sseptr2=ssecell2;
 #endif
-				offset=kc?(combination[II_COEFF_V_SUB_Y]*yuv[0]+combination[II_COEFF_V_SUB_U]*yuv[1])>>2:yuv[0]&vfromy;
+					offset=(kc?vc0*yuv[0]+vc1*yuv[1]:uc0*yuv[0])>>2;
+				}
 			}
 			if(!fwd)
 			{
-				src->data[idx+yidx]=yuv[0];
-				src->data[idx+uidx]=yuv[1];
-				src->data[idx+vidx]=yuv[2];
+				((int32_t*)HDR_DATA(src))[idx+yidx]=yuv[0];
+				((int32_t*)HDR_DATA(src))[idx+uidx]=yuv[1];
+				((int32_t*)HDR_DATA(src))[idx+vidx]=yuv[2];
 			}
 		}
 	}

@@ -2,17 +2,20 @@
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
-//#define _USE_MATH_DEFINES
+#define _USE_MATH_DEFINES
 #include<math.h>
-#include<immintrin.h>
-static const char file[]=__FILE__;
+#if defined _MSC_VER
+#include<intrin.h>
+#elif defined __GNUC__
+#include<x86intrin.h>
+#endif
 
 
 static ArrayHandle levels[4]={0};
 void pred_palette(Image *src, int fwd)
 {
-	ptrdiff_t res;
-	int maxdepth, histsize, *hist;
+	intptr_t k, res;
+	int maxdepth, histsize, *hist, kc, ks, ks2;
 
 	maxdepth=MAXVAR(src->depth[0], src->depth[1]);
 	UPDATE_MAX(maxdepth, src->depth[2]);
@@ -21,11 +24,11 @@ void pred_palette(Image *src, int fwd)
 	hist=(int*)malloc(histsize);
 	if(!hist)
 	{
-		LOG_ERROR("Alloc error");
+		CRASH("Alloc error");
 		return;
 	}
-	res=(ptrdiff_t)src->iw*src->ih;
-	for(int kc=0;kc<4;++kc)
+	res=(intptr_t)src->iw*src->ih;
+	for(kc=0;kc<4;++kc)
 	{
 		int *vals, nvals;
 		int depth, nlevels, half, mask;
@@ -41,14 +44,14 @@ void pred_palette(Image *src, int fwd)
 		{
 			array_append(levels+kc, 0, sizeof(int), 1, 1, 0, 0);
 			array_clear(levels+kc);
-			for(ptrdiff_t k=0;k<res;++k)
+			for(k=0;k<res;++k)
 			{
-				int val=src->data[k<<2|kc];
+				int val=((int32_t*)HDR_DATA(src))[k<<2|kc];
 				val+=half;
 				val&=mask;
 				++hist[val];
 			}
-			for(int ks=0, ks2=0;ks<nlevels;++ks)
+			for(ks=0, ks2=0;ks<nlevels;++ks)
 			{
 				int freq=hist[ks];
 				hist[ks]=ks2;
@@ -58,28 +61,28 @@ void pred_palette(Image *src, int fwd)
 					++ks2;
 				}
 			}
-			vals=(int*)levels[kc]->data;
+			vals=(int*)HDR_DATA(levels[kc]);
 			nvals=(int)levels[kc]->count;
-			for(ptrdiff_t k=0;k<res;++k)
+			for(k=0;k<res;++k)
 			{
-				int val=src->data[k<<2|kc];
+				int val=((int32_t*)HDR_DATA(src))[k<<2|kc];
 				val+=half;
 				val&=mask;
-				src->data[k<<2|kc]=hist[val]-(nvals>>1);
+				((int32_t*)HDR_DATA(src))[k<<2|kc]=hist[val]-(nvals>>1);
 			}
 		}
 		else
 		{
 			if(!levels[kc])
 				continue;
-			vals=(int*)levels[kc]->data;
+			vals=(int*)HDR_DATA(levels[kc]);
 			nvals=(int)levels[kc]->count;
-			for(ptrdiff_t k=0;k<res;++k)
+			for(k=0;k<res;++k)
 			{
-				int idx=src->data[k<<2|kc];
+				int idx=((int32_t*)HDR_DATA(src))[k<<2|kc];
 				idx+=nvals>>1;
 				idx%=nvals;
-				src->data[k<<2|kc]=vals[idx]-half;
+				((int32_t*)HDR_DATA(src))[k<<2|kc]=vals[idx]-half;
 			}
 		}
 	}

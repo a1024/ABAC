@@ -4,15 +4,17 @@
 #include<stdlib.h>
 #include<string.h>
 #include<immintrin.h>
-static const char file[]=__FILE__;
 
-Image* image_from_uint8(const unsigned char *src, int iw, int ih, int nch, char rdepth, char gdepth, char bdepth, char adepth)
+Image* image_from_uint8(const uint8_t *src, int iw, int ih, int nch, char rdepth, char gdepth, char bdepth, char adepth)
 {
-	ptrdiff_t res=(ptrdiff_t)iw*ih;
-	Image *image=(Image*)malloc(sizeof(Image)+res*sizeof(int[4]));
+	Image *image;
+	intptr_t res;
+
+	res=(intptr_t)iw*ih;
+	image=(Image*)malloc(sizeof(Image)+res*sizeof(int[4]));
 	if(!image)
 	{
-		LOG_ERROR("Alloc error");
+		CRASH("Alloc error");
 		return 0;
 	}
 	memset(image, 0, sizeof(*image));
@@ -25,28 +27,31 @@ Image* image_from_uint8(const unsigned char *src, int iw, int ih, int nch, char 
 	image->src_depth[3]=image->depth[3]=adepth;
 	if(src)
 	{
-		int offset[]=
-		{
-			image->depth[0]?1<<(image->depth[0]-1):0,
-			image->depth[1]?1<<(image->depth[1]-1):0,
-			image->depth[2]?1<<(image->depth[2]-1):0,
-			image->depth[3]?1<<(image->depth[3]-1):0,
-		};
+		intptr_t k;
+		int offset[4];
+
+		offset[0]=image->depth[0]?1<<(image->depth[0]-1):0;
+		offset[1]=image->depth[1]?1<<(image->depth[1]-1):0;
+		offset[2]=image->depth[2]?1<<(image->depth[2]-1):0;
+		offset[3]=image->depth[3]?1<<(image->depth[3]-1):0;
 		res<<=2;
-		for(ptrdiff_t k=0;k<res;++k)
-			image->data[k]=src[k]-offset[k&3];
+		for(k=0;k<res;++k)
+			((int32_t*)HDR_DATA(image))[k]=src[k]-offset[k&3];
 	}
 	else
-		memset(image->data, 0, res*sizeof(int[4]));
+		memset(((int32_t*)HDR_DATA(image)), 0, res*sizeof(int[4]));
 	return image;
 }
-Image* image_from_uint16(const unsigned short *src, int iw, int ih, int nch, char *src_depths, char *dst_depths)
+Image* image_from_uint16(const uint16_t *src, int iw, int ih, int nch, char *src_depths, char *dst_depths)
 {
-	ptrdiff_t res=(ptrdiff_t)iw*ih;
-	Image *image=(Image*)malloc(sizeof(Image)+res*sizeof(int[4]));
+	Image *image;
+	intptr_t res;
+
+	res=(intptr_t)iw*ih;
+	image=(Image*)malloc(sizeof(Image)+res*sizeof(int[4]));
 	if(!image)
 	{
-		LOG_ERROR("Alloc error");
+		CRASH("Alloc error");
 		return 0;
 	}
 	image->iw=iw;
@@ -58,72 +63,76 @@ Image* image_from_uint16(const unsigned short *src, int iw, int ih, int nch, cha
 	image->src_depth[3]=image->depth[3]=dst_depths[3];
 	if(src)
 	{
-		int offset[]=
-		{
-			image->depth[0]?1<<(image->depth[0]-1):0,
-			image->depth[1]?1<<(image->depth[1]-1):0,
-			image->depth[2]?1<<(image->depth[2]-1):0,
-			image->depth[3]?1<<(image->depth[3]-1):0,
-		};
-		int shift[]=
-		{
-			dst_depths[0]-src_depths[0],
-			dst_depths[1]-src_depths[1],
-			dst_depths[2]-src_depths[2],
-			dst_depths[3]-src_depths[3],//this sets alpha to zero when alpha depth is zero
-		};
+		intptr_t k;
+		int offset[4], shift[4];
+
+		offset[0]=image->depth[0]?1<<(image->depth[0]-1):0;
+		offset[1]=image->depth[1]?1<<(image->depth[1]-1):0;
+		offset[2]=image->depth[2]?1<<(image->depth[2]-1):0;
+		offset[3]=image->depth[3]?1<<(image->depth[3]-1):0;
+		shift[0]=dst_depths[0]-src_depths[0];
+		shift[1]=dst_depths[1]-src_depths[1];
+		shift[2]=dst_depths[2]-src_depths[2];
+		shift[3]=dst_depths[3]-src_depths[3];/*this sets alpha to zero when alpha depth is zero*/
 		res<<=2;
-		for(ptrdiff_t k=0;k<res;++k)
-			image->data[k]=(shift[k&3]<0?src[k]>>-shift[k&3]:src[k]<<shift[k&3])-offset[k&3];
+		for(k=0;k<res;++k)
+			((int32_t*)HDR_DATA(image))[k]=(shift[k&3]<0?src[k]>>-shift[k&3]:src[k]<<shift[k&3])-offset[k&3];
 	}
 	else
-		memset(image->data, 0, res*sizeof(int[4]));
+		memset(((int32_t*)HDR_DATA(image)), 0, res*sizeof(int[4]));
 	return image;
 }
 Image* image_load(const char *fn, int fnlen)
 {
 	Image *image;
-	int iw=0, ih=0, nch=0;
-	ptrdiff_t res;
+	intptr_t res;
+	int iw, ih, nch;
+
+	iw=0;
+	ih=0;
+	nch=0;
 	if(!fnlen)
 		fnlen=(int)strlen(fn);
-	if(!_stricmp(fn+fnlen-4, ".PPM"))//shortcut to load PPMs fast
+	if(!_stricmp(fn+fnlen-4, ".PPM"))/*shortcut to load PPMs fast	FIXME save mem*/
 	{
 		ArrayHandle src;
 		char *ptr, *end;
 		int vmax, depth;
+		intptr_t k;
 
 		src=load_file(fn, 1, 16, 0);
 		if(!src)
 			return 0;
-		ptr=(char*)src->data;
-		end=(char*)src->data+src->count;
+		ptr=(char*)HDR_DATA(src);
+		end=ptr+src->count;
 		if(memcmp(ptr, "P6\n", sizeof(char[3])))
 			goto load_other;
 		nch=3;
 		ptr+=3;
-		if(*ptr=='#')//skip comments
+		if(*ptr=='#')/*skip comments*/
 		{
 			++*ptr;
 			for(;ptr!=end&&*ptr!='\n';++ptr);
-			++*ptr;//skip newline
+			++*ptr;/*skip newline*/
 		}
 		iw=(int)strtol(ptr, &ptr, 10);
 		for(;ptr!=end&&isspace(*ptr);++ptr);
 		ih=(int)strtol(ptr, &ptr, 10);
-		++ptr;//skip newline
+		++ptr;/*skip newline*/
 		vmax=(int)strtol(ptr, &ptr, 10);
-		//for(;ptr!=end&&*ptr!='\n';++ptr);
-		++ptr;//skip newline
+#if 0
+		for(;ptr!=end&&*ptr!='\n';++ptr);
+#endif
+		++ptr;/*skip newline*/
 
 		depth=vmax==65535?16:8;
 
-		//start of binary data
-		res=(ptrdiff_t)iw*ih;
+		/*start of binary data*/
+		res=(intptr_t)iw*ih;
 		image=(Image*)malloc(sizeof(Image)+res*sizeof(int[4]));
 		if(!image)
 		{
-			LOG_ERROR("Alloc error");
+			CRASH("Alloc error");
 			return 0;
 		}
 		memset(image, 0, sizeof(Image));
@@ -140,78 +149,76 @@ Image* image_load(const char *fn, int fnlen)
 		image->src_depth[3]=0;
 		if(depth==16)
 		{
-			for(int k=0;k<4*res;k+=4)
+			for(k=0;k<4*res;k+=4)
 			{
 				uint16_t val;
-				val=*(uint16_t*)ptr; ptr+=2; image->data[k+0]=(uint16_t)(val<<8|val>>8)-0x8000;
-				val=*(uint16_t*)ptr; ptr+=2; image->data[k+1]=(uint16_t)(val<<8|val>>8)-0x8000;
-				val=*(uint16_t*)ptr; ptr+=2; image->data[k+2]=(uint16_t)(val<<8|val>>8)-0x8000;
-			//	image->data[k+0]=(uint16_t)_loadbe_i16(ptr)-0x8000; ptr+=2;
-			//	image->data[k+1]=(uint16_t)_loadbe_i16(ptr)-0x8000; ptr+=2;
-			//	image->data[k+2]=(uint16_t)_loadbe_i16(ptr)-0x8000; ptr+=2;
-				image->data[k+3]=0;
+				val=*(uint16_t*)ptr; ptr+=2; ((int32_t*)HDR_DATA(image))[k+0]=(uint16_t)(val<<8|val>>8)-0x8000;
+				val=*(uint16_t*)ptr; ptr+=2; ((int32_t*)HDR_DATA(image))[k+1]=(uint16_t)(val<<8|val>>8)-0x8000;
+				val=*(uint16_t*)ptr; ptr+=2; ((int32_t*)HDR_DATA(image))[k+2]=(uint16_t)(val<<8|val>>8)-0x8000;
+#if 0
+				((int32_t*)HDR_DATA(image))[k+0]=(uint16_t)_loadbe_i16(ptr)-0x8000; ptr+=2;
+				((int32_t*)HDR_DATA(image))[k+1]=(uint16_t)_loadbe_i16(ptr)-0x8000; ptr+=2;
+				((int32_t*)HDR_DATA(image))[k+2]=(uint16_t)_loadbe_i16(ptr)-0x8000; ptr+=2;
+#endif
+				((int32_t*)HDR_DATA(image))[k+3]=0;
 			}
 		}
 		else
 		{
+			__m128i extract0=_mm_set_epi8(
+			/*	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0*/
+				-1, -1, -1, -1, -1, -1, -1,  2, -1, -1, -1,  1, -1, -1, -1,  0
+			);
+			__m128i extract1=_mm_set_epi8(
+			/*	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0*/
+				-1, -1, -1, -1, -1, -1, -1,  5, -1, -1, -1,  4, -1, -1, -1,  3
+			);
+			__m128i extract2=_mm_set_epi8(
+			/*	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0*/
+				-1, -1, -1, -1, -1, -1, -1,  8, -1, -1, -1,  7, -1, -1, -1,  6
+			);
+			__m128i extract3=_mm_set_epi8(
+			/*	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0*/
+				-1, -1, -1, -1, -1, -1, -1, 11, -1, -1, -1, 10, -1, -1, -1,  9
+			);
+			__m128i extract4=_mm_set_epi8(
+			/*	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0*/
+				-1, -1, -1, -1, -1, -1, -1, 14, -1, -1, -1, 13, -1, -1, -1, 12
+			);
+			__m128i half=_mm_set1_epi32(128);
+			__m128i *dst=(__m128i*)HDR_DATA(image);
+			int *dst2;
 
+			for(k=0;k<res-4;k+=5)
 			{
-				__m128i extract0=_mm_set_epi8(
-				//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
-					-1, -1, -1, -1, -1, -1, -1,  2, -1, -1, -1,  1, -1, -1, -1,  0
-				);
-				__m128i extract1=_mm_set_epi8(
-				//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
-					-1, -1, -1, -1, -1, -1, -1,  5, -1, -1, -1,  4, -1, -1, -1,  3
-				);
-				__m128i extract2=_mm_set_epi8(
-				//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
-					-1, -1, -1, -1, -1, -1, -1,  8, -1, -1, -1,  7, -1, -1, -1,  6
-				);
-				__m128i extract3=_mm_set_epi8(
-				//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
-					-1, -1, -1, -1, -1, -1, -1, 11, -1, -1, -1, 10, -1, -1, -1,  9
-				);
-				__m128i extract4=_mm_set_epi8(
-				//	15,|14, 13, 12,|11, 10,  9,| 8,  7,  6,| 5,  4,  3,| 2,  1,  0
-					-1, -1, -1, -1, -1, -1, -1, 14, -1, -1, -1, 13, -1, -1, -1, 12
-				);
-				__m128i half=_mm_set1_epi32(128);
-				__m128i *dst=(__m128i*)image->data;
-				ptrdiff_t k=0;
-				int *dst2;
-
-				for(;k<res-4;k+=5)
-				{
-					__m128i packed5=_mm_loadu_si128((__m128i*)ptr);
-					__m128i e0=_mm_shuffle_epi8(packed5, extract0);
-					__m128i e1=_mm_shuffle_epi8(packed5, extract1);
-					__m128i e2=_mm_shuffle_epi8(packed5, extract2);
-					__m128i e3=_mm_shuffle_epi8(packed5, extract3);
-					__m128i e4=_mm_shuffle_epi8(packed5, extract4);
-					e0=_mm_sub_epi32(e0, half);
-					e1=_mm_sub_epi32(e1, half);
-					e2=_mm_sub_epi32(e2, half);
-					e3=_mm_sub_epi32(e3, half);
-					e4=_mm_sub_epi32(e4, half);
-					_mm_storeu_si128(dst+0, e0);
-					_mm_storeu_si128(dst+1, e1);
-					_mm_storeu_si128(dst+2, e2);
-					_mm_storeu_si128(dst+3, e3);
-					_mm_storeu_si128(dst+4, e4);
-					dst+=5;
-					ptr+=3*5;
-				}
-				dst2=(int*)dst;
-				for(;k<res;++k)
-				{
-					dst2[0]=(unsigned char)ptr[0]-128;
-					dst2[1]=(unsigned char)ptr[1]-128;
-					dst2[2]=(unsigned char)ptr[2]-128;
-					dst2[3]=0;
-					dst2+=4;
-					ptr+=3;
-				}
+				__m128i packed5=_mm_loadu_si128((__m128i*)ptr);
+				__m128i e0=_mm_shuffle_epi8(packed5, extract0);
+				__m128i e1=_mm_shuffle_epi8(packed5, extract1);
+				__m128i e2=_mm_shuffle_epi8(packed5, extract2);
+				__m128i e3=_mm_shuffle_epi8(packed5, extract3);
+				__m128i e4=_mm_shuffle_epi8(packed5, extract4);
+				e0=_mm_sub_epi32(e0, half);
+				e1=_mm_sub_epi32(e1, half);
+				e2=_mm_sub_epi32(e2, half);
+				e3=_mm_sub_epi32(e3, half);
+				e4=_mm_sub_epi32(e4, half);
+				_mm_storeu_si128(dst+0, e0);
+				_mm_storeu_si128(dst+1, e1);
+				_mm_storeu_si128(dst+2, e2);
+				_mm_storeu_si128(dst+3, e3);
+				_mm_storeu_si128(dst+4, e4);
+				dst+=5;
+				ptr+=3*5;
+			}
+			dst2=(int*)dst;
+			for(;k<res;++k)
+			{
+				dst2[0]=(uint8_t)ptr[0]-128;
+				dst2[1]=(uint8_t)ptr[1]-128;
+				dst2[2]=(uint8_t)ptr[2]-128;
+				dst2[3]=0;
+				dst2+=4;
+				ptr+=3;
 			}
 		}
 		array_free(&src);
@@ -219,18 +226,21 @@ Image* image_load(const char *fn, int fnlen)
 	}
 load_other:
 	{
-		unsigned short *src;
 		char src_depth[]={16, 16, 16, 16};
 		char dst_depth[]={8, 8, 8, 0};
+		uint16_t *src;
+		intptr_t k;
 
 		src=stbi_load_16(fn, &iw, &ih, &nch, 4);
 		if(!src)
 		{
-			//LOG_ERROR("Cannot open %s", fn);
+#if 0
+			CRASH("Cannot open %s", fn);
+#endif
 			return 0;
 		}
-		res=(ptrdiff_t)iw*ih;
-		for(ptrdiff_t k=0;k<res;++k)//detect 8-bit
+		res=(intptr_t)iw*ih;
+		for(k=0;k<res;++k)/*detect 8-bit*/
 		{
 			int r=src[k<<2|0], g=src[k<<2|1], b=src[k<<2|2], a=src[k<<2|3];
 			if(dst_depth[0]<16&&(r>>8)!=(r&0xFF))dst_depth[0]=16;
@@ -251,7 +261,7 @@ load_other:
 }
 int image_save_uint8(const char *fn, Image const *image, int override_alpha)
 {
-	unsigned char *dst=0;
+	uint8_t *dst=0;
 
 	image_export_uint8(image, &dst, override_alpha, 0);
 	if(!dst)
@@ -260,42 +270,39 @@ int image_save_uint8(const char *fn, Image const *image, int override_alpha)
 	free(dst);
 	return 1;
 }
-void image_export_uint8(Image const *image, unsigned char **dst, int override_alpha, int swap_rb)
+void image_export_uint8(Image const *image, uint8_t **dst, int override_alpha, int swap_rb)
 {
+	void *ptr;
+	intptr_t k, res;
+	int shift[4], r, b;
+
 	if(!image)
 		return;
+	ptr=realloc(*dst, sizeof(char[4])*image->iw*image->ih);
+	if(!ptr)
+		return;
+	*dst=(uint8_t*)ptr;
+	shift[0]=MAXVAR(0, image->depth[0]-8);
+	shift[1]=MAXVAR(0, image->depth[1]-8);
+	shift[2]=MAXVAR(0, image->depth[2]-8);
+	shift[3]=MAXVAR(0, image->depth[3]-8);
+	r=0, b=2;
+	if(swap_rb)
+		r=2, b=0;
+	for(k=0, res=(intptr_t)image->iw*image->ih*4;k<res;k+=4)
 	{
-		void *ptr=realloc(*dst, sizeof(char[4])*image->iw*image->ih);
-		if(!ptr)
-			return;
-		*dst=(unsigned char*)ptr;
-	}
-	{
-		int shift[]=
-		{
-			MAXVAR(0, image->depth[0]-8),
-			MAXVAR(0, image->depth[1]-8),
-			MAXVAR(0, image->depth[2]-8),
-			MAXVAR(0, image->depth[3]-8),
-		};
-		int r, b;
-		if(swap_rb)
-			r=2, b=0;
-		else
-			r=0, b=2;
-		for(ptrdiff_t k=0, res=(ptrdiff_t)image->iw*image->ih*4;k<res;k+=4)
-		{
-			dst[0][k|r]=(unsigned char)((image->data[k|0]>>shift[0])+128);
-			dst[0][k|1]=(unsigned char)((image->data[k|1]>>shift[1])+128);
-			dst[0][k|b]=(unsigned char)((image->data[k|2]>>shift[2])+128);
-			dst[0][k|3]=override_alpha?0xFF:(unsigned char)(image->data[k|3]>>shift[3])+128;
-		}
+		dst[0][k|r]=(uint8_t)(((const int32_t*)HDR_DATC(image))[k|0]>>shift[0])^128;
+		dst[0][k|1]=(uint8_t)(((const int32_t*)HDR_DATC(image))[k|1]>>shift[1])^128;
+		dst[0][k|b]=(uint8_t)(((const int32_t*)HDR_DATC(image))[k|2]>>shift[2])^128;
+		dst[0][k|3]=override_alpha?0xFF:(uint8_t)(((const int32_t*)HDR_DATC(image))[k|3]>>shift[3])^128;
 	}
 }
 double image_getBMPsize(Image const *image)
 {
-	int totalbits=0;
-	for(int k=0;k<image->nch;++k)
+	int totalbits, k;
+
+	totalbits=0;
+	for(k=0;k<image->nch;++k)
 		totalbits+=image->src_depth[k];
 	return (double)image->iw*image->ih*totalbits/8;
 }
@@ -307,27 +314,35 @@ size_t image_getbufsize(Image const *image)
 }
 void image_copy_nodata(Image **dst, Image const *src)
 {
-	size_t srcsize=image_getbufsize(src);
+	void *ptr;
+	size_t srcsize;
+
+	srcsize=image_getbufsize(src);
 	if(!srcsize)
 		return;
+	ptr=realloc(*dst, srcsize);
+	if(!ptr)
 	{
-		void *ptr=realloc(*dst, srcsize);
-		if(!ptr)
-			return;
-		*dst=(Image*)ptr;
+		CRASH("Alloc error");
+		return;
 	}
+	*dst=(Image*)ptr;
 	memcpy(*dst, src, sizeof(Image));
 }
 void image_copy(Image **dst, Image const *src)
 {
-	size_t srcsize=image_getbufsize(src);
+	void *ptr;
+	size_t srcsize;
+
+	srcsize=image_getbufsize(src);
 	if(!srcsize)
 		return;
+	ptr=realloc(*dst, srcsize);
+	if(!ptr)
 	{
-		void *ptr=realloc(*dst, srcsize);
-		if(!ptr)
-			return;
-		*dst=(Image*)ptr;
+		CRASH("Alloc error");
+		return;
 	}
+	*dst=(Image*)ptr;
 	memcpy(*dst, src, srcsize);
 }

@@ -2,7 +2,6 @@
 #ifndef INC_EBENCH_H
 #define INC_EBENCH_H
 #include"util.h"
-#include<stdint.h>
 #include<stdlib.h>
 #define WIN32_LEAN_AND_MEAN
 #include<Windows.h>
@@ -17,28 +16,36 @@ extern "C"
 #endif
 
 
-//	#define ALLOW_OPENCL
-//	#define DEBUG_MEMORY
-//	#define ENABLE_CONSOLE_MAIN_TEST
+#if 0
+#	define ALLOW_OPENCL
+#endif
+#if 0
+#	define DEBUG_MEMORY
+#endif
+#if 0
+#	define ENABLE_CONSOLE_MAIN_TEST
+#endif
 
 
-#define TIMER_ID_KEYBOARD 1
-#define TIMER_ID_MONITOR 2
-#define TIMER_MONITOR_MS 100
-
+enum
+{
+	TIMER_ID_KEYBOARD=1,
+	TIMER_ID_MONITOR=2,
+	TIMER_MONITOR_MS=100
+};
 extern int wndw, wndh, mx, my, mouse_bypass;
 extern HWND ghWnd;
 extern HDC ghDC;
 extern HGLRC hRC;
 extern char keyboard[256];
 extern int timer;
-extern int g_repaint;//set to 1 to paint again
+extern int g_repaint;/*set to 1 to paint again*/
 extern RECT R;
 extern wchar_t g_wbuf[G_BUF_SIZE];
 extern ArrayHandle exedir;
 
 extern float
-	SN_x0, SN_x1, SN_y0, SN_y1,//screen-NDC conversion
+	SN_x0, SN_x1, SN_y0, SN_y1,/*screen-NDC conversion*/
 	NS_x0, NS_x1, NS_y0, NS_y1;
 extern float tdx, tdy;
 
@@ -50,14 +57,14 @@ typedef enum IOKeyEnum
 #	define	IOKEY(VAL, WinVAL, LABEL)	KEY_##LABEL=VAL,
 #endif
 	
-//IO value, win32 value, label
+/*IO value, win32 value, label*/
 IOKEY(0x00, 0x00, UNKNOWN)
 
 
-//direct map keys
-IOKEY(0x01, 0x01, LBUTTON)	//inserted
-IOKEY(0x02, 0x04, MBUTTON)	//inserted
-IOKEY(0x03, 0x02, RBUTTON)	//inserted
+/*direct map keys*/
+IOKEY(0x01, 0x01, LBUTTON)	/*inserted*/
+IOKEY(0x02, 0x04, MBUTTON)	/*inserted*/
+IOKEY(0x03, 0x02, RBUTTON)	/*inserted*/
 
 IOKEY(0x08, 0x08, BKSP)
 IOKEY(0x09, 0x09, TAB)
@@ -105,31 +112,31 @@ IOKEY(0x59, 0x59, Y)
 IOKEY(0x5A, 0x5A, Z)
 
 
-//other keys
+/*other keys*/
 IOKEY(0x13, 0x13, PAUSE)
 IOKEY(0x14, 0x91, SCROLLLOCK)
 IOKEY(0x15, 0x2C, PRINTSCR)
 
-IOKEY(0x27, 0xDE, QUOTE)	//inserted '\'' with '\"' 0x22
-IOKEY(0x2B, 0xBB, PLUS)		//inserted '+' with '=' 0x3D
-IOKEY(0x2C, 0xBC, COMMA)	//inserted ',' with '<' 0x3C
-IOKEY(0x2D, 0xBD, MINUS)	//inserted '-' with '_' 0x5F
-IOKEY(0x2E, 0xBE, PERIOD)	//inserted '.' with '>' 0x3E
-IOKEY(0x2F, 0xBF, SLASH)	//inserted '/' with '?' 0x3F
+IOKEY(0x27, 0xDE, QUOTE)	/*inserted '\'' with '\"' 0x22	*/
+IOKEY(0x2B, 0xBB, PLUS)		/*inserted '+' with '=' 0x3D	*/
+IOKEY(0x2C, 0xBC, COMMA)	/*inserted ',' with '<' 0x3C	*/
+IOKEY(0x2D, 0xBD, MINUS)	/*inserted '-' with '_' 0x5F	*/
+IOKEY(0x2E, 0xBE, PERIOD)	/*inserted '.' with '>' 0x3E	*/
+IOKEY(0x2F, 0xBF, SLASH)	/*inserted '/' with '?' 0x3F	*/
 
-IOKEY(0x3B, 0xBA, SEMICOLON)	//inserted ';' with ':' 0x3A
+IOKEY(0x3B, 0xBA, SEMICOLON)	/*inserted ';' with ':' 0x3A	*/
 
-IOKEY(0x5B, 0xDB, LBRACKET)	//inserted '[' with '{' 0x7B
-IOKEY(0x5C, 0xDC, BACKSLASH)	//inserted '\\' with '|' 0x7C
-IOKEY(0x5D, 0xDD, RBRACKET)	//inserted ']' with '}' 0x7D
-IOKEY(0x60, 0xC0, GRAVEACCENT)	//inserted '`' with '~' 0x7E
+IOKEY(0x5B, 0xDB, LBRACKET)	/*inserted '[' with '{' 0x7B	*/
+IOKEY(0x5C, 0xDC, BACKSLASH)	/*inserted '\\' with '|' 0x7C	*/
+IOKEY(0x5D, 0xDD, RBRACKET)	/*inserted ']' with '}' 0x7D	*/
+IOKEY(0x60, 0xC0, GRAVEACCENT)	/*inserted '`' with '~' 0x7E	*/
 
 IOKEY(0x7F, 0x2E, DEL)
 
-IOKEY(0x84, 0x10, SHIFT)	//inserted
-IOKEY(0x85, 0x11, CTRL)		//inserted
-IOKEY(0x86, 0x12, ALT)		//inserted
-IOKEY(0x87, 0x00, START)	//inserted
+IOKEY(0x84, 0x10, SHIFT)	/*inserted	*/
+IOKEY(0x85, 0x11, CTRL)		/*inserted	*/
+IOKEY(0x86, 0x12, ALT)		/*inserted	*/
+IOKEY(0x87, 0x00, START)	/*inserted	*/
 
 IOKEY(0xA0, 0x60, NP_0)
 IOKEY(0xA1, 0x61, NP_1)
@@ -177,20 +184,21 @@ IOKEY(0xEB, 0x03, BREAK)
 IOKEY(0xFF, 0x90, NUMLOCK)
 
 #undef	IOKEY
+	KEY_DUMMY
 } IOKey;
 
 
-//callbacks - implement these in your application:
-int io_init(int argc, char **argv);//return false to abort
+/*callbacks - implement these in your application:*/
+int io_init(int argc, char **argv);/*return false to abort*/
 void io_resize(void);
-int io_mousemove(void);//return true to redraw
+int io_mousemove(void);/*return true to redraw*/
 int io_mousewheel(int forward);
 int io_keydn(IOKey key, char c);
 int io_keyup(IOKey key, char c);
 void io_timer(void);
 void io_render(void);
-int io_quit_request(void);//return 1 to exit
-void io_cleanup(void);//cleanup
+int io_quit_request(void);/*return 1 to exit*/
+void io_cleanup(void);/*cleanup*/
 
 
 void   console_start(void);
@@ -203,15 +211,15 @@ int    console_scan_int(void);
 double console_scan_float(void);
 
 int sys_check(const char *file, int line, const char *info);
-#define SYS_ASSERT(SUCCESS)	((void)((SUCCESS)!=0||sys_check(file, __LINE__, 0)))
+#define SYS_ASSERT(SUCCESS)	((void)((SUCCESS)!=0||sys_check(__FILE__, __LINE__, 0)))
 
 typedef enum MessageBoxTypeEnum
 {
 	MBOX_OK,
 	MBOX_OKCANCEL,
-	MBOX_YESNOCANCEL,
+	MBOX_YESNOCANCEL
 } MessageBoxType;
-int messagebox(MessageBoxType type, const char *title, const char *format, ...);//returns index of pressed button
+int messagebox(MessageBoxType type, const char *title, const char *format, ...);/*returns index of pressed button*/
 
 typedef struct FilterStruct
 {
@@ -239,9 +247,9 @@ void show_mouse(int show);
 void swapbuffers(void);
 
 
-//OpenGL standard macros & types
+/*OpenGL standard macros & types*/
 #if 1
-#define GL_FUNC_ADD		0x8006//GL/glew.h
+#define GL_FUNC_ADD		0x8006/*GL/glew.h*/
 #define GL_MIN			0x8007
 #define GL_MAX			0x8008
 #define GL_MAJOR_VERSION	0x821B
@@ -273,7 +281,7 @@ void swapbuffers(void);
 #define GL_COMPILE_STATUS	0x8B81
 #define GL_LINK_STATUS		0x8B82
 #define GL_INFO_LOG_LENGTH	0x8B84
-#define GL_DEBUG_OUTPUT		0x92E0//OpenGL 4.3+
+#define GL_DEBUG_OUTPUT		0x92E0/*OpenGL 4.3+*/
 
 #define GLFUNCLIST\
 	GLFUNC(glBlendEquation)\
@@ -313,9 +321,13 @@ void swapbuffers(void);
 	GLFUNC(glUniform3f)\
 	GLFUNC(glUniform3fv)\
 	GLFUNC(glUniform4f)\
-	GLFUNC(glUniform4fv)
-//	GLFUNC(glGenVertexArrays)
-//	GLFUNC(glDeleteVertexArrays)
+	GLFUNC(glUniform4fv)\
+
+#if 0
+	GLFUNC(glGenVertexArrays)\
+	GLFUNC(glDeleteVertexArrays)\
+
+#endif
 typedef void     (__stdcall *t_glBlendEquation)(unsigned mode);
 typedef void     (__stdcall *t_glBindVertexArray)(unsigned arr);
 typedef void     (__stdcall *t_glGenBuffers)(int n, unsigned *buffers);
@@ -354,15 +366,17 @@ typedef void     (__stdcall *t_glUniform3f)(int location, float v0, float v1, fl
 typedef void     (__stdcall *t_glUniform3fv)(int location, int count, const float *value);
 typedef void     (__stdcall *t_glUniform4f)(int location, float v0, float v1, float v2, float v3);
 typedef void     (__stdcall *t_glUniform4fv)(int location, int count, float *value);
-//typedef void   (__stdcall *t_glGenVertexArrays)(int n, unsigned *arrays);//OpenGL 3.0
-//typedef void   (__stdcall *t_glDeleteVertexArrays)(int n, unsigned *arrays);//OpenGL 3.0
+#if 0
+typedef void   (__stdcall *t_glGenVertexArrays)(int n, unsigned *arrays);/*OpenGL 3.0*/
+typedef void   (__stdcall *t_glDeleteVertexArrays)(int n, unsigned *arrays);/*OpenGL 3.0*/
+#endif
 #endif
 
 #define GLFUNC(X) extern t_##X X;
 GLFUNCLIST
 #undef  GLFUNC
 
-//Macros for 3D		DO NOT NEST THE MACROS LIKE f(g(x), h(y))
+/*Macros for 3D		DO NOT NEST THE MACROS LIKE f(g(x), h(y))*/
 #if 1
 #define vec2_copy(DST, SRC)	(DST)[0]=(SRC)[0], (DST)[1]=(SRC)[1]
 #define vec2_add(DST, A, B)	(DST)[0]=(A)[0]+(B)[0], (DST)[1]=(A)[1]+(B)[1]
@@ -373,7 +387,7 @@ GLFUNCLIST
 #define vec2_div1(DST, V, S)	(DST)[0]=(V)[0]/(S), (DST)[1]=(V)[1]/(S)
 #define vec2_dot(A, B)		((A)[0]*(B)[0]+(A)[1]*(B)[1])
 #define vec2_cross(DST, A, B)	((A)[0]*(B)[1]-(A)[1]*(B)[0])
-#define vec2_abs(A)		sqrtf(vec2_dot(A, A))
+#define vec2_abs(A)		(float)sqrt(vec2_dot(A, A))
 #define vec2_abs2(A)		vec2_dot(A, A)
 #define vec2_arg(A)		atan((A)[1]/(A)[0])
 #define vec2_arg2(A)		atan2((A)[1], (A)[0])
@@ -400,9 +414,9 @@ GLFUNCLIST
 	(DST)[2]=(A)[0]*(B)[1]-(A)[1]*(B)[0]
 #define vec3_triple_product(DST, A, B, C, TEMP_F1, TEMP_F2)\
 	TEMP_F1=vec3_dot(A, C), TEMP_F2=vec3_dot(B, C), (DST)[0]=TEMP_F1*(B)[0]-TEMP_F2*(C)[0], (DST)[1]=TEMP_F1*(B)[1]-TEMP_F2*(C)[1], (DST)[2]=TEMP_F1*(B)[2]-TEMP_F2*(C)[2]
-#define vec3_abs(A)		sqrtf(vec3_dot(A, A))
+#define vec3_abs(A)		(float)sqrt(vec3_dot(A, A))
 #define vec3_abs2(A)		vec3_dot(A, A)
-#define vec3_theta(A)		atan((A)[2]/sqrtf((A)[0]*(A)[0]+(A)[1]*(A)[1]))
+#define vec3_theta(A)		atan((A)[2]/(float)sqrt((A)[0]*(A)[0]+(A)[1]*(A)[1]))
 #define vec3_phi(A)		atan((A)[1]/(A)[0])
 #define vec3_phi2(A)		atan2((A)[1], (A)[0])
 #define vec3_isnan(A)		((A)[0]!=(A)[0]||(A)[1]!=(A)[1]||(A)[2]!=(A)[2])
@@ -416,20 +430,24 @@ GLFUNCLIST
 	(DST)[1]=(A)[1]+((B)[1]-(A)[1])*(X),\
 	(DST)[2]=(A)[2]+((B)[2]-(A)[2])*(X)
 
-//column-major
+/*column-major*/
 #define mat3_diag(MAT3, GAIN) memset(MAT3, 0, 9*sizeof(float)), (MAT)[0]=(MAT)[1]=(MAT)[2]=GAIN
-//#define mat3_diag(MAT3, GAIN)	(MAT3)[0]=GAIN, (MAT3)[1]=0, (MAT3)[2]=0, (MAT3)[3]=0, (MAT3)[4]=GAIN, (MAT3)[5]=0, (MAT3)[6]=0, (MAT3)[7]=0, (MAT3)[8]=GAIN
+#if 0
+#define mat3_diag(MAT3, GAIN)	(MAT3)[0]=GAIN, (MAT3)[1]=0, (MAT3)[2]=0, (MAT3)[3]=0, (MAT3)[4]=GAIN, (MAT3)[5]=0, (MAT3)[6]=0, (MAT3)[7]=0, (MAT3)[8]=GAIN
+#endif
 
 #define vec4_copy(DST, SRC) (DST)[0]=(SRC)[0], (DST)[1]=(SRC)[1], (DST)[2]=(SRC)[2], (DST)[3]=(SRC)[3]
 #define vec4_dot(DST, A, B, TEMP_V1, TEMP_V2) TEMP_V1=_mm_loadu_ps(A), TEMP_V1=_mm_mul_ps(TEMP_V1, _mm_loadu_ps(B)), TEMP_V1=_mm_hadd_ps(TEMP_V1, TEMP_V1), TEMP_V1=_mm_hadd_ps(TEMP_V1, TEMP_V1), _mm_store_ss(DST, TEMP_V1)
 #define vec4_add(DST, A, B) (DST)[0]=(A)[0]+(B)[0], (DST)[1]=(A)[1]+(B)[1], (DST)[2]=(A)[2]+(B)[2], (DST)[3]=(A)[3]+(B)[3]
 #define vec4_sub(DST, A, B) (DST)[0]=(A)[0]-(B)[0], (DST)[1]=(A)[1]-(B)[1], (DST)[2]=(A)[2]-(B)[2], (DST)[3]=(A)[3]-(B)[3]
 #define vec4_mul1(DST, V, S) (DST)[0]=(V)[0]*(S), (DST)[1]=(V)[1]*(S), (DST)[2]=(V)[2]*(S), (DST)[3]=(V)[3]*(S)
-//#define vec4_add(DST, A, B) {_mm_storeu_ps(DST, _mm_add_ps(_mm_loadu_ps(A), _mm_loadu_ps(B)));}
-//#define vec4_sub(DST, A, B) {_mm_storeu_ps(DST, _mm_sub_ps(_mm_loadu_ps(A), _mm_loadu_ps(B)));}
-//#define vec4_mul1(DST, A, S) {_mm_storeu_ps(DST, _mm_sub_ps(_mm_loadu_ps(A), _mm_set1_ps(S)));}
+#if 0
+#define vec4_add(DST, A, B) {_mm_storeu_ps(DST, _mm_add_ps(_mm_loadu_ps(A), _mm_loadu_ps(B)));}
+#define vec4_sub(DST, A, B) {_mm_storeu_ps(DST, _mm_sub_ps(_mm_loadu_ps(A), _mm_loadu_ps(B)));}
+#define vec4_mul1(DST, A, S) {_mm_storeu_ps(DST, _mm_sub_ps(_mm_loadu_ps(A), _mm_set1_ps(S)));}
+#endif
 
-//column-major
+/*column-major*/
 #define mat4_copy(DST, SRC) memcpy(DST, SRC, 16*sizeof(float));
 #define mat4_identity(M4, GAIN) memset(M4, 0, 16*sizeof(float)), (M4)[0]=(M4)[5]=(M4)[10]=(M4)[15]=GAIN
 #define mat4_data(M4, X, Y) (M4)[(X)<<2|(Y)]
@@ -500,8 +518,8 @@ GLFUNCLIST
 typedef struct CameraStruct
 {
 	float
-		x, y, z,//position
-		ax, ay,//yaw/phi, pitch/theta
+		x, y, z,/*position*/
+		ax, ay,/*yaw/phi, pitch/theta*/
 		tanfov,
 		move_speed, turn_speed,
 		cax, sax, cay, say;
@@ -513,8 +531,8 @@ typedef struct CameraStruct
 #define cam_moveRight(CAM, SPEED)   (CAM).x+=(SPEED)*(CAM).sax, (CAM).y-=(SPEED)*(CAM).cax
 #define cam_moveUp(CAM, SPEED)      (CAM).z+=SPEED
 #define cam_moveDown(CAM, SPEED)    (CAM).z-=SPEED
-#define cam_update_ax(CAM)          (CAM).ax=fmodf((CAM).ax, (float)(2*M_PI)), (CAM).cax=cosf((CAM).ax), (CAM).sax=sinf((CAM).ax)
-#define cam_update_ay(CAM)          (CAM).ay=fmodf((CAM).ay, (float)(2*M_PI)), (CAM).cay=cosf((CAM).ay), (CAM).say=sinf((CAM).ay)
+#define cam_update_ax(CAM)          (CAM).ax=(CAM).ax-(float)(floor((CAM).ax*(1./(2*M_PI)))*(2*M_PI)), (CAM).cax=(float)cos((CAM).ax), (CAM).sax=(float)sin((CAM).ax)
+#define cam_update_ay(CAM)          (CAM).ay=(CAM).ay-(float)(floor((CAM).ay*(1./(2*M_PI)))*(2*M_PI)), (CAM).cay=(float)cos((CAM).ay), (CAM).say=(float)sin((CAM).ay)
 #define cam_turnUp(CAM, SPEED)      (CAM).ay+=(SPEED)*(CAM).turn_speed, cam_update_ay(CAM)
 #define cam_turnDown(CAM, SPEED)    (CAM).ay-=(SPEED)*(CAM).turn_speed, cam_update_ay(CAM)
 #define cam_turnLeft(CAM, SPEED)    (CAM).ax+=(SPEED)*(CAM).turn_speed, cam_update_ax(CAM)
@@ -550,15 +568,15 @@ typedef struct CameraStruct
 #define NDC2screen_y_bias(Y)  (NS_y1*(Y)+NS_y0-0.5f)
 
 
-//The Graphics API
-void gl_init(void);
+/*The Graphics API*/
+int gl_init(void);
 
 extern int error;
 extern const char *gl_error_msg;
 const char* glerr2str(int error);
-#define GL_CHECK(E) (void)((E=glGetError())==0||log_error(file, __LINE__, 1, gl_error_msg, E, glerr2str(E)))
+#define CHECK_GL(E) (void)((E=glGetError())==0||crash(__FILE__, __LINE__, 1, gl_error_msg, E, glerr2str(E)))
 
-void set_region_immediate(int x1, int x2, int y1, int y2);//calls glViewport
+void set_region_immediate(int x1, int x2, int y1, int y2);/*calls glViewport*/
 
 void send_texture_pot(unsigned gl_texture, const int *rgba, int txw, int txh, int linear);
 void send_texture_pot_grey(unsigned gl_texture, const uint8_t *bmp, int txw, int txh, int linear);
@@ -582,9 +600,9 @@ void draw_2d_flush(ArrayHandle vertices, int color, unsigned primitive);
 int toggle_sdftext(void);
 int set_text_color(int color_txt);
 int set_bk_color(int color_bk);
-long long set_text_colors(long long colors);//0xBKBKBKBK_TXTXTXTX
-float print_line_immediate(float tab_origin, float x, float y, float zoom, const char *msg, int msg_length, int req_cols, int *ret_idx, int *ret_cols);//returns text width
-float GUIPrint(float tab_origin, float x, float y, float zoom, const char *format, ...);//returns text width
+uint64_t set_text_colors(uint64_t colors);/*0xBKBKBKBK_TXTXTXTX*/
+float print_line_immediate(float tab_origin, float x, float y, float zoom, const char *msg, int msg_length, int req_cols, int *ret_idx, int *ret_cols);/*returns text width*/
+float GUIPrint(float tab_origin, float x, float y, float zoom, const char *format, ...);/*returns text width*/
 extern int g_printed;
 float GUIPrint_append(float tab_origin, float x, float y, float zoom, int show, const char *format, ...);
 
@@ -595,11 +613,11 @@ void print_line_flush(ArrayHandle vertices, float zoom);
 void display_texture(int x1, int x2, int y1, int y2, unsigned txid, float alpha, float tx1, float tx2, float ty1, float ty2);
 void display_texture_i(int x1, int x2, int y1, int y2, int *rgb, int txw, int txh, float tx1, float tx2, float ty1, float ty2, float alpha, int linear);
 
-//3D
+/*3D*/
 void mat4_lookAt(float *dst, const float *cam, const float *center, const float *up);
 void mat4_FPSView(float *dst, const float *campos, float yaw, float pitch);
 void mat4_perspective(float *dst, float tanfov, float w_by_h, float znear, float zfar);
-void mat4_normalmat3(float *dst, float *m4);//inverse transpose of top left 3x3 submatrix
+void mat4_normalmat3(float *dst, float *m4);/*inverse transpose of top left 3x3 submatrix*/
 
 void draw_3D_triangles(Camera const *cam, unsigned vbuf, size_t offset, int nvertices, unsigned txid);
 
@@ -611,7 +629,7 @@ typedef struct GPUModelStruct
 void gpubuf_send_VNT(GPUModel *dst, const float *VVVNNNTT, int n_floats, const int *indices, int n_ints);
 void draw_L3D(Camera const *cam, GPUModel const *model, const float *modelpos, const float *lightpos, int lightcolor);
 
-void draw_3d_line(Camera const *cam, const float *w1, const float *w2, int color);//world coordinates
+void draw_3d_line(Camera const *cam, const float *w1, const float *w2, int color);/*world coordinates*/
 
 void draw_3d_line_enqueue(ArrayHandle *vertices, float x, float y, float z);
 void draw_3d_flush(ArrayHandle vertices, Camera const *cam, int *texture, int tw, int th, int linear, unsigned primitive);
@@ -628,16 +646,16 @@ unsigned short* stbi_load_16(char const *filename, int *x, int *y, int *comp, in
 
 
 
-//Entropy Benchmark (eBench)
-typedef struct ImageStruct
+/*Entropy Benchmark (eBench)*/
+typedef struct _Image
 {
 	int32_t iw, ih;
 	int16_t
 		rct,
-		nch;//{greyscale, greyscale+alpha, RGB, RGB+alpha}	alpha can be ignored for now
+		nch;/*{greyscale, greyscale+alpha, RGB, RGB+alpha}	alpha can be ignored for now*/
 	int8_t depth[4];
-	int8_t src_depth[4];//for entropy calculations
-	int32_t data[];//stride always sizeof(int[4])
+	int8_t src_depth[4];/*for entropy calculations*/
+	/*int32_t data[];*//*stride always sizeof(int[4])*/
 } Image;
 Image* image_load(const char *fn, int fnlen);
 int image_save_uint8(const char *fn, Image const *image, int override_alpha);
@@ -649,11 +667,11 @@ size_t image_getbufsize(Image const *image);
 void image_copy_nodata(Image **dst, Image const *src);
 void image_copy(Image **dst, Image const *src);
 int copy_bmp_to_clipboard(const uint8_t *rgba, int iw, int ih);
-Image* paste_bmp_from_clipboard(void);//window.c
+Image* paste_bmp_from_clipboard(void);/*window.c*/
 
 
-//extern Image *im0, *im1;
-extern ArrayHandle fn;
+/*extern Image *im0, *im1;*/
+extern ArrayHandle currfn;
 extern double ch_entropy[4];
 extern int loud_transforms;
 extern int g_dist;
@@ -662,22 +680,22 @@ void calc_csize_stateful(Image const *image, int *hist_full, double *entropy);
 void batch_test2(int custom);
 
 
-//transforms
+/*transforms*/
 void apply_transform(Image **image, int tid, int hasRCT);
 void apply_selected_transforms(Image **pimage, int rct_only, int applyfwd, int applyinv);
 
 
-//aux func
+/*aux func*/
 void calc_histogram(const int *buf, int iw, int ih, int kc, int x1, int x2, int y1, int y2, int depth, int *hist, int *hist8);
-double calc_entropy(const int *hist, int nlevels, int sum);//pass -1 if sum is unknown
-int calc_maxdepth(Image const *image, int *inflation);
+double calc_entropy(const int *hist, int nlevels, int sum);/*pass -1 if sum is unknown*/
+int calc_maxdepth(Image const *image, const int *inflation);
 void calc_depthfromdata(int *image, int iw, int ih, char *depths, const char *src_depths);
 void calc_csize_ans_separate(Image const *image, size_t *csizes);
 void calc_csize_ans_energy(Image const *image, size_t *csizes);
 void calc_csize_ans_energy_hybrid(Image const *image, size_t *csizes, const int *config);
 
 
-//color transforms
+/*color transforms*/
 void colortransform_YCoCg_R(Image *image, int fwd);
 void colortransform_YCbCr_R_v1(Image *image, int fwd);
 void colortransform_YCbCr_R_v2(Image *image, int fwd);
@@ -686,23 +704,16 @@ void colortransform_YCbCr_R_v4(Image *image, int fwd);
 void colortransform_YCbCr_R_v5(Image *image, int fwd);
 void colortransform_YCbCr_R_v6(Image *image, int fwd);
 void colortransform_YCbCr_R_v7(Image *image, int fwd);
-void colortransform_CrCgCb_R(Image *image, int fwd);
 void colortransform_Pei09(Image *image, int fwd);
-void colortransform_subg_opt(Image *image, int fwd);
+void colortransform_optsub(Image *image, int fwd);
 void colortransform_JPEG2000(Image *image, int fwd);
 void colortransform_JPEG2000_MA(Image *image, int fwd);
 void colortransform_NBLI(Image *image, int fwd);
 void colortransform_subtractgreen(Image *image, int fwd);
-void colortransform_J2K2(Image *image, int fwd);
-void rct_yrgb_v1(Image *image, int fwd);
-void rct_yrgb_v2(Image *image, int fwd);
-void ct_cmyk_fwd(Image *image);
 void ct_histmatch(Image *image, int fwd);
 
 void colortransform_lossy_YCbCr(Image *image, int fwd);
 void colortransform_lossy_XYB(Image *image, int fwd);
-void colortransform_lossy_matrix(Image *image, int fwd);
-void colortransform_lossy_pca(Image *image, int fwd);
 
 #define RCT_CUSTOM_NPARAMS 9
 #define RCT_CUSTOM_PARAMBITS 12
@@ -712,10 +723,8 @@ void rct_custom(Image *image, int fwd, const short *params);
 void rct_custom_optimize(Image const *image, short *params);
 void rct_custom_getmatrix(double *matrix, int fwd);
 
-void rct_adaptive(Image *src, int fwd);
 
-
-//cRCT
+/*cRCT*/
 #if 1
 	#define ENABLE_EXTENDED_RCT
 typedef enum _RCTInfoIdx
@@ -732,7 +741,7 @@ typedef enum _RCTInfoIdx
 	II_COEFF_V_SUB_Y,
 	II_COEFF_V_SUB_U,
 
-	II_COUNT,
+	II_COUNT
 } RCTInfoIdx;
 #ifdef ENABLE_EXTENDED_RCT
 #define OCHLIST\
@@ -767,7 +776,7 @@ typedef enum _OCHIndex
 	OCH_B2=OCH_C22X,
 	OCH_R3=OCH_CX31,
 	OCH_G3=OCH_C1X3,
-	OCH_B3=OCH_C31X,
+	OCH_B3=OCH_C31X
 } OCHIndex;
 #endif
 #ifndef ENABLE_EXTENDED_RCT
@@ -782,7 +791,7 @@ typedef enum _OCHIndex
 	OCH_COUNT,
 	OCH_GR=OCH_RG,
 	OCH_BG=OCH_GB,
-	OCH_RB=OCH_BR,
+	OCH_RB=OCH_BR
 } OCHIndex;
 #endif
 #ifdef ENABLE_EXTENDED_RCT
@@ -852,23 +861,25 @@ typedef enum _OCHIndex
 #endif
 typedef enum _RCTIndex
 {
-#define RCT(LABEL, ...) RCT_##LABEL,
+#define RCT(LABEL, OCH0,OCH1,OCH2,P0,P1,P2,U0,V0,V1) RCT_##LABEL,
 	RCTLIST
 #undef  RCT
-	RCT_COUNT,
+	RCT_COUNT
 } RCTIndex;
 static const uint8_t rct_combinations[RCT_COUNT][II_COUNT]=
 {
-#define RCT(LABEL, ...) {__VA_ARGS__},
+#define RCT(LABEL, OCH0,OCH1,OCH2,P0,P1,P2,U0,V0,V1) {OCH0,OCH1,OCH2,P0,P1,P2,U0,V0,V1},
 	RCTLIST
 #undef  RCT
 };
+#if 0
 static const char *rct_names[]=
 {
-#define RCT(LABEL, ...) #LABEL,
+#define RCT(LABEL, OCH0,OCH1,OCH2,P0,P1,P2,U0,V0,V1) #LABEL,
 	RCTLIST
 #undef  RCT
 };
+#endif
 int crct_analysis(Image *src);
 int crct_analysis2(Image *src);
 #endif
@@ -881,32 +892,33 @@ static const uint8_t perms[]=
 static const uint8_t crct2_uc[]=
 {
 #if 1
-//	- 5,
-//	- 4,
-//	- 3,
-//	- 2,
-//	- 1,
+/*	- 5,
+	- 4,
+	- 3,
+	- 2,
+	- 1,*/
 	+ 0,
-//	+ 7,
+/*	+ 7,*/
 	+ 8,
-//	+ 9,
+/*	+ 9,*/
 	+10,
-//	+11,
+/*	+11,*/
 	+12,
 	+13,
 	+14,
-//	+15,
+/*	+15,*/
 	+16,
-//	+17,
-//	+18,
-//	+19,
-//	+20,
+/*	+17,
+	+18,
+	+19,
+	+20,*/
 #endif
+
 #if 0
 	0,
-//	1,
-//	2,
-//	3,
+/*	1,
+	2,
+	3,*/
 	4,
 	5,
 	6,
@@ -917,208 +929,214 @@ static const uint8_t crct2_uc[]=
 static const int8_t crct2_vc[]=
 {
 #if 1
-	+ 0, + 0,//+ 0
-	+ 0, + 4,//+ 4
-	+ 2, + 2,//+ 4
-	+ 4, + 0,//+ 4
-	+ 0, + 6,//+ 6
-	+ 2, + 4,//+ 6
-	+ 6, + 0,//+ 6
-	+ 0, + 8,//+ 8
-	+ 2, + 6,//+ 8
-	+ 4, + 4,//+ 8
-	+ 6, + 2,//+ 8
-	- 2, +12,//+10
-	+ 0, +10,//+10
-	+ 2, + 8,//+10
-	+ 4, + 6,//+10
-	+ 8, + 2,//+10
-	+10, + 0,//+10
-	+12, - 2,//+10
-	+ 0, +12,//+12
-	+ 2, +10,//+12
-	+ 4, + 8,//+12
-	+ 8, + 4,//+12
-	+10, + 2,//+12
-	+12, + 0,//+12
+	+ 0, + 0,/*+ 0*/
+	+ 0, + 4,/*+ 4*/
+	+ 2, + 2,/*+ 4*/
+	+ 4, + 0,/*+ 4*/
+	+ 0, + 6,/*+ 6*/
+	+ 2, + 4,/*+ 6*/
+	+ 6, + 0,/*+ 6*/
+	+ 0, + 8,/*+ 8*/
+	+ 2, + 6,/*+ 8*/
+	+ 4, + 4,/*+ 8*/
+	+ 6, + 2,/*+ 8*/
+	- 2, +12,/*+10*/
+	+ 0, +10,/*+10*/
+	+ 2, + 8,/*+10*/
+	+ 4, + 6,/*+10*/
+	+ 8, + 2,/*+10*/
+	+10, + 0,/*+10*/
+	+12, - 2,/*+10*/
+	+ 0, +12,/*+12*/
+	+ 2, +10,/*+12*/
+	+ 4, + 8,/*+12*/
+	+ 8, + 4,/*+12*/
+	+10, + 2,/*+12*/
+	+12, + 0,/*+12*/
+/*	+ 0, +13,  +13*/
+	+ 1, +12,/*+13*/
+/*	+ 2, +11,  +13*/
+/*	+ 3, +10,  +13*/
+/*	+ 4, + 9,  +13*/
+/*	+ 5, + 8,  +13*/
+/*	+ 6, + 7,  +13*/
+/*	+ 7, + 6,  +13*/
+/*	+ 8, + 5,  +13*/
+/*	+ 9, + 4,  +13*/
+/*	+10, + 3,  +13*/
+/*	+11, + 2,  +13*/
+	+12, + 1,/*+13*/
+/*	+13, + 0,  +13*/
 
-//	+ 0, +13,//+13
-	+ 1, +12,//+13
-//	+ 2, +11,//+13
-//	+ 3, +10,//+13
-//	+ 4, + 9,//+13
-//	+ 5, + 8,//+13
-//	+ 6, + 7,//+13
-//	+ 7, + 6,//+13
-//	+ 8, + 5,//+13
-//	+ 9, + 4,//+13
-//	+10, + 3,//+13
-//	+11, + 2,//+13
-	+12, + 1,//+13
-//	+13, + 0,//+13
+	+ 0, +14,/*+14*/
+/*	+ 2, +12,  +14*/
+	+12, + 2,/*+14*/
+/*	+14, + 0,  +14*/
 
-	+ 0, +14,//+14
-//	+ 2, +12,//+14
-	+12, + 2,//+14
-//	+14, + 0,//+14
-
-//	+ 0, +15,//+15
-//	+ 1, +14,//+15
-//	+ 2, +13,//+15
-//	+ 3, +12,//+15
-//	+ 4, +11,//+15
-//	+ 5, +10,//+15
-//	+ 6, + 9,//+15
-//	+ 7, + 8,//+15
-//	+ 8, + 7,//+15
-//	+ 9, + 6,//+15
-//	+10, + 5,//+15
-//	+11, + 4,//+15
-//	+12, + 3,//+15
-//	+13, + 2,//+15
-//	+14, + 1,//+15
-//	+15, + 0,//+15
-
-	+ 0, +16,//+16
-	+ 8, + 8,//+16
-	+14, + 2,//+16
-	+16, + 0,//+16
-//	+ 0, +17,//+17
-//	+17, + 0,//+17
-	+ 2, +16,//+18
-	+16, + 2,//+18
-//	+ 3, +16,//+19
-//	+16, + 3,//+19
-	+ 4, +16,//+20
-	+16, + 4,//+20
-//	+ 5, +16,//+21
-//	+16, + 5,//+21
-	+ 6, +16,//+22
-	+16, + 6,//+22
-//	+ 7, +16,//+23
-//	+16, + 7,//+23
-#endif
 #if 0
-//	-1, -1,//- 2
-//	-1, +0,//- 1
-//	+0, -1,//- 1
-//	-1, +1,//+ 0
-	+0, +0,//+ 0
-//	+1, -1,//+ 0
-//	+0, +1,//+ 1
-//	+1, +0,//+ 1
-//	-1, +3,//+ 2
-	+0, +2,//+ 2
-	+1, +1,//+ 2
-	+2, +0,//+ 2
-//	+3, -1,//+ 2
-//	-1, +4,//+ 3
-	+0, +3,//+ 3
-	+1, +2,//+ 3
-//	+2, +1,//+ 3
-	+3, +0,//+ 3
-//	+4, -1,//+ 3
-//	-1, +5,//+ 4
-	+0, +4,//+ 4
-	+1, +3,//+ 4
-	+2, +2,//+ 4
-	+3, +1,//+ 4
-//	+4, +0,//+ 4
-//	+5, -1,//+ 4
-	-1, +6,//+ 5
-	+0, +5,//+ 5
-	+1, +4,//+ 5
-	+2, +3,//+ 5
-//	+3, +2,//+ 5
-	+4, +1,//+ 5
-	+5, +0,//+ 5
-	+6, -1,//+ 5
-//	-1, +7,//+ 6
-	+0, +6,//+ 6
-	+1, +5,//+ 6
-	+2, +4,//+ 6
-//	+3, +3,//+ 6
-	+4, +2,//+ 6
-	+5, +1,//+ 6
-	+6, +0,//+ 6
-//	+7, -1,//+ 6
-//	-1, +8,//+ 7
-	+0, +7,//+ 7
-//	+1, +6,//+ 7
-//	+2, +5,//+ 7
-//	+3, +4,//+ 7
-//	+4, +3,//+ 7
-//	+5, +2,//+ 7
-	+6, +1,//+ 7
-//	+7, +0,//+ 7
-//	+8, -1,//+ 7
-//	-1, +9,//+ 8
-	+0, +8,//+ 8
-//	+1, +7,//+ 8
-//	+2, +6,//+ 8
-//	+3, +5,//+ 8
-	+4, +4,//+ 8
-//	+5, +3,//+ 8
-//	+6, +2,//+ 8
-	+7, +1,//+ 8
-	+8, +0,//+ 8
-//	+9, -1,//+ 8
-//	+0, +9,//+ 9
-	+1, +8,//+ 9
-//	+2, +7,//+ 9
-//	+3, +6,//+ 9
-//	+4, +5,//+ 9
-//	+5, +4,//+ 9
-//	+6, +3,//+ 9
-//	+7, +2,//+ 9
-	+8, +1,//+ 9
-//	+9, +0,//+ 9
-//	+1, +9,//+10
-	+2, +8,//+10
-//	+3, +7,//+10
-//	+4, +6,//+10
-//	+5, +5,//+10
-//	+6, +4,//+10
-//	+7, +3,//+10
-	+8, +2,//+10
-//	+9, +1,//+10
-//	+2, +9,//+11
-	+3, +8,//+11
-//	+4, +7,//+11
-//	+5, +6,//+11
-//	+6, +5,//+11
-//	+7, +4,//+11
-	+8, +3,//+11
-//	+9, +2,//+11
-//	+4, +8,//+12
-//	+5, +7,//+12
-//	+6, +6,//+12
-//	+7, +5,//+12
-//	+8, +4,//+12
-//	+5, +8,//+13
-//	+6, +7,//+13
-//	+7, +6,//+13
-//	+8, +5,//+13
-//	+6, +8,//+14
-//	+7, +7,//+14
-//	+8, +6,//+14
-//	+7, +8,//+15
-//	+8, +7,//+15
-//	+8, +8,//+16
+	+ 0, +15,/*+15*/
+	+ 1, +14,/*+15*/
+	+ 2, +13,/*+15*/
+	+ 3, +12,/*+15*/
+	+ 4, +11,/*+15*/
+	+ 5, +10,/*+15*/
+	+ 6, + 9,/*+15*/
+	+ 7, + 8,/*+15*/
+	+ 8, + 7,/*+15*/
+	+ 9, + 6,/*+15*/
+	+10, + 5,/*+15*/
+	+11, + 4,/*+15*/
+	+12, + 3,/*+15*/
+	+13, + 2,/*+15*/
+	+14, + 1,/*+15*/
+	+15, + 0,/*+15*/
+#endif
+
+	+ 0, +16,/*+16*/
+	+ 8, + 8,/*+16*/
+	+14, + 2,/*+16*/
+	+16, + 0,/*+16*/
+/*	+ 0, +17,  +17*/
+/*	+17, + 0,  +17*/
+	+ 2, +16,/*+18*/
+	+16, + 2,/*+18*/
+/*	+ 3, +16,  +19*/
+/*	+16, + 3,  +19*/
+	+ 4, +16,/*+20*/
+	+16, + 4,/*+20*/
+/*	+ 5, +16,  +21*/
+/*	+16, + 5,  +21*/
+	+ 6, +16,/*+22*/
+	+16, + 6,/*+22*/
+/*	+ 7, +16,  +23*/
+/*	+16, + 7,  +23*/
+#endif
+
+#if 0
+/*	-1, -1,  - 2*/
+/*	-1, +0,  - 1*/
+/*	+0, -1,  - 1*/
+/*	-1, +1,  + 0*/
+	+0, +0,/*+ 0*/
+/*	+1, -1,  + 0*/
+/*	+0, +1,  + 1*/
+/*	+1, +0,  + 1*/
+/*	-1, +3,  + 2*/
+	+0, +2,/*+ 2*/
+	+1, +1,/*+ 2*/
+	+2, +0,/*+ 2*/
+/*	+3, -1,  + 2*/
+/*	-1, +4,  + 3*/
+	+0, +3,/*+ 3*/
+	+1, +2,/*+ 3*/
+/*	+2, +1,  + 3*/
+	+3, +0,/*+ 3*/
+/*	+4, -1,  + 3*/
+/*	-1, +5,  + 4*/
+	+0, +4,/*+ 4*/
+	+1, +3,/*+ 4*/
+	+2, +2,/*+ 4*/
+	+3, +1,/*+ 4*/
+/*	+4, +0,  + 4*/
+/*	+5, -1,  + 4*/
+	-1, +6,/*+ 5*/
+	+0, +5,/*+ 5*/
+	+1, +4,/*+ 5*/
+	+2, +3,/*+ 5*/
+/*	+3, +2,  + 5*/
+	+4, +1,/*+ 5*/
+	+5, +0,/*+ 5*/
+	+6, -1,/*+ 5*/
+/*	-1, +7,  + 6*/
+	+0, +6,/*+ 6*/
+	+1, +5,/*+ 6*/
+	+2, +4,/*+ 6*/
+/*	+3, +3,  + 6*/
+	+4, +2,/*+ 6*/
+	+5, +1,/*+ 6*/
+	+6, +0,/*+ 6*/
+/*	+7, -1,  + 6*/
+/*	-1, +8,  + 7*/
+	+0, +7,/*+ 7*/
+/*	+1, +6,  + 7*/
+/*	+2, +5,  + 7*/
+/*	+3, +4,  + 7*/
+/*	+4, +3,  + 7*/
+/*	+5, +2,  + 7*/
+	+6, +1,/*+ 7*/
+/*	+7, +0,  + 7*/
+/*	+8, -1,  + 7*/
+/*	-1, +9,  + 8*/
+	+0, +8,/*+ 8*/
+/*	+1, +7,  + 8*/
+/*	+2, +6,  + 8*/
+/*	+3, +5,  + 8*/
+	+4, +4,/*+ 8*/
+/*	+5, +3,  + 8*/
+/*	+6, +2,  + 8*/
+	+7, +1,/*+ 8*/
+	+8, +0,/*+ 8*/
+/*	+9, -1,  + 8*/
+/*	+0, +9,  + 9*/
+	+1, +8,/*+ 9*/
+/*	+2, +7,  + 9*/
+/*	+3, +6,  + 9*/
+/*	+4, +5,  + 9*/
+/*	+5, +4,  + 9*/
+/*	+6, +3,  + 9*/
+/*	+7, +2,  + 9*/
+	+8, +1,/*+ 9*/
+/*	+9, +0,  + 9*/
+/*	+1, +9,  +10*/
+	+2, +8,/*+10*/
+/*	+3, +7,  +10*/
+/*	+4, +6,  +10*/
+/*	+5, +5,  +10*/
+/*	+6, +4,  +10*/
+/*	+7, +3,  +10*/
+	+8, +2,/*+10*/
+/*	+9, +1,  +10*/
+/*	+2, +9,  +11*/
+	+3, +8,/*+11*/
+/*	+4, +7,  +11*/
+/*	+5, +6,  +11*/
+/*	+6, +5,  +11*/
+/*	+7, +4,  +11*/
+	+8, +3,/*+11*/
+/*	+9, +2,  +11*/
+/*	+4, +8,  +12*/
+/*	+5, +7,  +12*/
+/*	+6, +6,  +12*/
+/*	+7, +5,  +12*/
+/*	+8, +4,  +12*/
+/*	+5, +8,  +13*/
+/*	+6, +7,  +13*/
+/*	+7, +6,  +13*/
+/*	+8, +5,  +13*/
+/*	+6, +8,  +14*/
+/*	+7, +7,  +14*/
+/*	+8, +6,  +14*/
+/*	+7, +8,  +15*/
+/*	+8, +7,  +15*/
+/*	+8, +8,  +16*/
 #endif
 };
 enum
 {
-	RCTBITS=4,//eBench: NPERMS*RCTLEVELSU*RCTLEVELSV <= 0x7FFF
+	RCTBITS=4,/*eBench: NPERMS*RCTLEVELSU*RCTLEVELSV <= 0x7FFF*/
 	RCTLEVELSU=_countof(crct2_uc),
 	RCTLEVELSV=_countof(crct2_vc)/2,
 	RCTROUND=0,
 
-//	RCTBITS=2,//eBench: up to 4
-//	RCTLEVELS=(1<<RCTBITS)+1,//+unity
-	NPERMS=_countof(perms)/3,
+#if 0
+	RCTBITS=2,/*eBench: up to 4*/
+	RCTLEVELS=(1<<RCTBITS)+1,/*+unity*/
+#endif
+	NPERMS=_countof(perms)/3
 };
+#if 0
 static uint8_t crct2_eBench_assert[NPERMS*RCTLEVELSU*RCTLEVELSV <= 0x7FFF];
+#endif
 typedef struct _RCTInfo
 {
 	uint8_t pidx, uc0, vc0, vc1;
@@ -1129,12 +1147,12 @@ const uint8_t* crct2_unpack(int rctdata, int *uc0, int *vc0, int *vc1);
 
 
 
-//pre-processors
+/*pre-processors*/
 void prep_BWT_x(Image **psrc, int fwd);
 void prep_BWT_y(Image **psrc, int fwd);
 
 
-//spatial transforms
+/*spatial transforms*/
 void filt_deint422(Image *src);
 void filt_deint420(Image *src);
 void packsign(Image *src, int fwd);
@@ -1201,8 +1219,10 @@ void pred_ols2(Image *src, int fwd, int enable_ma);
 void pred_ols3(Image *src, int fwd, int enable_ma);
 #define OLS4_DEFAULT_PERIOD 128
 #define OLS4_DEFAULT_LR 0.0018
-//#define OLS4_DEFAULT_PERIOD 32
-//#define OLS4_DEFAULT_LR 0.0003
+#if 0
+#define OLS4_DEFAULT_PERIOD 32
+#define OLS4_DEFAULT_LR 0.0003
+#endif
 #define OLS4_RMAX 4
 #define OLS4_CTXSIZE (2*(OLS4_RMAX+1)*OLS4_RMAX)
 extern int ols4_period;
@@ -1212,16 +1232,18 @@ extern uint8_t ols4_mask[4][OLS4_CTXSIZE+1];
 void pred_ols4(Image *src, int period, double *lrs, uint8_t *mask0, uint8_t *mask1, uint8_t *mask2, uint8_t *mask3, int fwd);
 void pred_ols5(Image *src, int fwd);
 void pred_ols6(Image *src, int fwd);
-void pred_ols7(Image *src, int fwd);		//L1
-void pred_l1crct(Image *src, int fwd);		//
-void pred_grfilt(Image *src, int fwd);		//
-void pred_ols8(Image *src, int fwd);		//
-void pred_ols8_crct(Image *src, int fwd);	//
+void pred_ols7(Image *src, int fwd);		/*L1*/
+void pred_l1crct(Image *src, int fwd);		/*  */
+void pred_grfilt(Image *src, int fwd);		/*  */
+void pred_ols8(Image *src, int fwd);		/*  */
+void pred_ols8_crct(Image *src, int fwd);	/*  */
 void pred_ols9(Image *src, int fwd);
 
-void pred_lpc(Image *src, int fwd);//Levinson-Durbin Linear Predictive Coding
+void pred_lpc(Image *src, int fwd);/*Levinson-Durbin Linear Predictive Coding*/
 
-//void pred_select(Image const *src, Image *dst, int fwd, int enable_ma);
+#if 0
+void pred_select(Image const *src, Image *dst, int fwd, int enable_ma);
+#endif
 
 #define LIN_REACH 2
 void pred_linear(Image const *src, Image *dst, const int *coeffs, int lgden, int fwd, int enable_ma);
@@ -1232,13 +1254,13 @@ void pred_t47(Image *src, int fwd, int enable_ma);
 #define CUSTOM_NNB (2*(CUSTOM_REACH+1)*CUSTOM_REACH)
 #define CUSTOM_NPARAMS (2*(CUSTOM_REACH+1)*CUSTOM_REACH*6)
 extern int custom_params[CUSTOM_NPARAMS];
-extern int custom_clamp[4];//W NW N NE
+extern int custom_clamp[4];/*W NW N NE*/
 extern int custom_pred_ch_idx;
 void pred_custom(Image *src, int fwd, int enable_ma, const int *params);
 void pred_custom_optimize(Image const *image, int *params, int reach);
 void conv_custom(Image *src);
 
-#define PW2_NPRED 20	//63
+#define PW2_NPRED 20	/*63*/
 #define PW2_NPARAM (PW2_NPRED+11)
 extern double pw2_errors[PW2_NPRED];
 extern short pw2_params[PW2_NPARAM*3];
@@ -1250,13 +1272,13 @@ void pred_jxl_opt_v2(Image *src, short *params, int loud);
 void pred_jxl_apply(Image *src, int fwd, int enable_ma, short *params);
 void pred_jmj_apply(Image *src, int fwd, int enable_ma);
 
-//CUSTOM3
+/*CUSTOM3*/
 #define C3_REACH 3
-#define C3_NNB (C3_REACH*(C3_REACH+1)*4)		//for pixels & errors
+#define C3_NNB (C3_REACH*(C3_REACH+1)*4)		/*for pixels & errors*/
 #define C3_NPARAMS (C3_NNB*9+6)
 typedef struct Custom3ParamsStruct
 {
-	short c00[C3_NNB  ], c01[C3_NNB  ], c02[C3_NNB];//fixed 1.14 bit
+	short c00[C3_NNB  ], c01[C3_NNB  ], c02[C3_NNB];/*fixed 1.14 bit*/
 	short c10[C3_NNB+2], c11[C3_NNB  ], c12[C3_NNB];
 	short c20[C3_NNB+2], c21[C3_NNB+2], c22[C3_NNB];
 } Custom3Params;
@@ -1264,13 +1286,13 @@ extern Custom3Params c3_params;
 void custom3_apply(Image *src, int fwd, int enable_ma, Custom3Params const *params);
 void custom3_opt(Image const *src, Custom3Params *srcparams, int niter, int maskbits, int loud, double *loss);
 
-//CUSTOM4
+/*CUSTOM4*/
 extern short lossyconv_clipboard;
 extern int lossyconv_page;
-extern short lossyconv_params[5*5*4*4];//(r2 = 5*5) * 4 channels max * 4 banks
-extern uint8_t lossyconv_stride[2*4], lossyconv_offset[2*4];//2 dimensions * 4 stages
+extern short lossyconv_params[5*5*4*4];/*(r2 = 5*5) * 4 channels max * 4 banks*/
+extern uint8_t lossyconv_stride[2*4], lossyconv_offset[2*4];/*2 dimensions * 4 stages*/
 extern uint8_t lossyconv_causalRCT[4];
-void pred_lossyconv(Image *src);//irreversible conv
+void pred_lossyconv(Image *src);/*irreversible conv*/
 void pred_WC(Image *src);
 void filt_median33(Image *src);
 void filt_av33(Image *src);
@@ -1278,18 +1300,18 @@ void filt_av33(Image *src);
 void pred_calic(Image *src, int fwd, int enable_ma);
 void pred_grad2(Image *src, int fwd, int enable_ma);
 
-extern unsigned long long xoroshiro128_state[2];
+extern uint64_t xoroshiro128_state[2];
 #define XOROSHIRO128_RESET() xoroshiro128_state[0]=0xDF900294D8F554A5, xoroshiro128_state[1]=0x170865DF4B3201FC
-unsigned long long xoroshiro128_next(void);
+uint64_t xoroshiro128_next(void);
 
 
 
-//DWTs			temp is size max(w, h)
+/*DWTs			temp is size max(w, h)*/
 typedef struct DWTSizeStruct
 {
 	unsigned short w, h;
 } DWTSize;
-ArrayHandle dwt2d_gensizes(int iw, int ih, int wstop, int hstop, int nstages_override);//calculate dimensions of each DWT stage in descending order
+ArrayHandle dwt2d_gensizes(int iw, int ih, int wstop, int hstop, int nstages_override);/*calculate dimensions of each DWT stage in descending order*/
 
 void dwt2d_lazy_fwd	(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp);
 void dwt2d_lazy_inv	(int *buffer, DWTSize *sizes, int sizes_start, int sizes_end, int stride, int *temp, int vmin, int vmax);
@@ -1316,7 +1338,7 @@ void pred_wu97(char *buf, int iw, int ih, int fwd);
 #endif
 
 
-//DCTs
+/*DCTs*/
 
 void image_dct4_fwd(Image *image);
 void image_dct4_inv(Image *image);
@@ -1324,7 +1346,7 @@ void image_dct4_inv(Image *image);
 void image_dct8_fwd(Image *image);
 void image_dct8_inv(Image *image);
 
-//Walsh–Hadamard transform
+/*Walshï¿½Hadamard transform*/
 void image_wht4_fwd(Image *image);
 void image_wht4_inv(Image *image);
 void image_wht8_fwd(Image *image);
@@ -1341,22 +1363,22 @@ void image_split_inv(char *image, int iw, int ih);
 void pred_dct3_fwd(char *buf, int iw, int ih, int nch, int bytestride);
 void pred_dct3_inv(char *buf, int iw, int ih, int nch, int bytestride);
 
-double calc_entropy(int *hist, int sum);//pass -1 if sum is unknown
+double calc_entropy(int *hist, int sum);/*pass -1 if sum is unknown*/
 void channel_entropy(uint8_t *buf, int resolution, int nch, int bytestride, float *cr, int *usage);
 void jointhistogram(uint8_t *buf, int iw, int ih, int nbits, ArrayHandle *hist, int space_not_color);
 
 
-//experiment 24: test 16 optimization per block
+/*experiment 24: test 16 optimization per block*/
 #if 0
 typedef struct E24ParamsStruct
 {
 	short
-		gwidth,//>=1
+		gwidth,/*>=1*/
 		mleft,
 		mtop,
 		mright,
-		alpha,//0~0xFF
-		maxinc;//>=1;
+		alpha,/*0~0xFF*/
+		maxinc;/*>=1;*/
 } E24Params;
 extern E24Params e24_params[3];
 extern double e24_cr[3];
@@ -1364,7 +1386,7 @@ int e24_optimizeall(const uint8_t *buf, int iw, int ih, int x1, int x2, int y1, 
 void e24_estimate(const uint8_t *buf, int iw, int ih, int x1, int x2, int y1, int y2);
 #endif
 
-//Bayes memory experiment
+/*Bayes memory experiment*/
 typedef struct BayesCounterStruct
 {
 	int n[2];
@@ -1373,19 +1395,19 @@ extern ArrayHandle bayes_mem[8];
 void bayes_estimate(uint8_t *image, int iw, int ih, int x1, int x2, int y1, int y2, int kc);
 
 
-//transforms pt2
+/*transforms pt2*/
 
 void pred_learned(char *buf, int iw, int ih, int fwd);
 void pred_learned_v2(char *buf, int iw, int ih, int fwd);
 void pred_learned_v3(char *buf, int iw, int ih, int fwd);
-void pred_learned_v4(char *buf, int iw, int ih, int fwd);//kodim13 2.007026
+void pred_learned_v4(char *buf, int iw, int ih, int fwd);/*kodim13 2.007026*/
 
 
-//CPU transforms
+/*CPU transforms*/
 void pred_learned_cpu(char *buf, int iw, int ih, int fwd);
 
 
-//GPU trainsforms
+/*GPU trainsforms*/
 #ifdef ALLOW_OPENCL
 void pred_learned_gpu(char *buf, int iw, int ih, int fwd);
 #endif
@@ -1400,14 +1422,14 @@ void pred_c20(char *src, int iw, int ih, int fwd);
 typedef enum EContextEnum
 {
 	ECTX_QNW,
-	ECTX_MIN_QN_QW,	//#2  prev best
+	ECTX_MIN_QN_QW,	/*#2  prev best*/
 	ECTX_MAX_QN_QW,
 	ECTX_MIN_N_W_NW_NE,
 	ECTX_ARGMIN_N_W_NW_NE,
 	ECTX_ABAC0,
 	ECTX_ABAC1,
 	ECTX_C2,
-	ECTX_GRCTX,	//#1  the best by far
+	ECTX_GRCTX,	/*#1  the best by far*/
 	ECTX_GR,
 	ECTX_STATIC_O0,
 	ECTX_STATIC_O1,
@@ -1417,7 +1439,7 @@ typedef enum EContextEnum
 	ECTX_YUV420,
 	ECTX_ZERO,
 
-	ECTX_COUNT,//check  calc_csize_ec, ec_method_label
+	ECTX_COUNT/*check  calc_csize_ec, ec_method_label*/
 } EContext;
 const char* ec_method_label(EContext ec_method);
 void calc_csize_ec(Image const *src, EContext method, int adaptive, int expbits, int msb, int lsb, double *entropy);
@@ -1433,4 +1455,4 @@ void measure_ssim_map(const Image *im0, Image *im1);
 #ifdef __cplusplus
 }
 #endif
-#endif//INC_EBENCH_H
+#endif/*INC_EBENCH_H*/

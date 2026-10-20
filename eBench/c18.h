@@ -27,14 +27,16 @@ typedef enum _OCH2Index
 #define OCH2(LABEL) OCH2_##LABEL,
 	OCH2LIST
 #undef  OCH2
-	OCH2_COUNT,
+	OCH2_COUNT
 } OCH2Index;
+#if 0
 static const char *och_names[OCH2_COUNT]=
 {
 #define OCH2(LABEL) #LABEL,
 	OCH2LIST
 #undef  OCH2
 };
+#endif
 
 #define RCT2LIST\
 	RCT2(R_G_B,	OCH2_R,		OCH2_G,		OCH2_B,		0, 1, 2,	3,	3, 3, 0)\
@@ -85,7 +87,7 @@ typedef enum _RCT2Index
 #define RCT2(LABEL, YIDX, UIDX, VIDX,  YPERM, UPERM, VPERM,  UOFF1,  VOFF1, VOFF2, VSH2) RCT2_##LABEL,
 	RCT2LIST
 #undef  RCT2
-	RCT2_COUNT,
+	RCT2_COUNT
 } RCT2Index;
 static const unsigned char rct2_combinations[RCT2_COUNT][10]=
 {
@@ -94,12 +96,14 @@ static const unsigned char rct2_combinations[RCT2_COUNT][10]=
 	RCT2LIST
 #undef  RCT2
 };
+#if 0
 static const char *rct2_names[RCT2_COUNT]=
 {
 #define RCT2(LABEL, YIDX, UIDX, VIDX,  YPERM, UPERM, VPERM,  UOFF1,  VOFF1, VOFF2, VSH2) #LABEL,
 	RCT2LIST
 #undef  RCT2
 };
+#endif
 
 #define PREDLIST\
 	PRED(ZERO, "ZERO")\
@@ -115,32 +119,34 @@ static const char *rct2_names[RCT2_COUNT]=
 	PRED(AV9, "[1 [-2] -1;-1 -9 [10] 4;-2 16 ?]/16")\
 	PRED(AVB, "[4 3 [-31] -38;7 -158 [219] 30 19;-42 243 ?]/256")\
 
-static const char *pred_desc[]=
-{
-#define PRED(LABEL, DESC) DESC,
-	PREDLIST
-#undef  PRED
-};
 typedef enum _PredIndex
 {
 #define PRED(LABEL, DESC) PRED_##LABEL,
 	PREDLIST
 #undef  PRED
-	PRED_COUNT,
+	PRED_COUNT
 } PredIndex;
+#if 0
 static const char *pred_names[PRED_COUNT]=
 {
 #define PRED(LABEL, DESC) #LABEL,
 	PREDLIST
 #undef  PRED
 };
+static const char *pred_desc[]=
+{
+#define PRED(LABEL, DESC) DESC,
+	PREDLIST
+#undef  PRED
+};
+#endif
 typedef enum _NBIndex
 {
 	NB_NNWW,	NB_NNW,		NB_NN,		NB_NNE,		NB_NNEE,
 	NB_NWW,		NB_NW,		NB_N,		NB_NE,		NB_NEE,
 	NB_WW,		NB_W,		NB_curr,
 
-	NB_COUNT,
+	NB_COUNT
 } NBIndex;
 static const short av12_icoeffs[12]=
 {
@@ -152,10 +158,12 @@ typedef struct _C18Info
 {
 	double esizes[OCH2_COUNT*PRED_COUNT], rctsizes[RCT_COUNT];
 	int bestrct, predidx[3];
-//	double ACsize[3], GRsize[3];
 	double t_analysis;
+#if 0
+	double ACsize[3], GRsize[3];
+#endif
 } C18Info;
 
 void c18_analyze(Image const *src, int x1, int x2, int y1, int y2, C18Info *info);
 
-#endif//INC_C18_H
+#endif/*INC_C18_H*/

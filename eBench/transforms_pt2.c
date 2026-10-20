@@ -12,16 +12,16 @@ static const char file[]=__FILE__;
 
 
 //Xoroshiro128+ 1.0 by David Blackman and Sebastiano Vigna		https://prng.di.unimi.it/xoroshiro128plus.c
-unsigned long long xoroshiro128_state[2]={0xDF900294D8F554A5, 0x170865DF4B3201FC};
-static inline unsigned long long rotl(const unsigned long long x, int k)
+uint64_t xoroshiro128_state[2]={0xDF900294D8F554A5, 0x170865DF4B3201FC};
+static uint64_t rotl(const uint64_t x, int k)
 {
 	return (x<<k)|(x>>(64-k));
 }
-unsigned long long xoroshiro128_next(void)//not thread-safe, because of global state
+uint64_t xoroshiro128_next(void)//not thread-safe, because of global state
 {
-	const unsigned long long s0 = xoroshiro128_state[0];
-	unsigned long long s1 = xoroshiro128_state[1];
-	const unsigned long long result = s0 + s1;
+	const uint64_t s0 = xoroshiro128_state[0];
+	uint64_t s1 = xoroshiro128_state[1];
+	const uint64_t result = s0 + s1;
 
 	s1 ^= s0;
 	xoroshiro128_state[0] = rotl(s0, 24) ^ s1 ^ (s1 << 16); // a, b
@@ -29,7 +29,7 @@ unsigned long long xoroshiro128_next(void)//not thread-safe, because of global s
 
 	return result;
 }
-//int hamming_weight(unsigned long long x)
+//int hamming_weight(uint64_t x)
 //{
 //	x=(x&0x5555555555555555)+(x>> 1&0x5555555555555555);
 //	x=(x&0x3333333333333333)+(x>> 2&0x3333333333333333);

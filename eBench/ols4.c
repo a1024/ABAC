@@ -2,38 +2,46 @@
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
-//#define _USE_MATH_DEFINES
+#define _USE_MATH_DEFINES
 #include<math.h>
 #include<process.h>
 #include<immintrin.h>
-static const char file[]=__FILE__;
 
 
 	#define ALLOW_AVX2
 	#define OLS4_OPTIMAL_CLAMP
 	#define CLAMPGRAD
-//	#define OLS4_DEBUG
-	#define BASE_OFFSET_ADDRESSING	//faster
+#if 0
+	#define OLS4_DEBUG
+#endif
+	#define BASE_OFFSET_ADDRESSING	/*faster*/
 
 
 #define ALLOCASSERT(C)\
 	do\
 		if(C)\
 		{\
-			LOG_ERROR("Alloc error");\
+			CRASH("Alloc error");\
 			return;\
 		}\
 	while(0)
 
-//#define OLS4_RMAX 4
-//#define OLS4_CTXSIZE (2*(OLS4_RMAX+1)*OLS4_RMAX)
+#if 0
+#	define OLS4_RMAX 4
+#	define OLS4_CTXSIZE (2*(OLS4_RMAX+1)*OLS4_RMAX)
+#endif
 #define PADX 8
-#define PADY 8	//must be a power of two
+#define PADY 8	/*must be a power of two*/
 int ols4_period=512;
-double ols4_lr[4]={0.0018, 0.003, 0.003, 0.003};
-//double ols4_lr[4]={0.0003, 0.0003, 0.0003, 0.0003};
-unsigned char ols4_cache=0;
-unsigned char ols4_mask[4][OLS4_CTXSIZE+1]=//MSB {E3 E2 E1 E0  P3 P2 P1 P0} LSB,  last element can't exceed 1<<(kc<<1) for causality
+double ols4_lr[4]=
+{
+	0.0018, 0.003, 0.003, 0.003
+#if 0
+	0.0003, 0.0003, 0.0003, 0.0003
+#endif
+};
+uint8_t ols4_cache=0;
+uint8_t ols4_mask[4][OLS4_CTXSIZE+1]=/*MSB {E3 E2 E1 E0  P3 P2 P1 P0} LSB,  last element can't exceed 1<<(kc<<1) for causality*/
 {
 #if 1
 	{
@@ -230,8 +238,10 @@ unsigned char ols4_mask[4][OLS4_CTXSIZE+1]=//MSB {E3 E2 E1 E0  P3 P2 P1 P0} LSB,
 #if 0
 static int solve_Mx_v(double *matrix, double *vec, int size)
 {
-	int success=1;
-	for(int it=0;it<size;++it)
+	int it, success, k, kx, ky;
+
+	success=1;
+	for(it=0;it<size;++it)
 	{
 		int kp;
 		double pivot;
@@ -250,15 +260,15 @@ static int solve_Mx_v(double *matrix, double *vec, int size)
 		if(kp!=it)
 		{
 			double temp;
-			for(int k=it;k<size;++k)
+			for(k=it;k<size;++k)
 				SWAPVAR(matrix[size*it+k], matrix[size*kp+k], temp);
 			SWAPVAR(vec[it], vec[kp], temp);
 		}
 		pivot=matrix[size*it+it];
-		for(int kx=it;kx<size;++kx)
+		for(kx=it;kx<size;++kx)
 			matrix[size*it+kx]/=pivot;
 		vec[it]/=pivot;
-		for(int ky=0;ky<size;++ky)
+		for(ky=0;ky<size;++ky)
 		{
 			double factor;
 
@@ -267,7 +277,7 @@ static int solve_Mx_v(double *matrix, double *vec, int size)
 			factor=matrix[size*ky+it];
 			if(fabs(factor)>1e-6)
 			{
-				for(int kx=it;kx<size;++kx)
+				for(kx=it;kx<size;++kx)
 					matrix[size*ky+kx]-=matrix[size*it+kx]*factor;
 				vec[ky]-=vec[it]*factor;
 			}
@@ -276,143 +286,139 @@ static int solve_Mx_v(double *matrix, double *vec, int size)
 	return success;
 }
 #endif
-void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsigned char *mask1, unsigned char *mask2, unsigned char *mask3, int fwd)
+void pred_ols4(Image *src, int period, double *lrs, uint8_t *mask0, uint8_t *mask1, uint8_t *mask2, uint8_t *mask3, int fwd)
 {
 	double t_start=time_sec();
-	unsigned char *masks[]=
-	{
-		mask0,
-		mask1,
-		mask2,
-		mask3,
-	};
+	uint8_t *masks[4];
 	int ctxsize[4]={0}, maxcount=0;
 	double **ctx[4]={0}, *vec[4]={0};
-	//double *vec2[4]={0};
+#if 0
+	double *vec2[4]={0};
+#endif
 	int matsize[4]={0};
 	double *cov[4]={0}, *cholesky[4]={0};
 	double *params[4]={0};
 	double *ctxtemp;
 	size_t bufsize;
 	double *pixels;
-	int nlevels[]=
-	{
-		1<<src->depth[0],
-		1<<src->depth[1],
-		1<<src->depth[2],
-		1<<src->depth[3],
-	};
-	int half[]=
-	{
-		nlevels[0]>>1,
-		nlevels[1]>>1,
-		nlevels[2]>>1,
-		nlevels[3]>>1,
-	};
-	int successcount=0;
-#ifdef ALLOW_AVX2
-	__m256d mlr[]=
-	{
-		_mm256_set1_pd(lrs[0]),
-		_mm256_set1_pd(lrs[1]),
-		_mm256_set1_pd(lrs[2]),
-		_mm256_set1_pd(lrs[3]),
-	};
-	__m256d mlr_comp[]=
-	{
-		_mm256_set1_pd(1-lrs[0]),
-		_mm256_set1_pd(1-lrs[1]),
-		_mm256_set1_pd(1-lrs[2]),
-		_mm256_set1_pd(1-lrs[3]),
-	};
+	int nlevels[4], half[4], successcount;
+	__m256d mlr[4], mlr_comp[4];
 #ifndef BASE_OFFSET_ADDRESSING
-	__m256i stride=_mm256_set1_epi64x(sizeof(double[8]));
-#endif
+	__m256i stride;
 #endif
 	ALIGN(16) int ipred[4]={0};
-	int olsnextpoint=1;
+	int olsnextpoint;
 	double *rows[PADY]={0};
+	int kc, km, kx, ky, idx, olsidx, i, j, k, ky2, kx2, loadidx, kc2, midx;
 
+
+	masks[0]=mask0;
+	masks[1]=mask1;
+	masks[2]=mask2;
+	masks[3]=mask3;
+	nlevels[0]=1<<src->depth[0];
+	nlevels[1]=1<<src->depth[1];
+	nlevels[2]=1<<src->depth[2];
+	nlevels[3]=1<<src->depth[3];
+	half[0]=nlevels[0]>>1;
+	half[1]=nlevels[1]>>1;
+	half[2]=nlevels[2]>>1;
+	half[3]=nlevels[3]>>1;
+	successcount=0;
+#ifdef ALLOW_AVX2
+	mlr[0]=_mm256_set1_pd(lrs[0]);
+	mlr[1]=_mm256_set1_pd(lrs[1]);
+	mlr[2]=_mm256_set1_pd(lrs[2]);
+	mlr[3]=_mm256_set1_pd(lrs[3]);
+	mlr_comp[0]=_mm256_set1_pd(1-lrs[0]);
+	mlr_comp[1]=_mm256_set1_pd(1-lrs[1]);
+	mlr_comp[2]=_mm256_set1_pd(1-lrs[2]);
+	mlr_comp[3]=_mm256_set1_pd(1-lrs[3]);
+#ifndef BASE_OFFSET_ADDRESSING
+	stride=_mm256_set1_epi64x(sizeof(double[8]));
+#endif
+#endif
+	olsnextpoint=1;
 	if(loud_transforms)
 		DisableProcessWindowsGhosting();
-	for(int kc=0;kc<4;++kc)
+	for(kc=0;kc<4;++kc)
 	{
-		for(int km=0;km<OLS4_CTXSIZE+1;++km)
+		for(km=0;km<OLS4_CTXSIZE+1;++km)
 		{
 			int val=masks[kc][km];
-			//if(km==OLS4_CTXSIZE)//causality mask
-			//{
-			//	int cmask=((1<<(kc<<1))-1);
-			//	val&=cmask<<4|cmask;
-			//}
 			val-=val>>1&0x55;
 			val=(val>>2&0x33)+(val&0x33);
 			val=(val>>4)+(val&15);
 			ctxsize[kc]+=val;
-			//ctxsize[kc]+=hammingweight16(masks[kc][km]);
 		}
 #ifdef CLAMPGRAD
 		ctxsize[kc]+=src->depth[kc]!=0;
 #endif
 		UPDATE_MAX(maxcount, ctxsize[kc]);
 	}
-	for(int kc=0;kc<4;++kc)
+	for(kc=0;kc<4;++kc)
 	{
 		if(ctxsize[kc])
 		{
 			matsize[kc]=ctxsize[kc]*ctxsize[kc];
 			ctx[kc]=(double**)_mm_malloc(sizeof(double*)*ctxsize[kc], sizeof(__m256i));
-			vec[kc]=(double*)_mm_malloc(sizeof(double)*(ctxsize[kc]+4LL), sizeof(__m256d));
-			//vec2[kc]=(double*)_mm_malloc(sizeof(double)*(ctxsize[kc]+4LL), sizeof(__m256d));
-			cov[kc]=(double*)_mm_malloc(sizeof(double)*(matsize[kc]+4LL), sizeof(__m256d));
+			vec[kc]=(double*)_mm_malloc(sizeof(double)*(ctxsize[kc]+4), sizeof(__m256d));
+#if 0
+			vec2[kc]=(double*)_mm_malloc(sizeof(double)*(ctxsize[kc]+4), sizeof(__m256d));
+#endif
+			cov[kc]=(double*)_mm_malloc(sizeof(double)*(matsize[kc]+4), sizeof(__m256d));
 			cholesky[kc]=(double*)malloc(sizeof(double)*matsize[kc]);
 			params[kc]=(double*)_mm_malloc(sizeof(double)*ctxsize[kc], sizeof(__m256d));
 			ALLOCASSERT(!ctx[kc]||!vec[kc]||!cov[kc]||!cholesky[kc]||!params[kc]);
 			memset(ctx[kc], 0, sizeof(double*)*ctxsize[kc]);
-			memset(vec[kc], 0, sizeof(double)*(ctxsize[kc]+4LL));
-			//memset(vec2[kc], 0, sizeof(double)*(ctxsize[kc]+4LL));
-			memset(cov[kc], 0, sizeof(double)*(matsize[kc]+4LL));
+			memset(vec[kc], 0, sizeof(double)*(ctxsize[kc]+4));
+#if 0
+			memset(vec2[kc], 0, sizeof(double)*(ctxsize[kc]+4));
+#endif
+			memset(cov[kc], 0, sizeof(double)*(matsize[kc]+4));
 			memset(cholesky[kc], 0, sizeof(double)*matsize[kc]);
 			memset(params[kc], 0, sizeof(double)*ctxsize[kc]);
 		}
 	}
-	ctxtemp=(double*)_mm_malloc((maxcount+4LL)*sizeof(double), sizeof(__m256d));
+	ctxtemp=(double*)_mm_malloc((maxcount+4)*sizeof(double), sizeof(__m256d));
 
-	bufsize=(src->iw+PADX*2LL)*sizeof(double[4*PADY*2]);//PADY padded rows * 4 channels * {pixels, errors}
+	bufsize=(src->iw+PADX*2)*sizeof(double[4*PADY*2]);/*PADY padded rows * 4 channels * {pixels, errors}*/
 	pixels=(double*)malloc(bufsize);
 	ALLOCASSERT(!pixels||!ctxtemp);
 	memset(pixels, 0, bufsize);
-	memset(ctxtemp, 0, (maxcount+4LL)*sizeof(double));
+	memset(ctxtemp, 0, (maxcount+4)*sizeof(double));
 
-	for(int ky=0, idx=0, olsidx=1;ky<src->ih;++ky)
+	for(ky=0, idx=0, olsidx=1;ky<src->ih;++ky)
 	{
-		for(int k=0;k<PADY;++k)
-			rows[k]=pixels+(((src->iw+PADX*2LL)*(((size_t)ky-k)&(PADY-1))+PADX)<<3);
-		for(int kc=0;kc<4;++kc)
+		for(k=0;k<PADY;++k)
+			rows[k]=pixels+(((src->iw+PADX*2)*(((size_t)ky-k)&(PADY-1))+PADX)<<3);
+		for(kc=0;kc<4;++kc)
 		{
-			const unsigned char *ctxcell;
+			const uint8_t *ctxcell;
 			double **curr_ctx;
-			int nparams=ctxsize[kc];
+			int nparams;
+
+			nparams=ctxsize[kc];
 			if(!nparams)
 				continue;
 			ctxcell=masks[kc];
 			curr_ctx=ctx[kc];
-			for(int ky2=-OLS4_RMAX, loadidx=0;ky2<=0;++ky2)
+			for(ky2=-OLS4_RMAX, loadidx=0;ky2<=0;++ky2)
 			{
-				for(int kx2=-OLS4_RMAX;kx2<=OLS4_RMAX;++kx2, ++ctxcell)
+				for(kx2=-OLS4_RMAX;kx2<=OLS4_RMAX;++kx2, ++ctxcell)
 				{
 					double *comp=rows[-ky2]+((size_t)kx2<<3);
-					for(int kc2=0;kc2<8;++kc2)
+					for(kc2=0;kc2<8;++kc2)
 					{
 #ifdef OLS4_DEBUG
 						if(ctxcell-masks[kc]>=OLS4_CTXSIZE+1)
-							LOG_ERROR("");
+							CRASH("");
 #endif
 						if(*ctxcell>>kc2&1)
 						{
 #ifdef OLS4_DEBUG
-							if(loadidx>=nparams)//
-								LOG_ERROR("");
+							if(loadidx>=nparams)/**/
+								CRASH("");
 #endif
 							curr_ctx[loadidx]=comp+kc2;
 							++loadidx;
@@ -424,7 +430,7 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 					if(!ky2&&!kx2)
 					{
 						if(loadidx!=nparams)
-							LOG_ERROR("");
+							CRASH("");
 						goto finish_loading;
 					}
 #endif
@@ -433,9 +439,9 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 	finish_loading:
 			;
 		}
-		for(int kx=0;kx<src->iw;++kx, ++olsidx)
+		for(kx=0;kx<src->iw;++kx, ++olsidx)
 		{
-			for(int kc=0;kc<4;++kc, ++idx)
+			for(kc=0;kc<4;++kc, ++idx)
 			{
 				int nparams=ctxsize[kc];
 				double
@@ -458,10 +464,10 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 				curr_params=params[kc];
 #ifdef CLAMPGRAD
 				{
-					__m128d a=_mm_set_pd(0, rows[1][kc]);//N
-					__m128d b=_mm_set_pd(0, rows[0][kc-8]);//W
-					__m128d c=_mm_set_pd(0, rows[1][kc+8]);//NE
-					__m128d x=_mm_set_pd(0, rows[1][kc]+rows[0][kc-8]-rows[1][kc-8]);//N+W-NW
+					__m128d a=_mm_set_pd(0, rows[1][kc]);/*N*/
+					__m128d b=_mm_set_pd(0, rows[0][kc-8]);/*W*/
+					__m128d c=_mm_set_pd(0, rows[1][kc+8]);/*NE*/
+					__m128d x=_mm_set_pd(0, rows[1][kc]+rows[0][kc-8]-rows[1][kc-8]);/*N+W-NW*/
 					__m128d vmin=_mm_min_pd(a, b);
 					__m128d vmax=_mm_max_pd(a, b);
 					x=_mm_max_pd(x, vmin);
@@ -472,42 +478,42 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 					_mm_store_pd(cmin, vmin);
 					_mm_store_pd(cmax, vmax);
 				}
-				//cgrad=rows[1][kc]+rows[0][kc-8]-rows[1][kc-8];
-				//if(rows[1][kc]<rows[0][kc-8])
-				//	cmin=rows[1][kc], cmax=rows[0][kc-8];//N, W
-				//else
-				//	cmin=rows[0][kc-8], cmax=rows[1][kc];
-				//cgrad=CLAMP(cmin, cgrad, cmax);
-				//{
-				//	double temp=rows[1][kc+8];//NE
-				//	UPDATE_MIN(cmin, temp);
-				//	UPDATE_MAX(cmax, temp);
-				//}
-				//{
-				//	double temp=rows[1][kc-8];//NW	X
-				//	UPDATE_MIN(cmin, temp);
-				//	UPDATE_MAX(cmax, temp);
-				//}
+#if 0
+				cgrad=rows[1][kc]+rows[0][kc-8]-rows[1][kc-8];
+				if(rows[1][kc]<rows[0][kc-8])
+					cmin=rows[1][kc], cmax=rows[0][kc-8];/*N, W*/
+				else
+					cmin=rows[0][kc-8], cmax=rows[1][kc];
+				cgrad=CLAMP(cmin, cgrad, cmax);
+				{
+					double temp=rows[1][kc+8];/*NE*/
+					UPDATE_MIN(cmin, temp);
+					UPDATE_MAX(cmax, temp);
+				}
+				{
+					double temp=rows[1][kc-8];/*NW	X*/
+					UPDATE_MIN(cmin, temp);
+					UPDATE_MAX(cmax, temp);
+				}
+#endif
 				--nparams;
 #else
 #ifdef OLS4_OPTIMAL_CLAMP
-				double temp=rows[0][kc-8];//W
+				double temp=rows[0][kc-8];/*W*/
 				double cmin=temp, cmax=temp;
-				temp=rows[1][kc];//N
+				temp=rows[1][kc];/*N*/
 				UPDATE_MIN(cmin, temp);
 				UPDATE_MAX(cmax, temp);
-				temp=rows[1][kc+8];//NE
+				temp=rows[1][kc+8];/*NE*/
 				UPDATE_MIN(cmin, temp);
 				UPDATE_MAX(cmax, temp);
 #endif
 #endif
 				fpred=0;
 #if 0
-				//THIS IS SLOWER
-				for(int k=0;k<nparams;++k)
+				/*THIS IS SLOWER*/
+				for(k=0;k<nparams;++k)
 					ctxtemp[k]=*curr_ctx[k];
-				//if(ky==src->ih/2&&kx==src->iw/2)//
-				//	printf("");
 				{
 					int k=0;
 					__m256d msum=_mm256_setzero_pd();
@@ -526,16 +532,17 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 					fpred+=asum[0]+asum[2];
 				}
 #elif 1
-				//FASTEST
+				/*FASTEST*/
 				{
-					int k=nparams-1;
-					//int k=0, n=nparams-1;
-					double **p1=curr_ctx;
-					double *p2=curr_params;
-					double *p3=ctxtemp;
-					double fpred2=0;
+					double **p1, *p2, *p3, fpred2;
+
+					k=nparams-1;
+					p1=curr_ctx;
+					p2=curr_params;
+					p3=ctxtemp;
+					fpred2=0;
+
 					for(;k>=1;k-=2)
-					//for(;k<n;k+=2)
 					{
 #ifdef BASE_OFFSET_ADDRESSING
 						double nb0=p1[0][kx<<3], nb1=p1[1][kx<<3];
@@ -551,12 +558,12 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 						p3+=2;
 					}
 					if(k>=0)
-					//if(k<nparams)
 					{
+						double nb0;
 #ifdef BASE_OFFSET_ADDRESSING
-						double nb0=p1[0][kx<<3];
+						nb0=p1[0][kx<<3];
 #else
-						double nb0=*p1[0];
+						nb0=*p1[0];
 #endif
 						fpred+=nb0*p2[0];
 						p3[0]=nb0;
@@ -564,7 +571,7 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 					fpred+=fpred2;
 				}
 #else
-				for(int k=0;k<nparams;++k)
+				for(k=0;k<nparams;++k)
 				{
 					double nb=*curr_ctx[k];
 					fpred+=curr_params[k]*nb;
@@ -575,15 +582,12 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 				ctxtemp[nparams]=cgrad[0];
 				fpred+=cgrad[0]*curr_params[nparams];
 				++nparams;
-				//if(ky==100&&kx==100&&!kc)//
-				//	printf("");
 #endif
 #ifdef OLS4_DEBUG
-				double fpred0=fpred;//
+				double fpred0=fpred;
 #endif
 #ifdef OLS4_OPTIMAL_CLAMP
 				CLAMP2_fp64(fpred, fpred, cmin[0], cmax[0]);
-				//fpred=CLAMP(cmin, fpred, cmax);
 #else
 				fpred=CLAMP(-half[kc], fpred, half[kc]-1);
 #endif
@@ -595,17 +599,12 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 					fp=_mm_set_sd(fpred);
 					ip=_mm_cvtpd_epi32(fp);
 					_mm_store_si128((__m128i*)ipred, ip);
-					//pred=(int)round(fpred);
 					pred=ipred[0];
-					val=src->data[idx];
-#ifdef OLS4_DEBUG
-					if(!kc&&kx==4&&ky==4)//
-						printf("");
-#endif
+					val=((int32_t*)HDR_DATA(src))[idx];
 
 					if(fwd)
 					{
-						rows[0][kc+0]=val;//pixel
+						rows[0][kc+0]=val;/*pixel*/
 						val-=pred;
 						val+=half[kc];
 						val&=nlevels[kc]-1;
@@ -617,24 +616,23 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 						val+=half[kc];
 						val&=nlevels[kc]-1;
 						val-=half[kc];
-						rows[0][kc+0]=val;//pixel
+						rows[0][kc+0]=val;/*pixel*/
 					}
-					src->data[idx]=val;
+					((int32_t*)HDR_DATA(src))[idx]=val;
 				}
-				rows[0][kc+4]=rows[0][kc+0]-fpred;//high-res error
-				//rows[0][kc+4]=fpred;//high-res pred
+				rows[0][kc+4]=rows[0][kc+0]-fpred;/*high-res error*/
+#if 0
+				rows[0][kc+4]=fpred;/*high-res pred*/
+#endif
 				if(olsidx==olsnextpoint)
-				//if(!(olsidx&63))
 				{
 				double lr=lrs[kc];
 #ifdef ALLOW_AVX2
-				//if((nparams>>1<<1)!=nparams)
-				//	printf("");
-				for(int ky2=0, midx=0;ky2<nparams;++ky2)
+				for(ky2=0, midx=0;ky2<nparams;++ky2)
 				{
 					__m256d yctx=_mm256_set1_pd(ctxtemp[ky2]);
-					int kx2=0;
-					for(;kx2<nparams-3;kx2+=4, midx+=4)
+
+					for(kx2=0;kx2<nparams-3;kx2+=4, midx+=4)
 					{
 						__m256d mcov=_mm256_load_pd(curr_cov+midx);
 						__m256d xctx=_mm256_load_pd(ctxtemp+kx2);
@@ -643,33 +641,38 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 						xctx=_mm256_mul_pd(xctx, mlr[kc]);
 						xctx=_mm256_add_pd(xctx, mcov);
 						_mm256_store_pd(curr_cov+midx, xctx);
-						//curr_cov[midx+0]+=(ctxtemp[kx2+0]*ctxtemp[ky2]-curr_cov[midx+0])*lr;
-						//curr_cov[midx+1]+=(ctxtemp[kx2+1]*ctxtemp[ky2]-curr_cov[midx+1])*lr;
-						//curr_cov[midx+2]+=(ctxtemp[kx2+2]*ctxtemp[ky2]-curr_cov[midx+2])*lr;
-						//curr_cov[midx+3]+=(ctxtemp[kx2+3]*ctxtemp[ky2]-curr_cov[midx+3])*lr;
-						//for(int k=0;k<4;++k)
-						//{
-						//	if(abs(curr_cov[midx+k]-xctx.m256d_f64[k])>1e-6)
-						//		printf("");
-						//}
+#if 0
+						curr_cov[midx+0]+=(ctxtemp[kx2+0]*ctxtemp[ky2]-curr_cov[midx+0])*lr;
+						curr_cov[midx+1]+=(ctxtemp[kx2+1]*ctxtemp[ky2]-curr_cov[midx+1])*lr;
+						curr_cov[midx+2]+=(ctxtemp[kx2+2]*ctxtemp[ky2]-curr_cov[midx+2])*lr;
+						curr_cov[midx+3]+=(ctxtemp[kx2+3]*ctxtemp[ky2]-curr_cov[midx+3])*lr;
+						for(k=0;k<4;++k)
+						{
+							if(abs(curr_cov[midx+k]-xctx.m256d_f64[k])>1e-6)
+								printf("");
+						}
+#endif
 					}
 					for(;kx2<nparams;++kx2, ++midx)
 						curr_cov[midx]+=(ctxtemp[kx2]*ctxtemp[ky2]-curr_cov[midx])*lr;
 				}
 #else
-				for(int ky2=0, midx=0;ky2<nparams;++ky2)
+				for(ky2=0, midx=0;ky2<nparams;++ky2)
 				{
-					for(int kx2=0;kx2<nparams;++kx2, ++midx)
+					for(kx2=0;kx2<nparams;++kx2, ++midx)
 						curr_cov[midx]+=(ctxtemp[kx2]*ctxtemp[ky2]-curr_cov[midx])*lr;
 				}
 #endif
 #if 1
 #ifdef ALLOW_AVX2
 				{
-					double lval=rows[0][kc+0]*lr, lr_comp=1-lr;//
-					__m256d mval=_mm256_set1_pd(lval);
-					int k=0;
-					for(;k<nparams-3;k+=4)
+					__m256d mval;
+					double lval, lr_comp;
+
+					lval=rows[0][kc+0]*lr;
+					lr_comp=1-lr;
+					mval=_mm256_set1_pd(lval);
+					for(k=0;k<nparams-3;k+=4)
 					{
 						__m256d mvec=_mm256_load_pd(curr_vec+k);
 						__m256d mtmp=_mm256_load_pd(ctxtemp+k);
@@ -677,44 +680,50 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 						mvec=_mm256_mul_pd(mvec, mlr_comp[kc]);
 						mvec=_mm256_add_pd(mvec, mtmp);
 						_mm256_store_pd(curr_vec+k, mvec);
-						//curr_vec[k+0]=lval*ctxtemp[k+0]+lr_comp*curr_vec[k+0];
-						//curr_vec[k+1]=lval*ctxtemp[k+1]+lr_comp*curr_vec[k+1];
-						//curr_vec[k+2]=lval*ctxtemp[k+2]+lr_comp*curr_vec[k+2];
-						//curr_vec[k+3]=lval*ctxtemp[k+3]+lr_comp*curr_vec[k+3];
+#if 0
+						curr_vec[k+0]=lval*ctxtemp[k+0]+lr_comp*curr_vec[k+0];
+						curr_vec[k+1]=lval*ctxtemp[k+1]+lr_comp*curr_vec[k+1];
+						curr_vec[k+2]=lval*ctxtemp[k+2]+lr_comp*curr_vec[k+2];
+						curr_vec[k+3]=lval*ctxtemp[k+3]+lr_comp*curr_vec[k+3];
+#endif
 					}
 					for(;k<nparams;++k)
 						curr_vec[k]=lval*ctxtemp[k]+lr_comp*curr_vec[k];
 				}
 #else
 				double lval=rows[0][kc+0]*lr, lr_comp=1-lr;
-				for(int k=0;k<nparams;++k)
+				for(k=0;k<nparams;++k)
 					curr_vec[k]=lval*ctxtemp[k]+lr_comp*curr_vec[k];
 #endif
 #else
 				double lval=rows[0][kc+0];
-				for(int k=0;k<nparams;++k)
+				for(k=0;k<nparams;++k)
 					curr_vec[k]+=(lval*ctxtemp[k]-curr_vec[k])*lr;
 #endif
-				//if(olsidx==period)//OLS solver by Cholesky decomposition from paq8px
+#if 0
+				if(olsidx==period)/*OLS solver by Cholesky decomposition from paq8px*/
+#endif
 				{
-					int success=1;
-					int n=nparams;
+					double sum;
+					int success, n;
+
+					success=1;
+					n=nparams;
 					memcpy(curr_cholesky, curr_cov, sizeof(double)*matsize[kc]);
-					for(int k=0;k<matsize[kc];k+=n+1)
+					for(k=0;k<matsize[kc];k+=n+1)
 						curr_cholesky[k]+=0.0075;
 #if 1
-					double sum;
-					for(int i=0;i<n;++i)
+					for(i=0;i<n;++i)
 					{
-						for(int j=0;j<i;++j)
+						for(j=0;j<i;++j)
 						{
 							sum=curr_cholesky[i*n+j];
-							for(int k=0;k<j;++k)
+							for(k=0;k<j;++k)
 								sum-=curr_cholesky[i*n+k]*curr_cholesky[j*n+k];
 							curr_cholesky[i*n+j]=sum/curr_cholesky[j*n+j];
 						}
 						sum=curr_cholesky[i*n+i];
-						for(int k=0;k<i;++k)
+						for(k=0;k<i;++k)
 							sum-=curr_cholesky[i*n+k]*curr_cholesky[i*n+k];
 						if(sum<=1e-8)
 						{
@@ -725,22 +734,24 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 					}
 					if(success)
 					{
-						for(int i=0;i<n;++i)
+						for(i=0;i<n;++i)
 						{
 							sum=curr_vec[i];
-							for(int j=0;j<i;++j)
+							for(j=0;j<i;++j)
 								sum-=curr_cholesky[i*n+j]*curr_params[j];
 							curr_params[i]=sum/curr_cholesky[i*n+i];
 						}
-						for(int i=n-1;i>=0;--i)
+						for(i=n-1;i>=0;--i)
 						{
 							sum=curr_params[i];
-							for(int j=i+1;j<n;++j)
+							for(j=i+1;j<n;++j)
 								sum-=curr_cholesky[j*n+i]*curr_params[j];
 							curr_params[i]=sum/curr_cholesky[i*n+i];
 						}
-						//for(int k=0;k<n;++k)//X
-						//	curr_params[k]+=(ctxtemp[k]-curr_params[k])*0.9;
+#if 0
+						for(k=0;k<n;++k)/*X*/
+							curr_params[k]+=(ctxtemp[k]-curr_params[k])*0.9;
+#endif
 						++successcount;
 					}
 #endif
@@ -751,8 +762,10 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 					if(success)
 					{
 						memcpy(curr_params, curr_vec2, nparams*sizeof(double));
-						//for(int k=0;k<n;++k)
-						//	curr_params[k]+=(curr_vec2[k]-curr_params[k])*0.2;
+#if 0
+						for(k=0;k<n;++k)
+							curr_params[k]+=(curr_vec2[k]-curr_params[k])*0.2;
+#endif
 					}
 #endif
 				}
@@ -837,7 +850,7 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 						*curr_ctx+=8;
 				}
 #else
-				for(int k=0;k<nparams;++k)
+				for(k=0;k<nparams;++k)
 					curr_ctx[k]+=8;
 #endif
 #endif
@@ -847,10 +860,12 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 				olsnextpoint<<=olsnextpoint<period;
 				olsidx=0;
 			}
-			//olsidx&=-(olsidx<period);
-			//if(olsidx==period)
-			//	olsidx=0;
-			for(int k=0;k<PADY;++k)
+#if 0
+			olsidx&=-(olsidx<period);
+			if(olsidx==period)
+				olsidx=0;
+#endif
+			for(k=0;k<PADY;++k)
 				rows[k]+=8;
 		}
 		if(loud_transforms&&(ky&63))
@@ -869,7 +884,7 @@ void pred_ols4(Image *src, int period, double *lrs, unsigned char *mask0, unsign
 			ctxsize[2],
 			ctxsize[3]
 		);
-	for(int kc=0;kc<4;++kc)
+	for(kc=0;kc<4;++kc)
 	{
 		if(ctxsize[kc])
 		{

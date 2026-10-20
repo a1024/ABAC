@@ -3,10 +3,10 @@
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
+#define _USE_MATH_DEFINES
 #include<math.h>
 #include<process.h>
 #include<immintrin.h>
-static const char file[]=__FILE__;
 
 #define CODE_ZERO(NBIDX, KC, OCHIDX)\
 	do\
@@ -196,138 +196,206 @@ static const char file[]=__FILE__;
 void c18_analyze(Image const *src, int x1, int x2, int y1, int y2, C18Info *info)
 {
 	double t_start=time_sec();
-	int nlevels[]=
-	{
-		1<<src->depth[0],
-		1<<src->depth[1],
-		1<<src->depth[2],
-		1<<src->depth[3],
-	};
-	int half[]=
-	{
-		nlevels[0]>>1,
-		nlevels[1]>>1,
-		nlevels[2]>>1,
-		nlevels[3]>>1,
-	};
-	int mask[]=
-	{
-		nlevels[0]-1,
-		nlevels[1]-1,
-		nlevels[2]-1,
-		nlevels[3]-1,
-	};
-	int maxdepth=calc_maxdepth(src, 0), maxlevels=1<<maxdepth;
-	int histsize=sizeof(int[OCH2_COUNT*PRED_COUNT])<<maxdepth;
-	int *hist=(int*)malloc(histsize);
+	int nlevels[4], half[4], mask[4], maxdepth, maxlevels, histsize, *hist, count, kx, ky;
+	const int32_t *dataptr;
+	double norm, csize, bestsize;
+	int predsel[OCH2_COUNT]={0}, kc, kt, ks, kp;
+	const unsigned char *group;
+
+	dataptr=(const int32_t*)HDR_DATC(src);
+	nlevels[0]=1<<src->depth[0];
+	nlevels[1]=1<<src->depth[1];
+	nlevels[2]=1<<src->depth[2];
+	nlevels[3]=1<<src->depth[3];
+	half[0]=nlevels[0]>>1;
+	half[1]=nlevels[1]>>1;
+	half[2]=nlevels[2]>>1;
+	half[3]=nlevels[3]>>1;
+	mask[0]=nlevels[0]-1;
+	mask[1]=nlevels[1]-1;
+	mask[2]=nlevels[2]-1;
+	mask[3]=nlevels[3]-1;
+	maxdepth=calc_maxdepth(src, 0);
+	maxlevels=1<<maxdepth;
+	histsize=sizeof(int[OCH2_COUNT*PRED_COUNT])<<maxdepth;
+	hist=(int*)malloc(histsize);
 	if(!hist)
 	{
-		LOG_ERROR("Alloc error");
+		CRASH("Alloc error");
 		return;
 	}
 	memset(hist, 0, histsize);
-	int count=0;
-	for(int ky=y1+2;ky<y2;++ky)//analysis loop
+	count=0;
+	for(ky=y1+2;ky<y2;++ky)/*analysis loop*/
 	{
-		for(int kx=x1+2;kx<x2-2;++kx, ++count)
+		for(kx=x1+2;kx<x2-2;++kx, ++count)
 		{
 			const int
-				*NNWW0	=src->data+4*(src->iw*(ky-2LL)+kx-2LL),
-				*NNW0	=src->data+4*(src->iw*(ky-2LL)+kx-1LL),
-				*NN0	=src->data+4*(src->iw*(ky-2LL)+kx+0LL),
-				*NNE0	=src->data+4*(src->iw*(ky-2LL)+kx+1LL),
-				*NNEE0	=src->data+4*(src->iw*(ky-2LL)+kx+2LL),
-				*NWW0	=src->data+4*(src->iw*(ky-1LL)+kx-2LL),
-				*NW0	=src->data+4*(src->iw*(ky-1LL)+kx-1LL),
-				*N0	=src->data+4*(src->iw*(ky-1LL)+kx+0LL),
-				*NE0	=src->data+4*(src->iw*(ky-1LL)+kx+1LL),
-				*NEE0	=src->data+4*(src->iw*(ky-1LL)+kx+2LL),
-				*WW0	=src->data+4*(src->iw*(ky+0LL)+kx-2LL),
-				*W0	=src->data+4*(src->iw*(ky+0LL)+kx-1LL),
-				*target	=src->data+4*(src->iw*(ky+0LL)+kx+0LL),
-				offset0	[]={0, 0, 0};
-#define DECL_NB(NB) {NB##0[0]-NB##0[1], NB##0[1]-NB##0[2], NB##0[2]-NB##0[0]}
+				*NNWW0	=dataptr+4*(src->iw*(ky-(intptr_t)2)+kx-(intptr_t)2),
+				*NNW0	=dataptr+4*(src->iw*(ky-(intptr_t)2)+kx-(intptr_t)1),
+				*NN0	=dataptr+4*(src->iw*(ky-(intptr_t)2)+kx+(intptr_t)0),
+				*NNE0	=dataptr+4*(src->iw*(ky-(intptr_t)2)+kx+(intptr_t)1),
+			/*	*NNEE0	=dataptr+4*(src->iw*(ky-(intptr_t)2)+kx+(intptr_t)2),*/
+				*NWW0	=dataptr+4*(src->iw*(ky-(intptr_t)1)+kx-(intptr_t)2),
+				*NW0	=dataptr+4*(src->iw*(ky-(intptr_t)1)+kx-(intptr_t)1),
+				*N0	=dataptr+4*(src->iw*(ky-(intptr_t)1)+kx+(intptr_t)0),
+				*NE0	=dataptr+4*(src->iw*(ky-(intptr_t)1)+kx+(intptr_t)1),
+				*NEE0	=dataptr+4*(src->iw*(ky-(intptr_t)1)+kx+(intptr_t)2),
+				*WW0	=dataptr+4*(src->iw*(ky+(intptr_t)0)+kx-(intptr_t)2),
+				*W0	=dataptr+4*(src->iw*(ky+(intptr_t)0)+kx-(intptr_t)1),
+				*target	=dataptr+4*(src->iw*(ky+(intptr_t)0)+kx+(intptr_t)0);
+			int offset0	[3]={0};
 			int
-				NNWW1	[]=DECL_NB(NNWW),
-				NNW1	[]=DECL_NB(NNW),
-				NN1	[]=DECL_NB(NN),
-				NNE1	[]=DECL_NB(NNE),
-				NNEE1	[]=DECL_NB(NNEE),
-				NWW1	[]=DECL_NB(NWW),
-				NW1	[]=DECL_NB(NW),
-				N1	[]=DECL_NB(N),
-				NE1	[]=DECL_NB(NE),
-				NEE1	[]=DECL_NB(NEE),
-				WW1	[]=DECL_NB(WW),
-				W1	[]=DECL_NB(W),
-				offset1	[]={target[1], target[2], target[0]};
-#undef  DECL_NB
-#define DECL_NB(NB) {NB##0[0]-(3*NB##0[1]+NB##0[2])/4, NB##0[1]-(3*NB##0[2]+NB##0[0])/4, NB##0[2]-(3*NB##0[0]+NB##0[1])/4}
+				NNWW1	[3]={0},
+				NNW1	[3]={0},
+				NN1	[3]={0},
+				NNE1	[3]={0},
+				NWW1	[3]={0},
+				NW1	[3]={0},
+				N1	[3]={0},
+				NE1	[3]={0},
+				NEE1	[3]={0},
+				WW1	[3]={0},
+				W1	[3]={0},
+				offset1	[3]={0};
 			int
-				NNWW2	[]=DECL_NB(NNWW),
-				NNW2	[]=DECL_NB(NNW),
-				NN2	[]=DECL_NB(NN),
-				NNE2	[]=DECL_NB(NNE),
-				NNEE2	[]=DECL_NB(NNEE),
-				NWW2	[]=DECL_NB(NWW),
-				NW2	[]=DECL_NB(NW),
-				N2	[]=DECL_NB(N),
-				NE2	[]=DECL_NB(NE),
-				NEE2	[]=DECL_NB(NEE),
-				WW2	[]=DECL_NB(WW),
-				W2	[]=DECL_NB(W),
-				offset2	[]={(3*target[1]+target[2])/4, (3*target[2]+target[0])/4, (3*target[0]+target[1])/4};
-#undef  DECL_NB
-#define DECL_NB(NB) {NB##0[0]-(NB##0[1]+NB##0[2])/2, NB##0[1]-(NB##0[2]+NB##0[0])/2, NB##0[2]-(NB##0[0]+NB##0[1])/2}
+				NNWW2	[3]={0},
+				NNW2	[3]={0},
+				NN2	[3]={0},
+				NNE2	[3]={0},
+				NWW2	[3]={0},
+				NW2	[3]={0},
+				N2	[3]={0},
+				NE2	[3]={0},
+				NEE2	[3]={0},
+				WW2	[3]={0},
+				W2	[3]={0},
+				offset2	[3]={0};
 			int
-				NNWW3	[]=DECL_NB(NNWW),
-				NNW3	[]=DECL_NB(NNW),
-				NN3	[]=DECL_NB(NN),
-				NNE3	[]=DECL_NB(NNE),
-				NNEE3	[]=DECL_NB(NNEE),
-				NWW3	[]=DECL_NB(NWW),
-				NW3	[]=DECL_NB(NW),
-				N3	[]=DECL_NB(N),
-				NE3	[]=DECL_NB(NE),
-				NEE3	[]=DECL_NB(NEE),
-				WW3	[]=DECL_NB(WW),
-				W3	[]=DECL_NB(W),
-				offset3	[]={(target[1]+target[2])/2, (target[2]+target[0])/2, (target[0]+target[1])/2};
-#undef  DECL_NB
-#define DECL_NB(NB) {NB##0[0]-(NB##0[1]+3*NB##0[2])/4, NB##0[1]-(NB##0[2]+3*NB##0[0])/4, NB##0[2]-(NB##0[0]+3*NB##0[1])/4}
+				NNWW3	[3]={0},
+				NNW3	[3]={0},
+				NN3	[3]={0},
+				NNE3	[3]={0},
+				NWW3	[3]={0},
+				NW3	[3]={0},
+				N3	[3]={0},
+				NE3	[3]={0},
+				NEE3	[3]={0},
+				WW3	[3]={0},
+				W3	[3]={0},
+				offset3	[3]={0};
 			int
-				NNWW4	[]=DECL_NB(NNWW),
-				NNW4	[]=DECL_NB(NNW),
-				NN4	[]=DECL_NB(NN),
-				NNE4	[]=DECL_NB(NNE),
-				NNEE4	[]=DECL_NB(NNEE),
-				NWW4	[]=DECL_NB(NWW),
-				NW4	[]=DECL_NB(NW),
-				N4	[]=DECL_NB(N),
-				NE4	[]=DECL_NB(NE),
-				NEE4	[]=DECL_NB(NEE),
-				WW4	[]=DECL_NB(WW),
-				W4	[]=DECL_NB(W),
-				offset4	[]={(target[1]+3*target[2])/4, (target[2]+3*target[0])/4, (target[0]+3*target[1])/4};
-#undef  DECL_NB
-#define DECL_NB(NB) {NB##0[0]-NB##0[2], NB##0[1]-NB##0[0], NB##0[2]-NB##0[1]}
+				NNWW4	[3]={0},
+				NNW4	[3]={0},
+				NN4	[3]={0},
+				NNE4	[3]={0},
+				NWW4	[3]={0},
+				NW4	[3]={0},
+				N4	[3]={0},
+				NE4	[3]={0},
+				NEE4	[3]={0},
+				WW4	[3]={0},
+				W4	[3]={0},
+				offset4	[3]={0};
 			int
-				NNWW5	[]=DECL_NB(NNWW),
-				NNW5	[]=DECL_NB(NNW),
-				NN5	[]=DECL_NB(NN),
-				NNE5	[]=DECL_NB(NNE),
-				NNEE5	[]=DECL_NB(NNEE),
-				NWW5	[]=DECL_NB(NWW),
-				NW5	[]=DECL_NB(NW),
-				N5	[]=DECL_NB(N),
-				NE5	[]=DECL_NB(NE),
-				NEE5	[]=DECL_NB(NEE),
-				WW5	[]=DECL_NB(WW),
-				W5	[]=DECL_NB(W),
-				offset5	[]={target[2], target[0], target[1]};
-#undef  DECL_NB
+				NNWW5	[3]={0},
+				NNW5	[3]={0},
+				NN5	[3]={0},
+				NNE5	[3]={0},
+				NWW5	[3]={0},
+				NW5	[3]={0},
+				N5	[3]={0},
+				NE5	[3]={0},
+				NEE5	[3]={0},
+				WW5	[3]={0},
+				W5	[3]={0},
+				offset5	[3]={0};
 			int vmin[3], vmax[3];
-			
+
+#define DECL_NB(NB) NB##1[0]=NB##0[0]-NB##0[1], NB##1[1]=NB##0[1]-NB##0[2], NB##1[2]=NB##0[2]-NB##0[0]
+			DECL_NB(NNWW);
+			DECL_NB(NNW);
+			DECL_NB(NN);
+			DECL_NB(NNE);
+		/*	DECL_NB(NNEE);*/
+			DECL_NB(NWW);
+			DECL_NB(NW);
+			DECL_NB(N);
+			DECL_NB(NE);
+			DECL_NB(NEE);
+			DECL_NB(WW);
+			DECL_NB(W);
+			offset1[0]=target[1], offset1[1]=target[2], offset1[2]=target[0];
+#undef  DECL_NB
+#define DECL_NB(NB) NB##2[0]=NB##0[0]-(3*NB##0[1]+NB##0[2])/4, NB##2[1]=NB##0[1]-(3*NB##0[2]+NB##0[0])/4, NB##2[2]=NB##0[2]-(3*NB##0[0]+NB##0[1])/4
+			DECL_NB(NNWW);
+			DECL_NB(NNW);
+			DECL_NB(NN);
+			DECL_NB(NNE);
+		/*	DECL_NB(NNEE);*/
+			DECL_NB(NWW);
+			DECL_NB(NW);
+			DECL_NB(N);
+			DECL_NB(NE);
+			DECL_NB(NEE);
+			DECL_NB(WW);
+			DECL_NB(W);
+			offset2[0]=(3*target[1]+target[2])/4;
+			offset2[1]=(3*target[2]+target[0])/4;
+			offset2[2]=(3*target[0]+target[1])/4;
+#undef  DECL_NB
+#define DECL_NB(NB) NB##3[0]=NB##0[0]-(NB##0[1]+NB##0[2])/2, NB##3[1]=NB##0[1]-(NB##0[2]+NB##0[0])/2, NB##3[2]=NB##0[2]-(NB##0[0]+NB##0[1])/2
+			DECL_NB(NNWW);
+			DECL_NB(NNW);
+			DECL_NB(NN);
+			DECL_NB(NNE);
+		/*	DECL_NB(NNEE);*/
+			DECL_NB(NWW);
+			DECL_NB(NW);
+			DECL_NB(N);
+			DECL_NB(NE);
+			DECL_NB(NEE);
+			DECL_NB(WW);
+			DECL_NB(W);
+			offset3[0]=(target[1]+target[2])/2;
+			offset3[1]=(target[2]+target[0])/2;
+			offset3[2]=(target[0]+target[1])/2;
+#undef  DECL_NB
+#define DECL_NB(NB) NB##4[0]=NB##0[0]-(NB##0[1]+3*NB##0[2])/4, NB##4[1]=NB##0[1]-(NB##0[2]+3*NB##0[0])/4, NB##4[2]=NB##0[2]-(NB##0[0]+3*NB##0[1])/4
+			DECL_NB(NNWW);
+			DECL_NB(NNW);
+			DECL_NB(NN);
+			DECL_NB(NNE);
+		/*	DECL_NB(NNEE);*/
+			DECL_NB(NWW);
+			DECL_NB(NW);
+			DECL_NB(N);
+			DECL_NB(NE);
+			DECL_NB(NEE);
+			DECL_NB(WW);
+			DECL_NB(W);
+			offset4[0]=(target[1]+3*target[2])/4;
+			offset4[1]=(target[2]+3*target[0])/4;
+			offset4[2]=(target[0]+3*target[1])/4;
+#undef  DECL_NB
+#define DECL_NB(NB) NB##5[0]=NB##0[0]-NB##0[2], NB##5[1]=NB##0[1]-NB##0[0], NB##5[2]=NB##0[2]-NB##0[1]
+			DECL_NB(NNWW);
+			DECL_NB(NNW);
+			DECL_NB(NN);
+			DECL_NB(NNE);
+		/*	DECL_NB(NNEE);*/
+			DECL_NB(NWW);
+			DECL_NB(NW);
+			DECL_NB(N);
+			DECL_NB(NE);
+			DECL_NB(NEE);
+			DECL_NB(WW);
+			DECL_NB(W);
+			offset5[0]=target[2];
+			offset5[1]=target[0];
+			offset5[2]=target[1];
+#undef  DECL_NB
+
 			CODE_ZERO	(0, 0, OCH2_R);
 			CODE_ZERO	(0, 1, OCH2_G);
 			CODE_ZERO	(0, 2, OCH2_B);
@@ -625,43 +693,42 @@ void c18_analyze(Image const *src, int x1, int x2, int y1, int y2, C18Info *info
 	}
 	if(!count)
 		return;
-	double norm=1./count;
-	//int res=(x2-x1-4)*(y2-y1-2);
-	for(int kc=0;kc<OCH2_COUNT*PRED_COUNT;++kc)
+	norm=1./count;
+	for(kc=0;kc<OCH2_COUNT*PRED_COUNT;++kc)
 	{
 		int *curr_hist=hist+((size_t)kc<<maxdepth);
 		double e=0;
-		for(int ks=0;ks<maxlevels;++ks)
+		for(ks=0;ks<maxlevels;++ks)
 		{
 			int freq=curr_hist[ks];
 			if(freq)
 			{
 				double p=freq*norm;
-				e-=p*log2(p);
+				e-=p*log(p);
 			}
 		}
-		info->esizes[kc]=e/8;
+		info->esizes[kc]=e*(1./(8*M_LN2));
 	}
-	int predsel[OCH2_COUNT]={0};
-	for(int kc=0;kc<OCH2_COUNT;++kc)//select best predictors
+	for(kc=0;kc<OCH2_COUNT;++kc)/*select best predictors*/
 	{
 		int bestpred=0;
 		const double *curr_esizes=info->esizes+kc*PRED_COUNT;
-		for(int kp=1;kp<PRED_COUNT;++kp)
+		for(kp=1;kp<PRED_COUNT;++kp)
 		{
 			if(curr_esizes[bestpred]>curr_esizes[kp])
 				bestpred=kp;
 		}
 		predsel[kc]=bestpred;
 	}
-	double bestsize=0;
-	for(int kt=0;kt<RCT2_COUNT;++kt)//select best RCT
+	bestsize=0;
+	for(kt=0;kt<RCT2_COUNT;++kt)/*select best RCT*/
 	{
-		const unsigned char *group=rct_combinations[kt];
-		double csize=
+		group=rct_combinations[kt];
+		csize=
 			+info->esizes[group[0]*PRED_COUNT+predsel[group[0]]]
 			+info->esizes[group[1]*PRED_COUNT+predsel[group[1]]]
-			+info->esizes[group[2]*PRED_COUNT+predsel[group[2]]];
+			+info->esizes[group[2]*PRED_COUNT+predsel[group[2]]]
+		;
 		info->rctsizes[kt]=csize/3;
 		if(!kt||bestsize>csize)
 		{
@@ -669,7 +736,7 @@ void c18_analyze(Image const *src, int x1, int x2, int y1, int y2, C18Info *info
 			info->bestrct=kt;
 		}
 	}
-	const unsigned char *group=rct_combinations[info->bestrct];
+	group=rct_combinations[info->bestrct];
 	info->predidx[0]=predsel[group[0]];
 	info->predidx[1]=predsel[group[1]];
 	info->predidx[2]=predsel[group[2]];
