@@ -545,7 +545,7 @@ void pred_mixR(Image *src, int fwd)
 		XPAD=8,
 		NROWS=4,
 		NCH=4,
-		NVAL=2
+		NVAL=3
 	};
 	ALIGN(16) int32_t coeffs[4][MIXPREDS*3]={0}, bias[4]={0}, estims[MIXPREDS*3]={0};
 	int psize;
@@ -553,7 +553,18 @@ void pred_mixR(Image *src, int fwd)
 	int amin[4], amax[4], rmin[4], rmax[4], invdist, ky, kx, kc, idx;
 	const uint8_t *perm;
 	int uc0, vc0, vc1;
+#if 0
+	int e0int[4]={0}, e1int[4]={0}, dshift=31^LZCNT32(g_dist);
+#endif
+	int a_dist[4]={0}, dist2sym[4]={0};
 
+	(void)invdist;
+	(void)rmax;
+	(void)rmin;
+	a_dist[0]=g_dist;
+	a_dist[1]=g_dist;
+	a_dist[2]=g_dist;
+	a_dist[3]=g_dist;
 	amin[0]=-(1<<src->depth[0]>>1);
 	amin[1]=-(1<<src->depth[1]>>1);
 	amin[2]=-(1<<src->depth[2]>>1);
@@ -635,9 +646,17 @@ void pred_mixR(Image *src, int fwd)
 						WWWW	=rows[0][0-4*NCH*NROWS*NVAL],
 						WWW	=rows[0][0-3*NCH*NROWS*NVAL],
 						WW	=rows[0][0-2*NCH*NROWS*NVAL],
-						W	=rows[0][0-1*NCH*NROWS*NVAL],
-						cN	=rows[1][1+0*NCH*NROWS*NVAL],
-						cW	=rows[0][1-1*NCH*NROWS*NVAL];
+						W	=rows[0][0-1*NCH*NROWS*NVAL];
+#if 0
+						xNW	=rows[1][1-1*NCH*NROWS*NVAL],
+						xN	=rows[1][1+0*NCH*NROWS*NVAL],
+						xNE	=rows[1][1+1*NCH*NROWS*NVAL],
+						xW	=rows[0][1-1*NCH*NROWS*NVAL],
+						yNW	=rows[1][2-1*NCH*NROWS*NVAL],
+						yN	=rows[1][2+0*NCH*NROWS*NVAL],
+						yNE	=rows[1][2+1*NCH*NROWS*NVAL],
+						yW	=rows[0][2-1*NCH*NROWS*NVAL];
+#endif
 					int offset, curr, j, pred, e;
 					int64_t p1;
 
@@ -659,8 +678,6 @@ void pred_mixR(Image *src, int fwd)
 					(void)WWW;
 					(void)WW;
 					(void)W;
-					(void)cN;
-					(void)cW;
 #endif
 					if(!fwd)
 						yuv[kc]=((int32_t*)(src+1))[idx+kc];
@@ -712,21 +729,101 @@ void pred_mixR(Image *src, int fwd)
 
 					if(g_dist>1)
 					{
+						/*int c0=curr;*/
 						if(fwd)
 						{
+
 							curr-=(int)pred;
+							rows[0][2]=curr;/*original residual*/
+#if 0
+							e0int[kc]+=curr-((e0int[kc]*invdist>>16)-(e0int[kc]>>31));
+							/*e0int[kc]+=((curr<<dshift)-e0int[kc]+(1<<dshift>>1))>>dshift;*/
+#endif
 #if 0
 							curr=curr<0?-(-curr>>1):curr>>1;/*IMG0008 d3  17.9% 33.3 dB  19.19% 34.0 dB*/
 
 							curr=(curr*invdist>>16)-(curr>>31&-(g_dist>1));
 #endif
+							curr/=a_dist[kc];
+#if 0
 							curr=(curr*invdist>>16)-(curr>>31);/*curr/=g_dist*/
-							CLAMP2(curr, rmin[kc], rmax[kc]);
+#endif
+
+							/*sky filter*/
+#if 0
+							{/*ghost donut*/
+								const int r1=180, r2=200;
+
+								int dx=kx-src->iw/2, dy=ky-src->ih*3/4;
+								int d2=dx*dx+dy*dy;
+								if((uint32_t)(d2-r1*r1)<(uint32_t)(r2*r2-r1*r1))
+									curr=(curr*invdist>>16)-(curr>>31);
+							}
+#endif
+#if 0
+							{
+								int drift=xNW+xN+xNE+xW+yNW+yN+yNE+yW;
+
+								curr+=(drift>g_dist)-(drift<-g_dist);
+							}
+#endif
+#if 0
+							curr-=(dN>0)&(cN<0)&(dW>0)&(cW<0);/*original<0 & q>0? dec, pixel rises with error*/
+							curr+=(dN<0)&(cN>0)&(dW<0)&(cW>0);/*original<0 & q>0? inc*/
+#endif
+#if 0
+#if 0
+							e1int[kc]+=((abs(curr)<<7)-e1int[kc]+(1<<7))>>8;
+							if(e1int[kc]<1<<6)
+#endif
+							{
+								int threshold=2<<dshift;
+
+								if(e0int[kc]>=threshold)
+									++curr, e0int[kc]-=threshold;
+								if(e0int[kc]<=-threshold)
+									--curr, e0int[kc]+=threshold;
+#if 0
+								e1int[kc]-=1<<6;
+#endif
+							}
+#endif
+							CLAMP2(curr, amin[kc]/a_dist[kc], amax[kc]/a_dist[kc]);
 							((int32_t*)(src+1))[idx+kc]=curr;
 						}
-						curr=g_dist*curr+(int)pred;
-						CLAMP2(curr, amin[kc], amax[kc]);
-						yuv[kc]=curr;
+						{
+							int reset=0;
+							if(!curr)
+								++dist2sym[kc];
+							else
+								reset=1;
+
+							e=curr;
+							curr=a_dist[kc]*curr+(int)pred;
+							CLAMP2(curr, amin[kc], amax[kc]);
+							yuv[kc]=curr;
+
+							if(reset)
+								a_dist[kc]=g_dist;
+							else if(dist2sym[kc]>=8)
+							{
+								a_dist[kc]-=a_dist[kc]>1;
+								dist2sym[kc]=0;
+							}
+#if 0
+							{
+								int diff=curr-c0;
+#if 1
+								rows[0][1+0*NCH*NROWS*NVAL]=diff;
+								rows[0][2+0*NCH*NROWS*NVAL]=diff;
+#endif
+#if 0
+								rows[0][1+0*NCH*NROWS*NVAL]=diff+xW-((xW*invdist)-(xW>>31));/*XY-accumulated distortion*/
+								rows[0][2+0*NCH*NROWS*NVAL]=diff+yN-((yN*invdist)-(yN>>31));
+#endif
+							}
+#endif
+						}
 					}
 					else
 					{
@@ -739,6 +836,7 @@ void pred_mixR(Image *src, int fwd)
 						}
 						else
 						{
+							e=curr;
 							curr+=pred;
 							curr<<=32-src->depth[kc];
 							curr>>=32-src->depth[kc];

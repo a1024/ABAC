@@ -2337,6 +2337,8 @@ void pred_quantize(Image *src, int fwd)
 	int amin[4], amax[4], ky, kx, kc, idx, psize;
 	int16_t *pixels, *rows[4];
 
+	(void)amax;
+	(void)amin;
 	psize=(src->iw+2*XPAD)*(int)sizeof(int16_t[NROWS*NCH*NVAL]);
 	pixels=(int16_t*)_mm_malloc(psize, sizeof(__m128i));/*4 padded rows * 4 channels max * {pixels, drift}*/
 	if(!pixels)
@@ -2387,11 +2389,22 @@ void pred_quantize(Image *src, int fwd)
 					(void)W;
 					val=((int32_t*)HDR_DATA(src))[idx];
 					if(fwd)
-						val=val<0?-(-val>>1):val>>1;
+					{
+						int smask=val>>31;
+
+						val^=smask;
+						val-=smask;
+						val>>=1;
+						val^=smask;
+						val-=smask;
+					}
 					else
 					{
+						val<<=1;
+#if 0
 						val=val<<1|(val-amin[kc])>>(src->depth[kc]-1);
 						CLAMP2(val, amin[kc], amax[kc]);
+#endif
 					}
 					rows[0][0]=val;
 					((int32_t*)HDR_DATA(src))[idx]=val;
@@ -10738,7 +10751,7 @@ void calc_csize_abac(Image const *src, int order, double *entropy)
 {
 	int64_t cbitsizes[4]={0};
 	int ky, kx, kc, kb, idx, tidx, treesizes[4], maxtreesize, statssize;
-	uint16_t *stats;
+	int32_t *stats;
 
 	treesizes[0]=1<<src->depth[0];
 	treesizes[1]=1<<src->depth[1];
@@ -10748,67 +10761,84 @@ void calc_csize_abac(Image const *src, int order, double *entropy)
 	if(maxtreesize<treesizes[1])maxtreesize=treesizes[1];
 	if(maxtreesize<treesizes[2])maxtreesize=treesizes[2];
 	if(maxtreesize<treesizes[3])maxtreesize=treesizes[3];
-	statssize=(int)sizeof(uint16_t)*maxtreesize;
+	statssize=(int)sizeof(uint32_t)*maxtreesize;
 	if(order)
 		statssize*=maxtreesize;
-	stats=(uint16_t*)malloc(statssize);
+	stats=(int32_t*)malloc(statssize);
 	if(!stats)
 	{
 		CRASH("Alloc error");
 		return;
 	}
+	memset(stats, 0, statssize);
 	for(kc=0;kc<4;++kc)
 	{
-		uint64_t low=0, range=0xFFFFFFFF;
+		uint64_t lo=0, hi=0xFFFFFFFFFFFF;
 		int depth=src->depth[kc];
 		if(!depth)
 			continue;
-		FILLMEM(stats, 0x8000, statssize, sizeof(int16_t));
+	/*	FILLMEM(stats, 0x8000, statssize, sizeof(int16_t));*/
+	/*	memset(stats, 0, statssize);*/
 		for(ky=0, idx=kc;ky<src->ih;++ky)
 		{
 			int NW=0, N=0, WWW=0, WW=0, W=0;
 			for(kx=0;kx<src->iw;++kx, idx+=4)
 			{
-				uint16_t *curr_stats;
+				int32_t *curr_stats;
 				int NE, val;
 
 				curr_stats=stats;
-				NE=ky&&kx<src->iw-1?((const int32_t*)HDR_DATC(src))[idx-(src->iw<<2)+4]:0;
+				NE=0;
 				if(order)
 				{
 					int ctx=W;
+
+					NE=ky&&kx<src->iw-1?((const int32_t*)HDR_DATC(src))[idx-(src->iw<<2)+4]:0;
 					if(ky)
 						ctx+=N-NW;
-					curr_stats+=((intptr_t)ctx&(((intptr_t)1<<depth)-1))<<depth;
+					ctx=(ctx&((1<<depth)-1))<<depth;
+					if(ctx>=(int)(statssize/sizeof(uint32_t)))
+						CRASH("ABAC says hi");
+					curr_stats+=ctx;
 				}
 				val=((const int32_t*)HDR_DATC(src))[idx];
 				for(kb=depth-1, tidx=1;kb>=0;--kb)
 				{
-					uint64_t r2;
-					int p0, bit;
+					enum
+					{
+						USEB=12,
+						STOREB=20,
+						AGEBITS=9,
+						AGEMASK=(1<<AGEBITS)-1
+					};
+					uint64_t x;
+					int32_t *pp, cell, prob, ctr, sh, p0, bit;
 
-					p0=curr_stats[tidx];
+					pp=curr_stats+tidx;
+					cell=*pp;
+					p0=cell>>(AGEBITS+STOREB-USEB);
+					prob=cell>>AGEBITS;
+					ctr=cell&AGEMASK;
+					sh=31^LZCNT32(ctr+3);
+					ctr+=ctr<AGEMASK;
+					p0+=p0<0;
+					p0+=1<<USEB>>1;
 					bit=val>>kb&1;
-					CLAMP2(p0, 16, 0x10000-16);
-					if(range<0x10000)
+					x=hi-lo;
+					if(x<=0xFFFF)
 					{
 						cbitsizes[kc]+=32;
 
-						low<<=32;
-						range=range<<32|0xFFFFFFFF;
-						if(range>~low)
-							range=~low;
+						lo<<=32;
+						hi=hi<<32|(uint32_t)~0;
+						if(hi<lo)hi=~(uint64_t)0;
+						x=hi-lo;
 					}
-					r2=range*p0>>16;
-					if(bit)
-					{
-						low+=r2;
-						range-=r2;
-					}
-					else
-						range=r2-1;
-					p0+=(((!bit<<16)-p0)+(1<<7>>1))>>7;
-					curr_stats[tidx]=p0;
+					x=lo+(x*p0>>USEB);
+					*(bit?&lo:&hi)=x-(bit^1);
+					prob+=(((bit^1)<<STOREB)-(1<<STOREB>>1)-prob+(1<<sh>>1))>>sh;
+				/*	p0+=((!bit<<16)-p0+(1<<7>>1))>>7;*/
+					*pp=prob<<AGEBITS|ctr;
 					tidx=tidx*2+bit;
 				}
 				NW=N;
@@ -10819,11 +10849,12 @@ void calc_csize_abac(Image const *src, int order, double *entropy)
 				(void)WWW;
 			}
 		}
+		cbitsizes[kc]+=32;/*flush*/
 	}
 	free(stats);
 	for(kc=0;kc<4;++kc)
 	{
 		double usize=(double)src->iw*src->ih*src->src_depth[kc];
-		entropy[kc]=usize<=0?cbitsizes[kc]/usize:0;/*entropy = cbitsize/ubitsize*/
+		entropy[kc]=src->src_depth[kc]?cbitsizes[kc]/usize:0;/*entropy = cbitsize/ubitsize*/
 	}
 }

@@ -361,25 +361,18 @@ EContext ec_method=ECTX_HIST;/*ECTX_MIN_QN_QW;*/
 int ec_adaptive=0, ec_adaptive_threshold=3200, ec_expbits=5, ec_msb=2, ec_lsb=0;
 int abacvis_low=0, abacvis_range=0;
 
-#define MODELPREC 3
-#if 0
-#define MODELNCTX 256
-#endif
-#define MODELNCTX 17
-
-#if 0
-#define MODELPREC 3
-#define MODELNCTX (1<<(16+MODELPREC))
-
-#define MODELCTXBITS 6	/*X*/
-#define MODELNCTX (1<<MODELCTXBITS)
-#endif
+enum
+{
+	MODELNCTX=17,
+	MODELPREC=3
+};
 int modelnch=0, modelnctx=0, modeldepth=0, modelhistsize=0, *modelhist=0;
 double modelcsizes[4*MODELNCTX]={0};
 double modelmeans[4*MODELNCTX]={0}, modelsdevs[4*MODELNCTX]={0};
 int *modelmhist=0;
 double modelmsizes[4*MODELNCTX]={0};
 double modelstatoverhead=0;
+int modelvis=0;
 
 #define combCRhist_SIZE 128
 #define combCRhist_logDX 2
@@ -424,6 +417,7 @@ float jhc_level=10.5f;
 int loud_transforms=1;
 int g_dist=1;
 float g_uiscale=1;
+int drawCRhistory=0;
 
 static double invcr2csizes(const double *invcr, const int8_t *src_depths, int iw, int ih, int nch, double *csizes)/*invcr & csizes have nch+1=5 elements*/
 {
@@ -1297,9 +1291,9 @@ void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 
 static ptrdiff_t calc_psnr(const Image *ima, const Image *imb, double *ret_rmse, double *ret_psnr)
 {
-	double rmse[4]={0}, psnr[4]={0};
-	intptr_t res, idx, k, kc;
-	int half[4]={0};
+	double rmse[5]={0}, psnr[5]={0};
+	intptr_t res, idx, k, kc, usize;
+	double vmax[4]={0};
 
 	if(ima->iw!=imb->iw||ima->ih!=imb->ih||ima->nch!=imb->nch)
 	{
@@ -1321,10 +1315,10 @@ static ptrdiff_t calc_psnr(const Image *ima, const Image *imb, double *ret_rmse,
 	}
 	res=(intptr_t)ima->iw*ima->ih;
 	idx=-1;
-	half[0]=1<<ima->src_depth[0]>>1;
-	half[1]=1<<ima->src_depth[1]>>1;
-	half[2]=1<<ima->src_depth[2]>>1;
-	half[3]=1<<ima->src_depth[3]>>1;
+	vmax[0]=1./((1<<ima->src_depth[0])-1);
+	vmax[1]=1./((1<<ima->src_depth[1])-1);
+	vmax[2]=1./((1<<ima->src_depth[2])-1);
+	vmax[3]=1./((1<<ima->src_depth[3])-1);
 	for(k=0;k<res;++k)
 	{
 		int
@@ -1339,10 +1333,20 @@ static ptrdiff_t calc_psnr(const Image *ima, const Image *imb, double *ret_rmse,
 		rmse[2]+=db*db;
 		rmse[3]+=da*da;
 	}
+	usize=0;
+	for(kc=0;kc<4;++kc)
+	{
+		if(ima->src_depth[kc])
+			usize+=res;
+	}
+	rmse[4]=sqrt((rmse[0]+rmse[1]+rmse[2]+rmse[3])/usize);
+	psnr[4]=-20*log10(rmse[4]*vmax[0]);
 	for(kc=0;kc<4;++kc)
 	{
 		rmse[kc]=sqrt(rmse[kc]/res);
-		psnr[kc]=20*log10(half[kc]/rmse[kc]);
+		psnr[kc]=-20*log10(rmse[kc]*vmax[kc]);
+		if(ima->src_depth[kc])
+			usize+=res;
 	}
 	if(ret_rmse)
 		memcpy(ret_rmse, rmse, sizeof(rmse));
@@ -1355,7 +1359,7 @@ typedef struct LossyCtxStruct
 	Image *image;
 	double usize, csize[4];
 	ptrdiff_t idx;
-	double rmse[4], psnr[4], sqe[4], ssim[4];
+	double rmse[5], psnr[5], sqe[4], ssim[4];
 } LossyCtx;
 static uint32_t __stdcall sample_thread_lossy(void *param)
 {
@@ -3406,10 +3410,16 @@ void update_image(void)/*apply selected operations on original image, calculate 
 		break;
 	case VIS_MODEL:
 		{
+#if 0
+	#define PRINT_RESIDUALS
+#endif
 			void *p2;
 			int nlevels, half, mask, kx, ky, kc, idx;
 			int psize;
 			int *pixels;
+#ifdef PRINT_RESIDUALS
+			int count=0;
+#endif
 
 			modeldepth=im1->depth[0];
 			if(modeldepth<im1->depth[1])modeldepth=im1->depth[1];
@@ -3445,6 +3455,9 @@ void update_image(void)/*apply selected operations on original image, calculate 
 				return;
 			}
 			memset(pixels, 0, psize);
+#ifdef PRINT_RESIDUALS
+			console_start();
+#endif
 			for(ky=0, idx=0;ky<im1->ih;++ky)
 			{
 				int *rows[4]={0};
@@ -3466,6 +3479,10 @@ void update_image(void)/*apply selected operations on original image, calculate 
 						sym=((const int32_t*)HDR_DATC(im1))[idx|kc];
 						sym<<=32-im1->depth[kc];
 						sym>>=32-im1->depth[kc];
+#ifdef PRINT_RESIDUALS
+						if(!kc&&ctx==6&&count++<4096)
+							console_log(" %d", sym);
+#endif
 						++modelhist[(modelnctx*kc+ctx)<<modeldepth|((sym+half)&mask)];
 						sym=sym<<1^sym>>31;
 						rows[0][kc]=eW[kc]=(2*eW[kc]+(sym<<MODELPREC)+MAXVAR(rows[1][kc+2*4], rows[1][kc+3*4]))>>2;
@@ -3965,7 +3982,8 @@ int io_init(int argc, char **argv)/*return false to abort*/
 	{
 		const char *str=
 
-			"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"
+			"C:/dataset-GDCC2020-ppm/photo-72.ppm"
+		/*	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"*/
 
 		;
 		int len=(int)strlen(str);
@@ -5282,130 +5300,152 @@ int io_keydn(IOKey key, char c)
 				return 0;
 			}
 			STR_ALLOC(str, 0);
-			if(transforms_mask[ST_FWD_OLS4]||transforms_mask[ST_INV_OLS4])
+			if(mode==VIS_MODEL)
 			{
-				int kx, ky, kc;
-
-				str_append(&str, "%8d %8.6f %8.6f %8.6f %8.6f\n", ols4_period, ols4_lr[0], ols4_lr[1], ols4_lr[2], ols4_lr[3]);
-				for(kc=0;kc<4;++kc)
+				int nhist, nlevels, kh, ks;
+				
+				nhist=modelnch*modelnctx;
+				nlevels=1<<modeldepth;
+				str_append(&str, "%-9s", "");
+				for(kh=0;kh<nhist;++kh)
+					str_append(&str, "   C%d CTX%02d", kh/modelnctx, kh%modelnctx);
+				str_append(&str, "\n\n");
+				for(ks=0;ks<nlevels;++ks)
 				{
-					for(ky=0;ky<OLS4_RMAX+1;++ky)
-					{
-						for(kx=0;kx<(OLS4_RMAX<<1|1);++kx)
-						{
-							str_append(&str, "0x%02X,", ols4_mask[kc][(OLS4_RMAX<<1|1)*ky+kx]);
-							if(ky==OLS4_RMAX&&kx==OLS4_RMAX)
-								goto next_channel;
-						}
-						str_append(&str, "\n");
-					}
-				next_channel:
+					str_append(&str, "[%4d]:  ", ks);
+				/*	str_append(&str, "C%d CTX%d:\n", kh/modelnctx, kh%modelnctx);*/
+					for(kh=0;kh<nhist;++kh)
+						str_append(&str, " %10d", modelhist[(kh<<modeldepth)+ks]);
 					str_append(&str, "\n");
 				}
-			}/*no 'else' here*/
-			if(mode==VIS_IMAGE||mode==VIS_SHANNON)/*copy custom transform value*/
-			{
-				double invcr[5]={0}, csizes[5]={0}, usize=0;
-
-				invcr[0]=(ch_entropy[0]+ch_entropy[1]+ch_entropy[2]+ch_entropy[3])
-					/((im1->src_depth[0]!=0)+(im1->src_depth[1]!=0)+(im1->src_depth[2]!=0)+(im1->src_depth[3]!=0));
-				invcr[1]=ch_entropy[0];
-				invcr[2]=ch_entropy[1];
-				invcr[3]=ch_entropy[2];
-				invcr[4]=ch_entropy[3];
-				usize=invcr2csizes(invcr, im0->src_depth, im0->iw, im0->ih, 4, csizes);
-				str_append(&str,
-					"UTYUVA %12.2f %12.2f %12.2f %12.2f %12.2f %12.2f bytes  BPD %8.4f",
-					usize,
-					csizes[0],
-					csizes[1],
-					csizes[2],
-					csizes[3],
-					csizes[4],
-					csizes[0]/usize*8
-				);
 			}
-			else if(transforms_mask[ST_FWD_CUSTOM3]||transforms_mask[ST_INV_CUSTOM3])
+			else
 			{
-				const int width=C3_REACH<<2|2;/*interleaved pixels & errors*/
-				const int16_t *coeffs[]=
+				if(transforms_mask[ST_FWD_OLS4]||transforms_mask[ST_INV_OLS4])
 				{
-					c3_params.c00, c3_params.c01, c3_params.c02,
-					c3_params.c10, c3_params.c11, c3_params.c12,
-					c3_params.c20, c3_params.c21, c3_params.c22,
-				};
-				const int tails[]=
-				{
-					C3_REACH<<1,      C3_REACH<<1,    C3_REACH<<1,
-					(C3_REACH<<1)+2,  C3_REACH<<1,    C3_REACH<<1,
-					(C3_REACH<<1)+2, (C3_REACH<<1)+2, C3_REACH<<1,
-				};
-				int kc, k;
+					int kx, ky, kc;
 
-				for(kc=0;kc<9;++kc)
-				{
-					for(k=0;k<C3_REACH;++k)
-						append_i16_row(&str, coeffs[kc]+width*k, width);
-					append_i16_row(&str, coeffs[kc]+width*C3_REACH, tails[kc]);
-					if(kc+1<9)
-						str_append(&str, "\n");
-				}
-			}
-			else if(transforms_mask[ST_FWD_WP]||transforms_mask[ST_INV_WP])
-			{
-				int kx, ky;
-
-				for(ky=0;ky<3;++ky)
-				{
-					for(kx=0;kx<11;++kx)
+					str_append(&str, "%8d %8.6f %8.6f %8.6f %8.6f\n", ols4_period, ols4_lr[0], ols4_lr[1], ols4_lr[2], ols4_lr[3]);
+					for(kc=0;kc<4;++kc)
 					{
-						int16_t val=jxlparams_i16[11*ky+kx];
-						str_append(&str, "%c0x%04X,", val<0?'-':' ', abs(val));
-						if(kx+1==11)
-							str_append(&str, "\n");
-					}
-				}
-			}
-			else if(transforms_mask[ST_FWD_MM]||transforms_mask[ST_INV_MM])
-			{
-				int kx, ky;
-
-				for(ky=0;ky<3;++ky)
-				{
-					for(kx=0;kx<PW2_NPARAM;++kx)
-					{
-						int16_t val=pw2_params[PW2_NPARAM*ky+kx];
-						str_append(&str, "%c0x%04X,", val<0?'-':' ', abs(val));
-						if(kx+1==PW2_NPARAM)
-							str_append(&str, "\n");
-					}
-				}
-			}
-			else if(transforms_customenabled)
-			{
-				const int stw=(custom_pred_reach<<1|1)*2;
-				int shift=GET_KEY_STATE(KEY_SHIFT);
-				int k, kc2;
-
-				for(k=0;k<RCT_CUSTOM_NPARAMS;++k)
-				{
-					int val=rct_custom_params[k];
-					str_append(&str, " %c0x%04X", val<0?'-':' ', abs(val));
-				}
-				str_append(&str, "\n");
-				for(kc2=0;kc2<3;++kc2)
-				{
-					const int np=(int)(_countof(custom_params)/3);
-					const int *params=custom_params+24*kc2;
-					for(k=0;k<np;++k)
-					{
-						int x=k%stw;
-						if(shift)
-							str_append(&str, "%g,%c", (double)params[k]/65536, x<stw-1&&k<np-1?'\t':'\n');
-						else
+						for(ky=0;ky<OLS4_RMAX+1;++ky)
 						{
-							int val=params[k];
-							str_append(&str, "%c0x%06X,%c", val<0?'-':' ', abs(val), x<stw-1&&k<np-1?'\t':'\n');
+							for(kx=0;kx<(OLS4_RMAX<<1|1);++kx)
+							{
+								str_append(&str, "0x%02X,", ols4_mask[kc][(OLS4_RMAX<<1|1)*ky+kx]);
+								if(ky==OLS4_RMAX&&kx==OLS4_RMAX)
+									goto next_channel;
+							}
+							str_append(&str, "\n");
+						}
+					next_channel:
+						str_append(&str, "\n");
+					}
+				}/*no 'else' here*/
+				if(mode==VIS_IMAGE||mode==VIS_SHANNON)/*copy custom transform value*/
+				{
+					double invcr[5]={0}, csizes[5]={0}, usize=0;
+
+					invcr[0]=(ch_entropy[0]+ch_entropy[1]+ch_entropy[2]+ch_entropy[3])
+						/((im1->src_depth[0]!=0)+(im1->src_depth[1]!=0)+(im1->src_depth[2]!=0)+(im1->src_depth[3]!=0));
+					invcr[1]=ch_entropy[0];
+					invcr[2]=ch_entropy[1];
+					invcr[3]=ch_entropy[2];
+					invcr[4]=ch_entropy[3];
+					usize=invcr2csizes(invcr, im0->src_depth, im0->iw, im0->ih, 4, csizes);
+					str_append(&str,
+						"UTYUVA %12.2f %12.2f %12.2f %12.2f %12.2f %12.2f bytes  BPD %8.4f",
+						usize,
+						csizes[0],
+						csizes[1],
+						csizes[2],
+						csizes[3],
+						csizes[4],
+						csizes[0]/usize*8
+					);
+				}
+				else if(transforms_mask[ST_FWD_CUSTOM3]||transforms_mask[ST_INV_CUSTOM3])
+				{
+					const int width=C3_REACH<<2|2;/*interleaved pixels & errors*/
+					const int16_t *coeffs[]=
+					{
+						c3_params.c00, c3_params.c01, c3_params.c02,
+						c3_params.c10, c3_params.c11, c3_params.c12,
+						c3_params.c20, c3_params.c21, c3_params.c22,
+					};
+					const int tails[]=
+					{
+						C3_REACH<<1,      C3_REACH<<1,    C3_REACH<<1,
+						(C3_REACH<<1)+2,  C3_REACH<<1,    C3_REACH<<1,
+						(C3_REACH<<1)+2, (C3_REACH<<1)+2, C3_REACH<<1,
+					};
+					int kc, k;
+
+					for(kc=0;kc<9;++kc)
+					{
+						for(k=0;k<C3_REACH;++k)
+							append_i16_row(&str, coeffs[kc]+width*k, width);
+						append_i16_row(&str, coeffs[kc]+width*C3_REACH, tails[kc]);
+						if(kc+1<9)
+							str_append(&str, "\n");
+					}
+				}
+				else if(transforms_mask[ST_FWD_WP]||transforms_mask[ST_INV_WP])
+				{
+					int kx, ky;
+
+					for(ky=0;ky<3;++ky)
+					{
+						for(kx=0;kx<11;++kx)
+						{
+							int16_t val=jxlparams_i16[11*ky+kx];
+							str_append(&str, "%c0x%04X,", val<0?'-':' ', abs(val));
+							if(kx+1==11)
+								str_append(&str, "\n");
+						}
+					}
+				}
+				else if(transforms_mask[ST_FWD_MM]||transforms_mask[ST_INV_MM])
+				{
+					int kx, ky;
+
+					for(ky=0;ky<3;++ky)
+					{
+						for(kx=0;kx<PW2_NPARAM;++kx)
+						{
+							int16_t val=pw2_params[PW2_NPARAM*ky+kx];
+							str_append(&str, "%c0x%04X,", val<0?'-':' ', abs(val));
+							if(kx+1==PW2_NPARAM)
+								str_append(&str, "\n");
+						}
+					}
+				}
+				else if(transforms_customenabled)
+				{
+					const int stw=(custom_pred_reach<<1|1)*2;
+					int shift=GET_KEY_STATE(KEY_SHIFT);
+					int k, kc2;
+
+					for(k=0;k<RCT_CUSTOM_NPARAMS;++k)
+					{
+						int val=rct_custom_params[k];
+						str_append(&str, " %c0x%04X", val<0?'-':' ', abs(val));
+					}
+					str_append(&str, "\n");
+					for(kc2=0;kc2<3;++kc2)
+					{
+						const int np=(int)(_countof(custom_params)/3);
+						const int *params=custom_params+24*kc2;
+						for(k=0;k<np;++k)
+						{
+							int x=k%stw;
+							if(shift)
+								str_append(&str, "%g,%c", (double)params[k]/65536, x<stw-1&&k<np-1?'\t':'\n');
+							else
+							{
+								int val=params[k];
+								str_append(&str, "%c0x%06X,%c", val<0?'-':' ', abs(val), x<stw-1&&k<np-1?'\t':'\n');
+							}
 						}
 					}
 				}
@@ -5413,13 +5453,17 @@ int io_keydn(IOKey key, char c)
 			copy_to_clipboard((char*)HDR_DATA(str), (int)str->count);
 			array_free(&str);
 		}
-		else
+		else/*no Ctrl*/
 		{
 			if(mode==VIS_HISTOGRAM)
 			{
 				int shift=GET_KEY_STATE(KEY_SHIFT);
 				histmode+=1-(shift<<1);
 				MODVAR(histmode, histmode, HISTMODE_COUNT);
+			}
+			else if(mode==VIS_MODEL)
+			{
+				modelvis^=1;
 			}
 			else
 			{
@@ -5564,9 +5608,10 @@ int io_keydn(IOKey key, char c)
 			pxlabels_hex=!pxlabels_hex;
 		else
 		{
-			memset(combCRhist, 0, sizeof(combCRhist));
-			combCRhist_idx=0;
-			combCRhist_max=1;
+			drawCRhistory^=1;
+			//memset(combCRhist, 0, sizeof(combCRhist));
+			//combCRhist_idx=0;
+			//combCRhist_max=1;
 		}
 		return 1;
 	case 'Q':
@@ -5768,21 +5813,23 @@ int io_keydn(IOKey key, char c)
 				}
 				else
 				{
-					double rmse[4]={0}, psnr[4]={0};
+					double rmse[5]={0}, psnr[5]={0};
 					intptr_t idx;
 					int printed, kx, ky;
 
 					idx=calc_psnr(im0, im1, rmse, psnr);
-					printed=acme_snprintf(g_buf, G_BUF_SIZE-1,
+					printed=acme_snprintf(g_buf, (size_t)G_BUF_SIZE-1,
 						"RMSE PSNR\n"
-						"C0 %12f %12f\n"
-						"C1 %12f %12f\n"
-						"C2 %12f %12f\n"
-						"C3 %12f %12f",
-						rmse[0], psnr[0],
-						rmse[1], psnr[1],
-						rmse[2], psnr[2],
-						rmse[3], psnr[3]
+						"T  %12.6f %12.6f\n"
+						"C0 %12.6f %12.6f\n"
+						"C1 %12.6f %12.6f\n"
+						"C2 %12.6f %12.6f\n"
+						"C3 %12.6f %12.6f"
+						, rmse[4], psnr[4]
+						, rmse[0], psnr[0]
+						, rmse[1], psnr[1]
+						, rmse[2], psnr[2]
+						, rmse[3], psnr[3]
 					);
 					if(idx>=0)
 					{
@@ -5964,11 +6011,13 @@ static void draw_profile_x(int comp, int color)/*horizontal cross-section profil
 	int iy, *row, ix, offset, kx;
 	float y2, gain;
 
+	if((float)wndh-tdy-1<=0)
+		return;
 	iy=screen2image_y_int(my);
 	if((uint32_t)iy<(uint32_t)im1->ih)
 	{
 		row=((int32_t*)HDR_DATA(im1))+(im1->iw*iy<<2|comp);
-		gain=(float)wndh/((1<<im1->depth[comp])-1);
+		gain=((float)wndh-tdy-1)/((1<<im1->depth[comp])-1);
 		offset=1<<im1->depth[comp]>>1;
 		for(kx=0;kx<wndw;++kx)
 		{
@@ -5992,7 +6041,7 @@ static void draw_profile_y(int comp, int color)/*vertical cross-section profile*
 	{
 		col=((int32_t*)HDR_DATA(im1))+(ix<<2|comp);
 		
-		gain=(float)wndw/((1<<im1->depth[comp])-1);
+		gain=((float)wndw-1)/((1<<im1->depth[comp])-1);
 		offset=1<<im1->depth[comp]>>1;
 		stride=im1->iw<<2;
 		for(ky=0;ky<wndh;++ky)
@@ -6927,7 +6976,7 @@ void io_render(void)
 						0x80C0C0C0,
 					};
 					double msizes, esizes[4]={0}, esize;
-					int nhist, YUV, k, wndh2, xhist, yhist, smax, nlevels, kh, kc, ks;
+					int nhist, YUV, k, wndh2, xhist, yhist, smax, amax, nlevels, kh, kc, ks;
 					float x4;
 
 					nhist=modelnch*modelnctx;
@@ -6945,6 +6994,7 @@ void io_render(void)
 					yhist=nhist/modelnch;
 					msizes=0;
 					smax=0;
+					amax=0;
 					nlevels=1<<modeldepth;
 					for(kh=0;kh<nhist;++kh)
 					{
@@ -6953,13 +7003,17 @@ void io_render(void)
 						curr_hist=modelhist+((ptrdiff_t)kh<<modeldepth);
 						hsum=0;
 						for(ks=0;ks<nlevels;++ks)
-							hsum+=curr_hist[ks];
+						{
+							int f=curr_hist[ks];
+							if(amax<f)amax=f;
+							hsum+=f;
+						}
 						if(!kh||smax<hsum)
 							smax=hsum;
 					}
 					for(kh=0;kh<nhist;++kh)
 					{
-						int hx, hy, xstart, xend, ystart, yend, *curr_hist, fmax, hsum, *curr_hist2, fmax2;
+						int hx, hy, xstart, xend, ystart, yend, *curr_hist, fmax, hsum/*, *curr_hist2, fmax2*/;
 
 						hx=kh/yhist;
 						hy=kh%yhist;
@@ -6979,26 +7033,71 @@ void io_render(void)
 						}
 						if(fmax)
 						{
-							draw_rect((float)xstart
-								, (float)xstart+(((float)xend-xstart)*hsum*0.9f/smax)
-								, (float)ystart+(yend-ystart)*0.25f
-								, (float)ystart+(yend-ystart)*0.75f
-								, 0x80000000|128<<kc*8
-							);
-							for(ks=0;ks<nlevels;++ks)
+							if(modelvis)
 							{
-								int f;
-
-								f=curr_hist[ks];
-								draw_rect(
-									(float)xstart+(xend-xstart)*ks/nlevels,
-									(float)xstart+(xend-xstart)*(ks+1)/nlevels,
-									(float)yend-(yend-ystart)*f/fmax,
-									(float)yend,
-									modeltheme[YUV<<2|kc]
+								draw_rect((float)xstart
+									, (float)xstart+(((float)xend-xstart)*hsum*0.9f/smax)
+									, (float)ystart+(yend-ystart)*0.25f
+									, (float)ystart+(yend-ystart)*0.75f
+									, 0x80000000|128<<kc*8
 								);
+								for(ks=0;ks<nlevels;++ks)
+								{
+									int f;
+
+									f=curr_hist[ks];
+									if(f)
+										draw_rect(
+											(float)xstart+(xend-xstart)*ks/nlevels,
+											(float)xstart+(xend-xstart)*(ks+1)/nlevels,
+											(float)yend-ceilf((float)(yend-ystart)*f/fmax),
+											(float)yend,
+											modeltheme[YUV<<2|kc]
+										);
+								}
+							}
+							else
+							{
+								for(ks=0;ks<nlevels;++ks)
+								{
+									int f;
+
+									f=curr_hist[ks];
+									if(f)
+									{
+										int c=modeltheme[YUV<<2|kc];
+#if 0
+										if((ks^kh)&1)
+											c^=0x001F1F1F;
+#endif
+#if 0
+										{
+											uint8_t *p=(uint8_t*)&c;
+											int t;
+											
+											t=p[0]+(rand()>>(15-5))-16;
+											CLAMP2(t, 0, 255);
+											p[0]=t;
+											t=p[1]+(rand()>>(15-5))-16;
+											CLAMP2(t, 0, 255);
+											p[1]=t;
+											t=p[2]+(rand()>>(15-5))-16;
+											CLAMP2(t, 0, 255);
+											p[2]=t;
+										}
+#endif
+										draw_rect(
+											(float)xstart+(xend-xstart)*ks/nlevels,
+											(float)xstart+(xend-xstart)*(ks+1)/nlevels,
+											(float)yend-ceilf((float)(yend-ystart)*f/amax),
+											(float)yend,
+											c
+										);
+									}
+								}
 							}
 						}
+#if 0
 						curr_hist2=modelmhist+((ptrdiff_t)kh<<modeldepth);
 						fmax2=0;
 						for(ks=0;ks<nlevels;++ks)/*FIXME*/
@@ -7020,6 +7119,12 @@ void io_render(void)
 								);
 							}
 						}
+#endif
+						GUIPrint((float)xstart, (float)xstart, (float)ystart, 1, "%02d %12.2f"
+							, kh%modelnctx
+							, modelcsizes[kh]
+						);
+#if 0
 						GUIPrint((float)xstart, (float)xstart, (float)ystart, 1, "%02d %12.2f %+12.2f"
 							, kh%modelnctx
 							, modelcsizes[kh]
@@ -7028,6 +7133,7 @@ void io_render(void)
 						GUIPrint((float)xstart, (float)xstart, (float)ystart+tdy, 1, "   %12.2f"
 							, modelmsizes[kh]
 						);
+#endif
 						esizes[kc]+=modelcsizes[kh];
 						msizes+=modelmsizes[kh];
 					}
@@ -7074,9 +7180,11 @@ void io_render(void)
 			draw_profile(1, 0xFF00FF00);
 			draw_profile(2, 0xFFFF0000);
 			draw_profile(3, 0xFF000000);
+#if 0
 			draw_profile_xy(0, 1, 0xFF00FFFF);
 			draw_profile_xy(1, 2, 0xFFFFFF00);
 			draw_profile_xy(2, 0, 0xFFFF00FF);
+#endif
 		}
 	}
 
@@ -7562,6 +7670,7 @@ void io_render(void)
 			set_text_color(prevtxtcolor);
 			set_bk_color(prevbkcolor);
 		}
+		if(drawCRhistory)
 		{
 			float g2, cx, cy;
 			int idx, idx2;
