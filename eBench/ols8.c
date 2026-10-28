@@ -441,7 +441,7 @@ void pred_ols8_crct(Image *src, int fwd)
 	enum
 	{
 		XPAD=16,
-		NROWS=6,
+		NROWS=8,
 		NCH=4,
 		NVAL=3
 	};
@@ -450,7 +450,7 @@ void pred_ols8_crct(Image *src, int fwd)
 	int32_t *weights, *weights2;
 	int amin[4], amax[4], invdist, ky, kx, kc, idx, yuv[3];
 	int psize;
-	int16_t *pixels;
+	int32_t *pixels, *rows[8];
 	int uc0, vc0, vc1;
 	const uint8_t *perm=0;
 	int a_dist[4]={0}, dist2symx[4]={0};
@@ -476,7 +476,7 @@ void pred_ols8_crct(Image *src, int fwd)
 	weights=(int32_t*)malloc(wsize);
 	weights2=(int32_t*)malloc(w2size);
 	psize=(src->iw+2*XPAD)*(int)sizeof(int32_t[NROWS*NCH*NVAL]);
-	pixels=(int16_t*)malloc(psize);
+	pixels=(int32_t*)malloc(psize);
 	uc0=vc0=vc1=0;
 	perm=0;
 	if(fwd)
@@ -492,14 +492,14 @@ void pred_ols8_crct(Image *src, int fwd)
 	memset(weights2, 0, w2size);
 	for(ky=0, idx=0;ky<src->ih;++ky)
 	{
-		int16_t *rows[6];
-		
 		rows[0]=pixels+(XPAD*NCH*NROWS-NROWS+(ky-(intptr_t)0+NROWS)%NROWS)*NVAL;/*sub 1 channel for pre-increment*/
 		rows[1]=pixels+(XPAD*NCH*NROWS-NROWS+(ky-(intptr_t)1+NROWS)%NROWS)*NVAL;
 		rows[2]=pixels+(XPAD*NCH*NROWS-NROWS+(ky-(intptr_t)2+NROWS)%NROWS)*NVAL;
 		rows[3]=pixels+(XPAD*NCH*NROWS-NROWS+(ky-(intptr_t)3+NROWS)%NROWS)*NVAL;
 		rows[4]=pixels+(XPAD*NCH*NROWS-NROWS+(ky-(intptr_t)4+NROWS)%NROWS)*NVAL;
 		rows[5]=pixels+(XPAD*NCH*NROWS-NROWS+(ky-(intptr_t)5+NROWS)%NROWS)*NVAL;
+		rows[6]=pixels+(XPAD*NCH*NROWS-NROWS+(ky-(intptr_t)6+NROWS)%NROWS)*NVAL;
+		rows[7]=pixels+(XPAD*NCH*NROWS-NROWS+(ky-(intptr_t)7+NROWS)%NROWS)*NVAL;
 		for(kx=0;kx<src->iw;++kx, idx+=4)
 		{
 			int offset=0;
@@ -517,6 +517,8 @@ void pred_ols8_crct(Image *src, int fwd)
 				rows[3]+=NROWS*NVAL;
 				rows[4]+=NROWS*NVAL;
 				rows[5]+=NROWS*NVAL;
+				rows[6]+=NROWS*NVAL;
+				rows[7]+=NROWS*NVAL;
 				if(!src->depth[kc])
 					continue;
 				{
@@ -764,6 +766,8 @@ void pred_ols8_crct(Image *src, int fwd)
 					else
 						curr=((int32_t*)HDR_DATA(src))[idx+kc];
 					{
+						int r0=curr;
+#if 0
 						int inc=0;
 
 						rows[0][2]=curr;
@@ -875,6 +879,7 @@ void pred_ols8_crct(Image *src, int fwd)
 							!rows[0][2-1*NCH*NROWS*NVAL]
 						)
 							inc=-1;
+#endif
 #if 0
 						enum
 						{
@@ -912,11 +917,167 @@ void pred_ols8_crct(Image *src, int fwd)
 						curr+=predc;
 						CLAMP2(curr, amin[kc], amax[kc]);
 						yuv[kc]=curr;
-						
+
+#if 1
+					/*	rows[0][2+0*NCH*NROWS*NVAL]=rows[1][2+0*NCH*NROWS*NVAL]<<!(ky&1)|(r0!=0);*/ /*x2 register length?*/
+						rows[0][2+0*NCH*NROWS*NVAL]=rows[1][2+0*NCH*NROWS*NVAL]<<1|(r0!=0);
+						if(!((((uint64_t)1<<16)-1)&(
+							rows[1][2+ 1*NCH*NROWS*NVAL]|	//transposed yM reach N
+							rows[1][2+ 2*NCH*NROWS*NVAL]|
+							rows[1][2+ 3*NCH*NROWS*NVAL]|
+							rows[1][2+ 4*NCH*NROWS*NVAL]|
+							rows[1][2+ 5*NCH*NROWS*NVAL]|
+							rows[1][2+ 6*NCH*NROWS*NVAL]|
+							rows[1][2+ 7*NCH*NROWS*NVAL]|
+							rows[1][2+ 8*NCH*NROWS*NVAL]|
+							rows[0][2- 8*NCH*NROWS*NVAL]|
+							rows[0][2- 7*NCH*NROWS*NVAL]|
+							rows[0][2- 6*NCH*NROWS*NVAL]|
+							rows[0][2- 5*NCH*NROWS*NVAL]|
+							rows[0][2- 4*NCH*NROWS*NVAL]|
+							rows[0][2- 3*NCH*NROWS*NVAL]|
+							rows[0][2- 2*NCH*NROWS*NVAL]|
+							rows[0][2- 1*NCH*NROWS*NVAL]|
+							rows[0][2+ 0*NCH*NROWS*NVAL]
+						)))
+						{
+							a_dist[kc]-=2;
+							if(a_dist[kc]<1)
+								a_dist[kc]=1;
+						/*	a_dist[kc]-=a_dist[kc]>1;*/
+						}
+						else if(r0)
+							a_dist[kc]=g_dist;
+#endif
+#if 0
+					/*	rows[0][2+0*NCH*NROWS*NVAL]=rows[1][2+0*NCH*NROWS*NVAL]<<!(ky&1)|(r0!=0);*/ /*x2 register length?*/
+						rows[0][2+0*NCH*NROWS*NVAL]=rows[1][2+0*NCH*NROWS*NVAL]<<1|(r0!=0);
+						if(!((((uint64_t)1<<24)-1)&(
+							rows[1][2+ 1*NCH*NROWS*NVAL]|	//transposed yM reach N		GDCC/photo-69 d10
+							rows[1][2+ 2*NCH*NROWS*NVAL]|
+							rows[1][2+ 3*NCH*NROWS*NVAL]|
+							rows[1][2+ 4*NCH*NROWS*NVAL]|
+							rows[1][2+ 5*NCH*NROWS*NVAL]|
+							rows[1][2+ 6*NCH*NROWS*NVAL]|
+							rows[1][2+ 7*NCH*NROWS*NVAL]|	//				351736.30 37.810059 ty24r7NE	369832.26 37.990536 y16tr7NE
+							rows[1][2+ 8*NCH*NROWS*NVAL]|
+						//	rows[1][2+ 9*NCH*NROWS*NVAL]|
+						//	rows[1][2+10*NCH*NROWS*NVAL]|
+						//	rows[0][2-10*NCH*NROWS*NVAL]|	//319118.90 37.232280 ty32r10
+						//	rows[0][2- 9*NCH*NROWS*NVAL]|	//322163.83 37.384869 ty32r09
+							rows[0][2- 8*NCH*NROWS*NVAL]|	//325551.29 37.440283 ty32r08
+							rows[0][2- 7*NCH*NROWS*NVAL]|	//332067.35 37.542593 ty32r07	342936.67 37.672720 ty24r7	362164.74 37.897771 y16tr7
+							rows[0][2- 6*NCH*NROWS*NVAL]|	//				351132.21 37.784647 ty24r6	374346.84 38.012554 y16tr6
+							rows[0][2- 5*NCH*NROWS*NVAL]|	//				361990.51 37.873900 ty24r5	388855.65 38.131213 y16tr5
+							rows[0][2- 4*NCH*NROWS*NVAL]|	//				377841.88 38.053066 ty24r4	409910.08 38.301898 y16tr4
+							rows[0][2- 3*NCH*NROWS*NVAL]|	//								439559.23 38.496528 y16tr3	472932.49 38.700900 y12tr3	530157.13 38.981538 y08tr3
+							rows[0][2- 2*NCH*NROWS*NVAL]|	//								485172.92 38.789841 y16tr2	527451.33 39.005420 y12tr2	594467.73 39.313925 y08tr2
+							rows[0][2- 1*NCH*NROWS*NVAL]|	//												625410.77 39.489361 y12tr1	708195.64 39.810866 y08tr1		558840.90 39.190841 tr1y12 X
+							rows[0][2+ 0*NCH*NROWS*NVAL]	//												893590.28 40.594033 y12tr0	984029.78 40.914294 y08tr0
+						)))
+							a_dist[kc]-=a_dist[kc]>1;
+						else if(r0)
+							a_dist[kc]=g_dist;
+#endif
+#if 0
+						rows[0][2+0*NCH*NROWS*NVAL]=rows[0][2-1*NCH*NROWS*NVAL]<<1|(r0!=0);
+						if(!(
+							(rows[0][2+5*NCH*NROWS*NVAL]&0x3FF)|	//  456922.53 38.594845		GDCC/photo-69 d10
+							(rows[7][2+5*NCH*NROWS*NVAL]&0x3FF)|	//  470579.56 38.677359
+							(rows[6][2+5*NCH*NROWS*NVAL]&0x3FF)|	//  490922.82 38.766315
+							(rows[5][2+5*NCH*NROWS*NVAL]&0x3FF)|	//  513889.88 38.886249
+							(rows[4][2+5*NCH*NROWS*NVAL]&0x3FF)|	//  543352.58 39.019337
+							(rows[3][2+5*NCH*NROWS*NVAL]&0x3FF)|	//  586799.06 39.185988
+							(rows[2][2+5*NCH*NROWS*NVAL]&0x3FF)|	//  650573.70 39.416613
+							(rows[1][2+5*NCH*NROWS*NVAL]&0x3FF)|	//  764659.76 39.781853
+							(rows[0][2+0*NCH*NROWS*NVAL]&0x1F)	// 1044751.03 40.614498
+						))
+							a_dist[kc]-=a_dist[kc]>1;
+						else if(r0)
+							a_dist[kc]=g_dist;
+#endif
+#if 0
+						rows[0][2+0*NCH*NROWS*NVAL]=rows[0][2-1*NCH*NROWS*NVAL]<<1|(r0!=0);
+						if(!(
+						//	(rows[0][2+7*NCH*NROWS*NVAL]&0x7FFF)|	//405665.82 38.221620 [best]	GDCC/photo-69 d10
+						//	(rows[7][2+7*NCH*NROWS*NVAL]&0x7FFF)|	//411168.52 38.252767
+						//	(rows[6][2+7*NCH*NROWS*NVAL]&0x7FFF)|	//429789.93 38.389618	circle 449074.84 38.514027
+						//	(rows[5][2+7*NCH*NROWS*NVAL]&0x7FFF)|	//445989.62 38.452232	circle 459858.86 38.558775
+						//	(rows[4][2+7*NCH*NROWS*NVAL]&0x7FFF)|	//313903.93 35.958377
+							(rows[3][2+7*NCH*NROWS*NVAL]&0x7FFF)|	//503858.39 38.720748
+							(rows[2][2+7*NCH*NROWS*NVAL]&0x7FFF)|	//558880.59 38.928703
+							(rows[1][2+7*NCH*NROWS*NVAL]&0x7FFF)|	//658957.86 39.255624
+							(rows[0][2+0*NCH*NROWS*NVAL]&0xFF)	//920677.08 40.045000
+						))						//298458.15 36.196825	disabled
+							a_dist[kc]-=a_dist[kc]>1;
+						else if(r0)
+							a_dist[kc]=g_dist;
+#endif
+#if 0
+						rows[0][2+0*NCH*NROWS*NVAL]=rows[0][2-1*NCH*NROWS*NVAL]<<1|(r0!=0);
+						if(!(/*XPAD=16*/
+							(rows[3][2+9*NCH*NROWS*NVAL]&0x7FFFF)|	//464992.41 38.453202	GDCC/photo-69 d10
+							(rows[2][2+9*NCH*NROWS*NVAL]&0x7FFFF)|	//512390.47 38.650679
+							(rows[1][2+9*NCH*NROWS*NVAL]&0x7FFFF)|	//602956.41 38.985118
+							(rows[0][2+0*NCH*NROWS*NVAL]&0x3FF)	//858994.71 39.787507
+						))
+							a_dist[kc]-=a_dist[kc]>1;
+						else if(r0)
+							a_dist[kc]=g_dist;
+#endif
+#if 0
+						rows[0][2+0*NCH*NROWS*NVAL]=rows[0][2-1*NCH*NROWS*NVAL]<<1|(r0!=0);
+						if(!(
+							(rows[0][2+11*NCH*NROWS*NVAL]&0x7FFFF)|	//380184.38 37.962585		GDCC/photo-69 d10
+							(rows[7][2+11*NCH*NROWS*NVAL]&0x7FFFF)|	//389472.16 38.032595
+							(rows[6][2+11*NCH*NROWS*NVAL]&0x7FFFF)|	//401211.33 38.106955
+							(rows[5][2+11*NCH*NROWS*NVAL]&0x7FFFF)|	//417009.16 38.218038
+							(rows[4][2+11*NCH*NROWS*NVAL]&0x7FFFF)|	//438699.09 38.333200
+							(rows[3][2+11*NCH*NROWS*NVAL]&0x7FFFF)|	//470224.43 38.501410
+							(rows[2][2+11*NCH*NROWS*NVAL]&0x7FFFF)|	//521492.35 38.722718
+							(rows[1][2+11*NCH*NROWS*NVAL]&0x7FFFF)|	//623100.37 39.103427
+							(rows[0][2+0*NCH*NROWS*NVAL]&0xFF)	//920677.08 40.045000
+						))						//
+							a_dist[kc]-=a_dist[kc]>1;
+						else if(r0)
+							a_dist[kc]=g_dist;
+#endif
+#if 0
+						++dist2symx[kc];
+						if(dist2symx[kc]>=8)
+						{
+							a_dist[kc]-=a_dist[kc]>1;
+							dist2symx[kc]-=8;
+						}
+						else if(r0)
+						{
+							a_dist[kc]=g_dist;
+							dist2symx[kc]=0;
+						}
+#endif
+#if 0
+						{
+							int dN=rows[1][2+0*NCH*NROWS*NVAL]+1;
+							int dW=rows[0][2-1*NCH*NROWS*NVAL]+1;
+							int dcurr=dN;
+
+						//	++dist2symx[kc];
+						//	if(r0)dist2symx[kc]=0;
+							if(dcurr>dW)dcurr=dW;
+							if(r0)dcurr=0;
+							rows[0][2+0*NCH*NROWS*NVAL]=dcurr;
+							if(dcurr>=g_dist<<1)
+								a_dist[kc]-=a_dist[kc]>1;
+							else if(r0)
+								a_dist[kc]=g_dist;
+						}
+#endif
+#if 0
 						if(inc<0)
 							a_dist[kc]-=a_dist[kc]>1;
 						else if(inc>0)
 							a_dist[kc]=g_dist;
+#endif
 #if 0
 						if(reset)
 						{

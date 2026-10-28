@@ -419,6 +419,15 @@ int g_dist=1;
 float g_uiscale=1;
 int drawCRhistory=0;
 
+enum
+{
+	DISTMIN=1,
+	DISTMAX=32
+};
+static int g_automated=0;
+static double g_rmse[5]={0}, g_psnr[5]={0}, g_BPS=0;
+static double g_RDinfo[DISTMAX+1-DISTMIN][2];/*BPS,PSNR*/
+
 static double invcr2csizes(const double *invcr, const int8_t *src_depths, int iw, int ih, int nch, double *csizes)/*invcr & csizes have nch+1=5 elements*/
 {
 	double usize=0;
@@ -1289,7 +1298,7 @@ void calc_csize_stateful(Image const *image, int *hist_full, double *entropy)
 		calc_csize_ec(image, ec_method, ec_adaptive?ec_adaptive_threshold:0, ec_expbits, ec_msb, ec_lsb, entropy);
 }
 
-static ptrdiff_t calc_psnr(const Image *ima, const Image *imb, double *ret_rmse, double *ret_psnr)
+static ptrdiff_t calc_psnr(const Image *ima, const Image *imb, double *ret_rmse, double *ret_psnr)/*ret arrays size 5*/
 {
 	double rmse[5]={0}, psnr[5]={0};
 	intptr_t res, idx, k, kc, usize;
@@ -3151,6 +3160,8 @@ void apply_selected_transforms(Image **pimage, int rct_only, int applyfwd, int a
 			return;
 		}
 	}
+	if(g_automated)
+		g_BPS=0;
 	for(k=0;k<(int)transforms->count;++k)
 	{
 		uint8_t tid=HDR_DATA(transforms)[k];
@@ -3159,6 +3170,25 @@ void apply_selected_transforms(Image **pimage, int rct_only, int applyfwd, int a
 			continue;
 		if(tid&1?!applyinv:!applyfwd)
 			continue;
+		if(g_automated&&k&&tid&1&&g_BPS<=0)
+		{
+			double entropy[5]={0};
+			int kc, nch;
+
+			calc_csize_stateful(*pimage, 0, entropy);
+			g_BPS=0;
+			nch=0;
+			for(kc=0;kc<4;++kc)
+			{
+				int d=pimage[0]->src_depth[kc];
+				if(d)
+				{
+					g_BPS+=entropy[kc];
+					++nch;
+				}
+			}
+			g_BPS*=(double)pimage[0]->src_depth[0]/nch;
+		}
 		apply_transform(pimage, tid, hasRCT);
 	}
 	if(loud_transforms)
@@ -3300,6 +3330,7 @@ void update_image(void)/*apply selected operations on original image, calculate 
 
 	/*do not modify im1 beyond this point*/
 	
+	calc_psnr(im0, im1, g_rmse, g_psnr);
 	export_image(im1, &im_export);
 	export_image(im0, &zimage);
 	/*image_export_uint8(im1, &im_export, 1, 0);*/
@@ -3982,7 +4013,8 @@ int io_init(int argc, char **argv)/*return false to abort*/
 	{
 		const char *str=
 
-			"C:/dataset-GDCC2020-ppm/photo-72.ppm"
+			"C:/dataset-GDCC2020-ppm/photo-69.ppm"
+		/*	"C:/dataset-GDCC2020-ppm/photo-72.ppm"*/
 		/*	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"*/
 
 		;
@@ -4756,8 +4788,8 @@ int io_keydn(IOKey key, char c)
 				g_dist+=(key==KEY_UP)*2-1;
 				if(g_dist<1)
 					g_dist=1;
-				if(g_dist>31)
-					g_dist=31;
+				if(g_dist>48)
+					g_dist=48;
 				update_image();
 				return 1;
 			}
@@ -5185,6 +5217,7 @@ int io_keydn(IOKey key, char c)
 					"N:\t\tToggle modular arithmetic in image view\n"
 					"Ctrl R:\t\tDisable all transforms\n"
 					"Ctrl Space:\tMeasure PSNR\n"
+					"Ctrl P:\t\tPSNR curve\n"
 				);
 				STR2BUF(
 					"Comma/Period:\tSelect context for size estimation\n"
@@ -5709,6 +5742,38 @@ int io_keydn(IOKey key, char c)
 				update_image();
 				return 1;
 			}
+		}
+		break;
+	case 'P':
+		if(GET_KEY_STATE(KEY_CTRL)&&im1&&transforms&&transforms->count>=2)
+		{
+			ArrayHandle buf=0;
+			int d0;
+
+			DisableProcessWindowsGhosting();
+			g_automated=1;
+			d0=g_dist;
+			for(g_dist=DISTMIN;g_dist<=DISTMAX;++g_dist)
+			{
+				update_image();
+				g_RDinfo[g_dist-DISTMIN][0]=g_BPS;
+				g_RDinfo[g_dist-DISTMIN][1]=g_psnr[4];
+			}
+			g_automated=0;
+			str_append(&buf, "BPS  PSNR  dist\n");
+			for(g_dist=DISTMAX;g_dist>=DISTMIN;--g_dist)
+				str_append(&buf, "%8.6f  %10.6f  d%02d\n"
+					, g_RDinfo[g_dist-DISTMIN][0]
+					, g_RDinfo[g_dist-DISTMIN][1]
+					, g_dist
+				);
+			g_dist=d0;
+			update_image();
+
+			copy_to_clipboard((char*)(buf+1), (int)buf->count);
+			messagebox(MBOX_OK, "Copied to clipboard", "%s", (char*)(buf+1));
+			array_free(&buf);
+			return 1;
 		}
 		break;
 	case 'N':
@@ -7819,8 +7884,15 @@ void io_render(void)
 		case VIS_SHANNON:		mode_str="Zipf View";		break;
 		case VIS_IMAGE_TRICOLOR:	mode_str="Tricolor";		break;
 		}
-		GUIPrint(0, 0, tdy, 1, "timer 0x%04X, fps%11f, [%2d/%2d] %s  dist=%d  BPD %6.4f"
-			, timer, 1000./(t2-t), mode+1, VIS_COUNT, mode_str, g_dist, usize>1e-9?8*csize/usize:0
+		GUIPrint(0, 0, tdy, 1, "timer 0x%04X, fps%11f, [%2d/%2d] %s  dist=%d  BPD %8.6f  PSNR %12.6lf"
+			, timer
+			, 1000./(t2-t)
+			, mode+1
+			, VIS_COUNT
+			, mode_str
+			, g_dist
+			, usize>1e-9?8*csize/usize:0
+			, g_psnr[4]
 		);
 		if(mode==VIS_IMAGE||mode==VIS_SHANNON)
 		{

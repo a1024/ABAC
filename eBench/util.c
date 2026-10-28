@@ -1227,13 +1227,27 @@ int str_append(ArrayHandle *str, const char *format, ...)
 {
 	size_t reqlen;
 	va_list args;
+
 	va_start(args, format);
 	reqlen=vsnprintf(0, 0, format, args);/*requires C99*/
-	if(str[0]->count+reqlen+1>str[0]->cap)
+	if(!*str)
 	{
-		size_t c0=str[0]->count;
-		array_realloc(str, str[0]->count+reqlen, 1);
-		str[0]->count=c0;
+		STR_ALLOC(*str, reqlen+16);
+		str[0]->count=0;
+	}
+	else
+	{
+		if(str[0]->esize!=1)
+		{
+			CRASH("str_append(NOT STRING)");
+			return 0;
+		}
+		if(str[0]->count+reqlen+1>str[0]->cap)
+		{
+			size_t c0=str[0]->count;
+			array_realloc(str, str[0]->count+reqlen, 1);
+			str[0]->count=c0;
+		}
 	}
 	reqlen=vsnprintf((char*)HDR_DATA(str[0])+str[0]->count, str[0]->cap-str[0]->count, format, args);
 	str[0]->count+=reqlen;
