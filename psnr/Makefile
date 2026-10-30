@@ -1,4 +1,10 @@
 
+chism:
+	gcc -Wall -O3 -mavx2 -mbmi -mlzcnt -s -static chism.c -o chism -lm
+
+diff:
+	gcc -Wall -O3 -s -static diff.c -o diff -lm
+
 hist:
 	gcc -Wall -O3 -s -static hist.c -o hist -lm
 
@@ -16,9 +22,3 @@ ssim:
 
 wavpsnr:
 	gcc -Wall -O3 -s -static wavpsnr.c -o wavpsnr -lm
-
-diff:
-	gcc -Wall -O3 -s -static diff.c -o diff -lm
-
-chism:
-	gcc -Wall -O3 -mavx2 -mbmi -mlzcnt -s -static chism.c -o chism -lm
