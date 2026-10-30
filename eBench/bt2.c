@@ -401,6 +401,7 @@ start:
 	checkpoints[NTIERS-1]=(int)filenames->count;
 
 	/*the batch test*/
+	g_automated=1;
 	t=time_sec();
 	for(kr2=kr=0;kr<(int)q->count;kr+=nthreads)
 	{
@@ -464,6 +465,7 @@ start:
 			}
 		}
 	}
+	g_automated=0;
 	t=time_sec()-t;
 	{
 		char str[1024]={0};

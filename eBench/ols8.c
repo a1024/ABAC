@@ -941,13 +941,18 @@ void pred_ols8_crct(Image *src, int fwd)
 							rows[0][2+ 0*NCH*NROWS*NVAL]
 						)))
 						{
-							a_dist[kc]-=2;
+							a_dist[kc]-=1;
 							if(a_dist[kc]<1)
 								a_dist[kc]=1;
 						/*	a_dist[kc]-=a_dist[kc]>1;*/
 						}
 						else if(r0)
-							a_dist[kc]=g_dist;
+						{
+							a_dist[kc]+=3;
+							if(a_dist[kc]>g_dist)
+								a_dist[kc]=g_dist;
+						}
+						//	a_dist[kc]=g_dist;
 #endif
 #if 0
 					/*	rows[0][2+0*NCH*NROWS*NVAL]=rows[1][2+0*NCH*NROWS*NVAL]<<!(ky&1)|(r0!=0);*/ /*x2 register length?*/

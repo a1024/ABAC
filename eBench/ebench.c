@@ -374,8 +374,11 @@ double modelmsizes[4*MODELNCTX]={0};
 double modelstatoverhead=0;
 int modelvis=0;
 
-#define combCRhist_SIZE 128
-#define combCRhist_logDX 2
+enum
+{
+	combCRhist_SIZE=128,
+	combCRhist_logDX=2,
+};
 float combCRhist[combCRhist_SIZE][4]={0}, combCRhist_max=1;
 int combCRhist_idx=0;
 
@@ -424,9 +427,21 @@ enum
 	DISTMIN=1,
 	DISTMAX=32
 };
-static int g_automated=0;
+int g_automated=0, histonresiduals=1;
 static double g_rmse[5]={0}, g_psnr[5]={0}, g_BPS=0;
 static double g_RDinfo[DISTMAX+1-DISTMIN][2];/*BPS,PSNR*/
+
+enum
+{
+	RDHISTCAP=1024,
+};
+typedef struct _RDPoint
+{
+	double bps, psnr;
+	int color;
+} RDPoint;
+static int g_RDhistsize=0;
+static RDPoint g_RDhist[1024]={0};
 
 static double invcr2csizes(const double *invcr, const int8_t *src_depths, int iw, int ih, int nch, double *csizes)/*invcr & csizes have nch+1=5 elements*/
 {
@@ -1455,6 +1470,7 @@ static void batch_test_lossy(void)
 			maxlen=(int)fn2[0]->count;
 	}
 	ARRAY_ALLOC(LossyCtx, q, 0, 0, nthreads, 0);
+	g_automated=1;
 	for(k=0;k<(int)filenames->count;++k)
 	{
 		ArrayHandle *fn2=(ArrayHandle*)array_at(&filenames, k);
@@ -1527,6 +1543,7 @@ static void batch_test_lossy(void)
 			array_clear(&q);
 		}
 	}
+	g_automated=0;
 	{
 		char str[1024]={0};
 		double ctotal, CR, rmse, psnr, ssim_norm;
@@ -3160,7 +3177,7 @@ void apply_selected_transforms(Image **pimage, int rct_only, int applyfwd, int a
 			return;
 		}
 	}
-	if(g_automated)
+	if(!g_automated)
 		g_BPS=0;
 	for(k=0;k<(int)transforms->count;++k)
 	{
@@ -3170,12 +3187,26 @@ void apply_selected_transforms(Image **pimage, int rct_only, int applyfwd, int a
 			continue;
 		if(tid&1?!applyinv:!applyfwd)
 			continue;
-		if(g_automated&&k&&tid&1&&g_BPS<=0)
+		if(!g_automated&&histonresiduals&&k&&tid&1&&g_BPS<=0)
 		{
-			double entropy[5]={0};
+			void *p;
+			int maxdepth, maxlevels;
 			int kc, nch;
-
-			calc_csize_stateful(*pimage, 0, entropy);
+			
+			maxdepth=calc_maxdepth(im1, 0);
+			maxlevels=1<<maxdepth;
+			if(hist_full_size<maxlevels)
+			{
+				p=realloc(hist_full, maxlevels*sizeof(int));
+				if(!p)
+				{
+					CRASH("Alloc error");
+					return;
+				}
+				hist_full=(int*)p;
+				hist_full_size=maxlevels;
+			}
+			calc_csize_stateful(im1, hist_full, ch_entropy);
 			g_BPS=0;
 			nch=0;
 			for(kc=0;kc<4;++kc)
@@ -3183,7 +3214,7 @@ void apply_selected_transforms(Image **pimage, int rct_only, int applyfwd, int a
 				int d=pimage[0]->src_depth[kc];
 				if(d)
 				{
-					g_BPS+=entropy[kc];
+					g_BPS+=ch_entropy[kc];
 					++nch;
 				}
 			}
@@ -3330,25 +3361,81 @@ void update_image(void)/*apply selected operations on original image, calculate 
 
 	/*do not modify im1 beyond this point*/
 	
-	calc_psnr(im0, im1, g_rmse, g_psnr);
+	{
+		int needPSNR=0;
+
+		if(transforms)
+		{
+			for(k=0;k<(int)transforms->count;++k)
+			{
+				int tid=((uint8_t*)(transforms+1))[k];
+
+				if(tid&1)
+				{
+					needPSNR=1;
+					break;
+				}
+			}
+			if(needPSNR)
+				calc_psnr(im0, im1, g_rmse, g_psnr);
+		}
+		if(!needPSNR)
+		{
+			memset(g_rmse, 0, sizeof(g_rmse));
+			g_psnr[4]=g_psnr[3]=g_psnr[2]=g_psnr[1]=g_psnr[0]=INFINITY;
+		}
+	}
 	export_image(im1, &im_export);
 	export_image(im0, &zimage);
 	/*image_export_uint8(im1, &im_export, 1, 0);*/
 
-	maxdepth=calc_maxdepth(im1, 0);
-	maxlevels=1<<maxdepth;
-	if(hist_full_size<maxlevels)
+	if(g_BPS<=0)
 	{
-		p=realloc(hist_full, maxlevels*sizeof(int));
-		if(!p)
+		int kc, nch;
+		
+		maxdepth=calc_maxdepth(im1, 0);
+		maxlevels=1<<maxdepth;
+		if(hist_full_size<maxlevels)
 		{
-			CRASH("Alloc error");
-			return;
+			p=realloc(hist_full, maxlevels*sizeof(int));
+			if(!p)
+			{
+				CRASH("Alloc error");
+				return;
+			}
+			hist_full=(int*)p;
+			hist_full_size=maxlevels;
 		}
-		hist_full=(int*)p;
-		hist_full_size=maxlevels;
+		calc_csize_stateful(im1, hist_full, ch_entropy);
+		nch=0;
+		for(kc=0;kc<4;++kc)
+		{
+			int d=im1->src_depth[kc];
+			if(d)
+			{
+				g_BPS+=ch_entropy[kc];
+				++nch;
+			}
+		}
+		g_BPS*=(double)im1->src_depth[0]/nch;
 	}
-	calc_csize_stateful(im1, hist_full, ch_entropy);
+	if(g_rmse[4]>0)
+	{
+		RDPoint *point=g_RDhist+g_RDhistsize++%RDHISTCAP;
+		int color;
+
+		color=0xFF012345;
+		for(k=0;k<(int)transforms->count;++k)
+		{
+			color+=((uint8_t*)(transforms+1))[k]*0xC2B2AE3D/*27D4EB4F*/;
+			color=color<<17|color>>(32-17);
+			color*=0x9E3779B1/*85EBCA87*/;
+		}
+		color|=0xFF000000;
+		point->bps=g_BPS;
+		point->psnr=g_psnr[4];
+		point->color=color;
+	}
 	combCRhist[combCRhist_idx][0]=(float)ch_entropy[0];
 	combCRhist[combCRhist_idx][1]=(float)ch_entropy[1];
 	combCRhist[combCRhist_idx][2]=(float)ch_entropy[2];
@@ -4013,7 +4100,8 @@ int io_init(int argc, char **argv)/*return false to abort*/
 	{
 		const char *str=
 
-			"C:/dataset-GDCC2020-ppm/photo-69.ppm"
+			"C:/dataset-GDCC2020-ppm/photo-25.ppm"
+		/*	"C:/dataset-GDCC2020-ppm/photo-69.ppm"*/
 		/*	"C:/dataset-GDCC2020-ppm/photo-72.ppm"*/
 		/*	"C:/dataset-LPCB-ppm/canon_eos_1100d_01.ppm"*/
 
@@ -4860,6 +4948,7 @@ int io_keydn(IOKey key, char c)
 							update_image();
 							if(imagecentered)
 								center_image();
+							g_RDhistsize=0;
 						}
 					}
 					array_free(&filenames);
@@ -5300,6 +5389,7 @@ int io_keydn(IOKey key, char c)
 					update_image();
 					if(imagecentered)
 						center_image();
+					g_RDhistsize=0;
 				}
 				else
 					array_free(&fn2);
@@ -5619,6 +5709,11 @@ int io_keydn(IOKey key, char c)
 				}
 			}
 		}
+		else
+		{
+			g_dist=key+1-KEY_1;
+			return 1;
+		}
 		break;
 	case 'M':
 		if(im1)
@@ -5751,7 +5846,6 @@ int io_keydn(IOKey key, char c)
 			int d0;
 
 			DisableProcessWindowsGhosting();
-			g_automated=1;
 			d0=g_dist;
 			for(g_dist=DISTMIN;g_dist<=DISTMAX;++g_dist)
 			{
@@ -5759,7 +5853,6 @@ int io_keydn(IOKey key, char c)
 				g_RDinfo[g_dist-DISTMIN][0]=g_BPS;
 				g_RDinfo[g_dist-DISTMIN][1]=g_psnr[4];
 			}
-			g_automated=0;
 			str_append(&buf, "BPS  PSNR  dist\n");
 			for(g_dist=DISTMAX;g_dist>=DISTMIN;--g_dist)
 				str_append(&buf, "%8.6f  %10.6f  d%02d\n"
@@ -7776,6 +7869,45 @@ void io_render(void)
 			}
 			draw_line(xstart, wndh-g2, xstart+(combCRhist_SIZE<<combCRhist_logDX), wndh-g2, 0xC0000000);
 		}
+		if(drawCRhistory&&g_RDhistsize>0)
+		{
+			double vmin[2], vmax[2];
+			double xstart2=wndw*0.1, xend2=wndw*0.8;
+			double ystart2=wndh*0.1, yend2=wndh*0.9;
+			double xscale, yscale;
+			int count=g_RDhistsize;
+			RDPoint *point;
+
+			if(count>RDHISTCAP)
+				count=RDHISTCAP;
+			point=g_RDhist;
+			vmin[0]=point->bps;
+			vmax[0]=point->bps;
+			vmin[1]=point->psnr;
+			vmax[1]=point->psnr;
+			for(k=1;k<count;++k)
+			{
+				++point;
+				if(vmin[0]>point->bps)vmin[0]=point->bps;
+				if(vmax[0]<point->bps)vmax[0]=point->bps;
+				if(vmin[1]>point->psnr)vmin[1]=point->psnr;
+				if(vmax[1]<point->psnr)vmax[1]=point->psnr;
+			}
+			if(vmax[0]<=vmin[0])vmax[0]=vmin[0]+1, vmin[0]-=1;
+			if(vmax[1]<=vmin[1])vmax[1]=vmin[1]+1, vmin[1]-=1;
+			xscale=(xend2-xstart2)/(vmax[0]-vmin[0]);
+			yscale=(ystart2-yend2)/(vmax[1]-vmin[1]);
+			point=g_RDhist;
+			for(k=0;k<count;++k)
+			{
+				float xs=(float)((point->bps-vmin[0])*xscale+xstart2);
+				float ys=(float)((point->psnr-vmin[1])*yscale+yend2);
+				draw_line(xs-10, ys-10, xs+10, ys+10, point->color);
+				draw_line(xs-10, ys+10, xs+10, ys-10, point->color);
+				++point;
+			}
+		}
+
 		/*grad2 info*/
 #if 1
 		if(transforms_mask[ST_FWD_CUSTOM3]||transforms_mask[ST_INV_CUSTOM3])
@@ -7884,14 +8016,14 @@ void io_render(void)
 		case VIS_SHANNON:		mode_str="Zipf View";		break;
 		case VIS_IMAGE_TRICOLOR:	mode_str="Tricolor";		break;
 		}
-		GUIPrint(0, 0, tdy, 1, "timer 0x%04X, fps%11f, [%2d/%2d] %s  dist=%d  BPD %8.6f  PSNR %12.6lf"
+		GUIPrint(0, 0, tdy, 1, "timer 0x%04X, fps%11f, [%2d/%2d] %s  dist=%d  BPS %8.6f  PSNR %12.6lf"
 			, timer
 			, 1000./(t2-t)
 			, mode+1
 			, VIS_COUNT
 			, mode_str
 			, g_dist
-			, usize>1e-9?8*csize/usize:0
+			, g_BPS/*usize>1e-9?8*csize/usize:0*/
 			, g_psnr[4]
 		);
 		if(mode==VIS_IMAGE||mode==VIS_SHANNON)

@@ -298,7 +298,7 @@ int main(int argc, char **argv)
 	if(!usessimulacra)
 		printf("ssimulacra2 not found. Defaulting to PSNR.\n");
 	nresults=0;
-	totalpresets=0;
+	totalpresets=_countof(counts);
 	for(kp=0;kp<(int)_countof(counts);++kp)
 		totalpresets+=counts[kp];
 	for(kc=0;kc<CODEC_COUNT;++kc)
