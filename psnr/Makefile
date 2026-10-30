@@ -8,6 +8,9 @@ imgen:
 psnr:
 	gcc -Wall -O3 -s -static psnr.c -o psnr -lm
 
+rdc:
+	gcc -Wall -Wextra -Wpedantic -O3 -s -static rdc.c -ordc
+
 ssim:
 	gcc -Wall -O3 -s -static ssim.c -o ssim -lm
 
