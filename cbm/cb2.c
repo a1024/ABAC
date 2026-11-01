@@ -1949,16 +1949,38 @@ static void update_bounds(IntArray idxs, Tests testinfo, int rank, int dec, doub
 }
 static IntArray get_paretofront2(IntArray besttestidxs, Tests testinfo, int dec)
 {
-	IntArray sorted=0, pareto=0;
-	int klowest=0, lowest=0;
-	TestInfo *info=testinfo->data;
-	
-	ARRAY_ALLOC(sorted, besttestidxs->count, 0, 0, 1);
+	IntArray pareto=0;
+	TestInfo *info=testinfo->data, *p1;
+
+	if(!besttestidxs||!besttestidxs->count)
+		return 0;
 	ARRAY_ALLOC(pareto, besttestidxs->count, 0, 0, 1);
-	
+
 	/*
-	staircase pareto front:
-	
+	staircase pareto front:		O(n)
+
+	points already sorted by csize
+	pareto(p1 = best size)
+	for each remaining point p2 in ascending size:
+		if p2 faster than p1
+			pareto(p1 = p2)
+	*/
+	p1=info+besttestidxs->data[0];
+	pareto->data[pareto->count++]=besttestidxs->data[0];
+	for(int ki=1;ki<(int)besttestidxs->count;++ki)
+	{
+		int idx2=besttestidxs->data[ki];
+		TestInfo *p2=info+idx2;
+		if((&p2->total.etime)[dec]<(&p1->total.etime)[dec])
+		{
+			p1=p2;
+			pareto->data[pareto->count++]=idx2;
+		}
+	}
+#if 0
+	/*
+	staircase pareto front:		O(n^2), buggy
+
 	besttestidxs is already sorted in descending size
 	p0 = find fastest algorithm regardless of size (eg: copy)
 	for each point
@@ -1996,6 +2018,7 @@ static IntArray get_paretofront2(IntArray besttestidxs, Tests testinfo, int dec)
 		pareto->data[pareto->count++]=idx1;//add to pareto front
 		ki=kbest-1;
 	}
+#endif
 
 	//[debug] print pareto front
 #if defined _MSC_VER || 0
