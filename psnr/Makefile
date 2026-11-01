@@ -1,4 +1,7 @@
 
+cbt:
+	gcc -Wall -Wextra -Wpedantic -static -s cbt.c -ocbt -lm
+
 chism:
 	gcc -Wall -O3 -mavx2 -mbmi -mlzcnt -s -static chism.c -o chism -lm
 
