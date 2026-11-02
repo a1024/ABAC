@@ -63,14 +63,14 @@ static Command commands[]=
 	{"Kvick",		"\"kvick c i \"%s\" \"%s\"\"",					1,		0,	0,	0},
 	{"Qlic",		"\"qlic c \"%s\" \"%s\"\"",					1,		0,	0,	0},
 	{"HALIC072",		"\"HALIC_ENCODE_V.0.7.2_ST_AVX2.exe \"%s\" \"%s\"\"",		0,		0,	0,	0},
-	{"Zstd-7",		"\"zstd -f --single-thread -7 \"%s\" -o \"%s\"\"",		0,		0,	0,	0},
-	{"Zstd-5",		"\"zstd -f --single-thread -5 \"%s\" -o \"%s\"\"",		0,		0,	0,	0},
-	{"Zstd-1",		"\"zstd -f --single-thread -1 \"%s\" -o \"%s\"\"",		0,		0,	0,	0},
 	{"C61",			"\"c61 \"%s\" \"%s\"\"",					0,		0,	0,	0},
 	{"Qic",			"\"qic c \"%s\" \"%s\"\"",					1,		0,	0,	0},
 	{"HALIC072FAST",	"\"HALIC_ENCODE_V.0.7.2_ST_FAST_AVX2.exe \"%s\" \"%s\"\"",	0,		0,	0,	0},
 	{"ImageZero 0.1",	"\"imagezero c \"%s\" \"%s\"\"",				0,		0,	0,	0},
 	{"FOX",			"\"cfox \"%s\" \"%s\"\"",					0,		0,	0,	0},
+	{"Zstd-7",		"\"zstd -f --single-thread -7 \"%s\" -o \"%s\"\"",		0,		0,	0,	0},
+	{"Zstd-5",		"\"zstd -f --single-thread -5 \"%s\" -o \"%s\"\"",		0,		0,	0,	0},
+	{"Zstd-1",		"\"zstd -f --single-thread -1 \"%s\" -o \"%s\"\"",		0,		0,	0,	0},
 	{"COPY",		"\"cmd /c copy /b \"%s\" \"%s\"\"",				0,		0,	0,	0},
 };
 enum
@@ -116,7 +116,7 @@ int main(int argc, char **argv)
 
 		print_cmd(cmd, fn, dstfn);
 		printf("%s\n", buf);
-		for(k2=0;k2<COUNT;++k2)
+		for(k2=0;k2<COUNT;)
 		{
 			double t;
 
@@ -133,6 +133,7 @@ int main(int argc, char **argv)
 				cmd->ebest=t;
 			cmd->eav+=t;
 			ttotal+=t;
+			++k2;
 			if(ttotal>90)
 				break;
 		}
