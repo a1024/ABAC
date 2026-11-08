@@ -13,16 +13,20 @@
 #include"fpc/fpc.h"
 
 
+#ifdef _MSC_VER
 	#define LOUD
 	#define PROFILE_TIME
+#endif
 
 	#define USE_FPC
 
 
-#define ENC_DY 256
-#define ENC_DX 512
-#define YPAD 2
-
+enum
+{
+	ENC_DY=256,
+	ENC_DX=512,
+	YPAD=2,
+};
 static int crash(const char *file, int line, const char *msg, ...)
 {
 	printf("%s(%d): ", file, line);
