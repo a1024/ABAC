@@ -11,12 +11,6 @@ FSESRC =\
  fse/huf_decompress.c
 
 
-ifeq ($(OS), Windows_NT)
-LIBS += -static
-else
-LIBS += -lm
-endif
-
 a01:
 	gcc -Wall -O3 -s -mlzcnt -DCODEC_EXT=a01 a01.c sli.c -o a01 $(LIBS)
 
@@ -33,7 +27,7 @@ a04avx2:
 	gcc -Wall -O2 -s -mavx2 -DCODEC_EXT=a04 a04.c fpc/fpc.c sli.c -o a04avx2 $(LIBS)
 
 a05:
-	gcc -Wall -O3 -s -DCODEC_EXT=a05 a05.c fpc/fpc.c $(FSESRC) sli.c -o a05 $(LIBS)
+	gcc -Wall -O3 -static -s -DCODEC_EXT=a05 a05.c fpc/fpc.c sli.c -o a05 -lm
 
 a05avx2:
 	gcc -Wall -O3 -s -mavx2 -DCODEC_EXT=a05 a05.c fpc/fpc.c $(FSESRC) sli.c -o a05avx2 $(LIBS)

@@ -1,5 +1,4 @@
-#include"fse/fse.h"
-#include"fpc/fpc.h"
+#include<stdint.h>
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
@@ -10,6 +9,8 @@
 #elif defined __GNUC__
 #include<time.h>
 #endif
+//#include"fse/fse.h"
+#include"fpc/fpc.h"
 
 
 	#define LOUD
@@ -158,8 +159,8 @@ static void prof_print(void)
 #define PROF(...)
 #define prof_print()
 #endif
-static char im2[3][(ENC_DY+YPAD)*ENC_DX];
-static char cim[3][(ENC_DY+YPAD)*ENC_DX];
+static int8_t im2[3][(ENC_DY+YPAD)*ENC_DX];
+static int8_t cim[3][(ENC_DY+YPAD)*ENC_DX];
 int a05_codec(int argc, char **argv)
 {
 	prof_start();
@@ -256,7 +257,7 @@ int a05_codec(int argc, char **argv)
 	else
 		fprintf(fdst, "P6\n%d %d\n255\n", iw, ih);
 	int imsize=iw*ENC_DY*3;
-	unsigned char *image=(unsigned char*)malloc(imsize);
+	uint8_t *image=(uint8_t*)malloc(imsize);
 	if(!image)
 	{
 		CRASH("Alloc error");
@@ -289,21 +290,21 @@ int a05_codec(int argc, char **argv)
 
 				//deinterleave
 				{
-					char
+					int8_t
 						*ydstptr=im2[0],
 						*udstptr=im2[1],
 						*vdstptr=im2[2];
-					char W[3]={0};
+					int W[3]={0};
 					for(int ky=0;ky<dy;++ky)
 					{
-						const unsigned char *row=image+3*(iw*ky+x1);
+						const uint8_t *row=image+3*(iw*ky+x1);
 						for(int kx=0;kx<dx;++kx)
 						{
-							char yuv[]=
+							int yuv[]=
 							{
-								row[1]-128,//y = g
-								row[2]-128,//u = b
-								row[0]-128,//v = r
+								row[1],//y = g
+								row[2],//u = b
+								row[0],//v = r
 							};
 							row+=3;
 							yuv[1]-=yuv[0];
@@ -406,17 +407,17 @@ int a05_codec(int argc, char **argv)
 
 				//interleave
 				{
-					const char
+					const int8_t
 						*ydstptr=im2[0],
 						*udstptr=im2[1],
 						*vdstptr=im2[2];
-					char W[3]={0};
+					int W[3]={0};
 					for(int ky=0;ky<dy;++ky)
 					{
-						unsigned char *row=image+3*(iw*ky+x1);
+						uint8_t *row=image+3*(iw*ky+x1);
 						for(int kx=0;kx<dx;++kx)
 						{
-							char yuv[]=
+							int yuv[]=
 							{
 								*ydstptr++,
 								*udstptr++,
@@ -432,9 +433,9 @@ int a05_codec(int argc, char **argv)
 							//yuv[0]-=(yuv[1]+yuv[2])>>2;
 							yuv[2]+=yuv[0];
 							yuv[1]+=yuv[0];
-							*row++=(unsigned char)(yuv[2]+128);//v = r
-							*row++=(unsigned char)(yuv[0]+128);//y = g
-							*row++=(unsigned char)(yuv[1]+128);//u = b
+							*row++=(uint8_t)yuv[2];//v = r
+							*row++=(uint8_t)yuv[0];//y = g
+							*row++=(uint8_t)yuv[1];//u = b
 						}
 					}
 				}
