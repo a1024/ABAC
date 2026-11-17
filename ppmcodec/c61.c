@@ -44,6 +44,8 @@
 
 enum
 {
+	LOGTABLE_ADDBITS=3,
+
 	BUFSIZE=512*1024,
 
 	NCTX=7,
@@ -257,9 +259,9 @@ static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 {
 	enum
 	{
-		STRIDE=5,
+		STRIDE=11,
 #if defined SYNTH_PATH
-		STRIDE_S=5,
+		STRIDE_S=11,
 #endif
 	};
 	AnalysisCtrs counters[NPERMS]={0};
@@ -299,28 +301,18 @@ static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 				imptr[0]-imptr[-3+0],
 				imptr[1]-imptr[-3+1],
 				imptr[2]-imptr[-3+2],
-			//	abs((int8_t)(imptr[0]-(abs(imptr[-rstr+0]-imptr[-rstr-3+0])>abs(imptr[-3+0]-imptr[-rstr-3+0])?imptr[-rstr+0]:imptr[-3+0]))),
-			//	abs((int8_t)(imptr[1]-(abs(imptr[-rstr+1]-imptr[-rstr-3+1])>abs(imptr[-3+1]-imptr[-rstr-3+1])?imptr[-rstr+1]:imptr[-3+1]))),
-			//	abs((int8_t)(imptr[2]-(abs(imptr[-rstr+2]-imptr[-rstr-3+2])>abs(imptr[-3+2]-imptr[-rstr-3+2])?imptr[-rstr+2]:imptr[-3+2]))),
 			};
 			int rgbY[]=
 			{
 				imptr[0]-imptr[-rstr+0],
 				imptr[1]-imptr[-rstr+1],
 				imptr[2]-imptr[-rstr+2],
-			//	abs((int8_t)(imptr[0]-imptr[-rstr+0]-imptr[-3+0]+imptr[-rstr-3+0])),
-			//	abs((int8_t)(imptr[1]-imptr[-rstr+1]-imptr[-3+1]+imptr[-rstr-3+1])),
-			//	abs((int8_t)(imptr[2]-imptr[-rstr+2]-imptr[-3+2]+imptr[-rstr-3+2])),
 			};
 			imptr+=3*STRIDE_S;
 			synthcounter+=!rgbX[0]+!rgbY[0]+!rgbX[1]+!rgbY[1]+!rgbX[2]+!rgbY[2];
-		//	synthcounters[0]+=rgb0[0]+rgb0[1]+rgb0[2];
-		//	synthcounters[1]+=rgb1[0]+rgb1[1]+rgb1[2];
 		}
 	}
-	issynth=(double)synthcounter>=(double)iw*ih*(3.*2*0.50/(STRIDE_S*STRIDE_S));// >= 50% flat
-
-//	issynth=synthcounters[0]<=synthcounters[1];
+	issynth=(double)synthcounter>=(double)iw*ih*(3./(STRIDE_S*STRIDE_S));
 	fseek(fsrc, fidx, SEEK_SET);
 #endif
 	for(ky=1;ky<=ih-STRIDE;ky+=STRIDE)
@@ -419,7 +411,6 @@ static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 		}
 	}
 #if defined SYNTH_PATH
-//	if((double)bestscore*STRIDE*STRIDE<(double)iw*ih*(3<<RCTBITS))//synth test
 	if(issynth)
 		rct.pidx+=NPERMS;
 #endif
@@ -432,7 +423,7 @@ static void crct_analysis(FILE *fsrc, int iw, int ih, RCTInfo *ret_rct)
 #endif
 
 
-static uint8_t logtable[1<<DEPTH];
+static uint8_t logtable[2<<(DEPTH+LOGTABLE_ADDBITS)];
 static uint32_t enctable[DEPTH<<DEPTH];
 static uint8_t signpack[1<<DEPTH];
 static uint8_t rdbuf[BUFSIZE+sizeof(uint32_t[2])], wtbuf[BUFSIZE+sizeof(uint32_t[2])];
@@ -460,24 +451,6 @@ static void largerice_enc(FILE *fdst, uint8_t *wtend, uint8_t **pwtptr, uint32_t
 			cache>>=8;
 			nbits-=8;
 		}while(nbits>7);
-#if 0
-		inc=nbits>>3&3;
-		nbits+=32-nb0;
-		do
-		{
-			*(uint32_t*)wtptr=cache;
-			wtptr+=inc;
-			if(wtptr>=wtend)
-			{
-				fwrite(wtbuf+sizeof(uint32_t), 1, BUFSIZE, fdst);
-				wtptr-=BUFSIZE;
-				*(uint32_t*)(wtptr-inc)=cache;
-			}
-			cache>>=nbits&24;
-			inc=sizeof(uint32_t);
-			nbits-=32;
-		}while(nbits>31);
-#endif
 	}
 	cache|=((sym&((1<<rk)-1))<<1|1)<<nbits;		//1. cache |= code<<nbits
 	nbits+=rk+1;					//2. nbits += len
@@ -523,10 +496,6 @@ static uint32_t largerice_dec(FILE *fsrc, uint8_t *rdend, uint8_t **prdptr, uint
 			nzeros=24;
 		cache>>=nzeros;
 		nbits-=nzeros;
-#if defined _MSC_VER
-		//if(nbits<0)//
-		//	CRASH("");
-#endif
 		q+=nzeros;
 	}while(nzeros>=24);
 	sym=q<<rk;
@@ -736,12 +705,58 @@ int c61_codec(int argc, char **argv)
 		issynth=rct.pidx>=NPERMS;
 #endif
 	}
-	for(int ks=0;ks<1<<DEPTH;++ks)
+	{
+		const int estimbounds[]=
+		{
+#if 1
+			30	<<LOGTABLE_ADDBITS>>3,
+			64	<<LOGTABLE_ADDBITS>>3,
+			132	<<LOGTABLE_ADDBITS>>3,
+			267	<<LOGTABLE_ADDBITS>>3,
+			539	<<LOGTABLE_ADDBITS>>3,
+			1081	<<LOGTABLE_ADDBITS>>3,
+#endif
+#define MAKEFIX(X) (int)((X)*(1<<LOGTABLE_ADDBITS)+0.5)
+#if 0
+			MAKEFIX(   3.7595133439876),
+			MAKEFIX(   7.9895788195575),
+			MAKEFIX(  16.4644209144570),
+			MAKEFIX(  33.4214718656946),
+			MAKEFIX(  67.3392585496029),
+			MAKEFIX( 135.1766744832887),
+#endif
+#if 0
+			/*Mopt = -lnphi/ln(xhat/(1+xhat))*/
+			MAKEFIX(  2.643),
+			MAKEFIX(  5.75),
+			MAKEFIX( 11.975),
+			MAKEFIX( 24.44),
+			MAKEFIX( 49.375),
+			MAKEFIX( 99.25),
+			MAKEFIX(190.68),
+#endif
+#undef  MAKEFIX
+		};
+		for(int ks=0;ks<_countof(logtable);++ks)
+		{
+			int k=6;
+			if(ks<estimbounds[5])k=5;
+			if(ks<estimbounds[4])k=4;
+			if(ks<estimbounds[3])k=3;
+			if(ks<estimbounds[2])k=2;
+			if(ks<estimbounds[1])k=1;
+			if(ks<estimbounds[0])k=0;
+			logtable[ks]=k;
+		}
+	}
+#if 0
+	for(int ks=0;ks<_countof(logtable);++ks)
 	{
 		int val=31^LZCNT32(ks+1);
 		if(val>NCTX-1)val=NCTX-1;
 		logtable[ks]=val;
 	}
+#endif
 	if(fwd)
 	{
 		//for(int ks=0;ks<1<<DEPTH;++ks)
@@ -856,10 +871,6 @@ int c61_codec(int argc, char **argv)
 					error[0]=(int8_t)(yuv[0]-pred[0]);
 					error[1]=(int8_t)(yuv[1]-pred[1]);
 					error[2]=(int8_t)(yuv[2]-pred[2]);
-
-				//	if(ky==1&&kx==1240)//
-				//		printf("");
-
 					if(!(error[0]|error[1]|error[2]))
 						++run;
 					else
@@ -867,10 +878,10 @@ int c61_codec(int argc, char **argv)
 						*symptr++=run;
 						rsum+=run;
 						run=0;
+						*symptr++=(uint8_t)error[2]<<16|(uint8_t)error[1]<<8|(uint8_t)error[0];
 						sym[0]=(signpack+(1<<DEPTH>>1))[error[0]];
 						sym[1]=(signpack+(1<<DEPTH>>1))[error[1]];
 						sym[2]=(signpack+(1<<DEPTH>>1))[error[2]];
-						*symptr++=sym[2]<<16|sym[1]<<8|sym[0];
 						ssum[0]+=sym[0];
 						ssum[1]+=sym[1];
 						ssum[2]+=sym[2];
@@ -906,6 +917,9 @@ int c61_codec(int argc, char **argv)
 					xk[1]=nsyms?31^LZCNT32(ssum[0]/nsyms+1):0;
 					xk[2]=nsyms?31^LZCNT32(ssum[1]/nsyms+1):0;
 					xk[3]=nsyms?31^LZCNT32(ssum[2]/nsyms+1):0;
+					if(xk[1]>7)xk[1]=7;
+					if(xk[2]>7)xk[2]=7;
+					if(xk[3]>7)xk[3]=7;
 					for(kc=0;kc<4;++kc)
 					{
 						uint32_t code;
@@ -939,36 +953,26 @@ int c61_codec(int argc, char **argv)
 					symptr=symbols;
 					for(kx=0;kx<ntotal;++kx)
 					{
-						int s[4], s2, nzeros[4], stopbit, codelen, nbypass;
+						uint32_t code2;
+						int s[4], s2, nbypass;
 
 						s[0]=*symptr++;
 						s2=*symptr++;
-						s[1]=(uint8_t)(s2>>0);
-						s[2]=(uint8_t)(s2>>8);
-						s[3]=(uint8_t)(s2>>16);
-
-					//	nzeros[0]=s[0]>>xk[0];
-						nzeros[1]=s[1]>>xk[1];
-						nzeros[2]=s[2]>>xk[2];
-						nzeros[3]=s[3]>>xk[3];
-
-					//	if(ky==1&&s[0]==1003)//
-					//		printf("");//
+						s[1]=(int8_t)(s2>>0);
+						s[2]=(int8_t)(s2>>8);
+						s[3]=(int8_t)(s2>>16);
 
 						largerice_enc(fdst, wtend, &wtptr, &cache, &nbits, s[0], xk[0]);
 						++kx;
 						if(kx>=ntotal)
 							break;
+
 						for(kc=1;kc<4;++kc)
 						{
 							nbypass=xk[kc];
-							s2=s[kc];
-							stopbit=nzeros[kc]<RLIMIT;
-							codelen=nzeros[kc]+1+nbypass;
-							if(nzeros[kc]>=RLIMIT)
-								nzeros[kc]=RLIMIT, stopbit=0, nbypass=DEPTH, codelen=RLIMIT+DEPTH;
-							cache|=((s2&((1<<nbypass)-1))<<(nzeros[kc]+stopbit)|stopbit<<nzeros[kc])<<nbits;
-							nbits+=codelen;
+							code2=(enctable+(1<<DEPTH>>1))[(nbypass<<DEPTH)+s[kc]];
+							cache|=code2>>8<<nbits;
+							nbits+=(uint8_t)code2;
 							*(uint32_t*)wtptr=cache;
 							inc=nbits>>3;
 							wtptr+=inc;
@@ -981,31 +985,6 @@ int c61_codec(int argc, char **argv)
 							cache>>=nbits&24;
 							nbits&=7;
 						}
-#if 0
-						for(kc=0;kc<4;++kc)
-						{
-							s2=s[kc];
-							nzeros=s2>>xk[kc];
-							stopbit=nzeros<RLIMIT;
-							codelen=nzeros+1+nbypass;
-							if(nzeros>=RLIMIT)
-								nzeros=RLIMIT, stopbit=0, nbypass=DEPTH, codelen=RLIMIT+DEPTH;
-							code=(s2&((1<<nbypass)-1))<<(nzeros+stopbit)|stopbit<<nzeros;
-							cache|=code<<nbits;
-							nbits+=codelen;
-							*(uint32_t*)wtptr=cache;
-							inc=nbits>>3;
-							wtptr+=inc;
-							if(wtptr>=wtend)
-							{
-								fwrite(wtbuf+sizeof(uint32_t), 1, BUFSIZE, fdst);
-								wtptr-=BUFSIZE;
-								*(uint32_t*)(wtptr-inc)=cache;
-							}
-							cache>>=nbits&24;
-							nbits&=7;
-						}
-#endif
 					}
 				}
 			}
@@ -1044,10 +1023,6 @@ int c61_codec(int argc, char **argv)
 				}
 				for(kx=0;kx<iw;++kx)
 				{
-
-				//	if(ky==1&&kx==1240)//
-				//	if(ky==1&&kx==248)//
-				//		printf("");
 #ifdef _MSC_VER
 					r0=
 #endif
@@ -1226,18 +1201,36 @@ int c61_codec(int argc, char **argv)
 		//	+ 4*(eW+eNEE)
 		//	+ 1*(sym)
 		//	+ 9
-#if 1
+#if 0
 #define UPDATE(CH)\
 	do\
 	{\
 		int eW=rows[0][+CH+(-1*NVAL+1)*NROWS*NCH], eNEE=rows[1][+CH+(+2*NVAL+1)*NROWS*NCH];\
 		\
-		nbypass[CH]=rows[0][+CH+(+0*NCH+1)*NROWS*NVAL]=(\
+		rows[0][+CH+(+0*NCH+1)*NROWS*NVAL]=nbypass[CH]=(\
 			+16*(eW+sym[CH])\
 			+ 8*(rows[1][+CH+(+1*NCH+1)*NROWS*NVAL]+eNEE+rows[1][+CH+(+3*NCH+1)*NROWS*NVAL])\
 			+ 4*(eW+eNEE)\
 			+ 1*sym[CH]\
 		+9)>>6;\
+	}while(0)
+
+#endif
+		
+		//			8	12	8
+		//	20	[34]	?
+#if 1
+#define UPDATE(CH)\
+	do\
+	{\
+		nbypass[CH]=(\
+			+20*rows[0][+CH+(-1*NVAL+1)*NROWS*NCH]\
+			+34*(sym[CH]<<LOGTABLE_ADDBITS)\
+			+ 8*rows[1][+CH+(+1*NVAL+1)*NROWS*NCH]\
+			+12*rows[1][+CH+(+2*NVAL+1)*NROWS*NCH]\
+			+ 8*rows[1][+CH+(+3*NVAL+1)*NROWS*NCH]\
+		)>>6;\
+		rows[0][+CH+(+0*NCH+1)*NROWS*NVAL]=nbypass[CH];\
 	}while(0)
 
 #endif

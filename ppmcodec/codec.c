@@ -79,6 +79,8 @@ int c59_codec(int argc, char **argv);//near portable rapid
 int c60_codec(int argc, char **argv);//lossy wavelet FSE/AC
 int c61_codec(int argc, char **argv);//experiments on c54
 int c62_codec(int argc, char **argv);//static pred - static stats
+int c63_codec(int argc, char **argv);//LZ+FSE
+int c64_codec(int argc, char **argv);//portable MT AC lossless photo
 #endif
 
 
@@ -143,8 +145,11 @@ int c62_codec(int argc, char **argv);//static pred - static stats
 //	#define CODEC_EXT c58
 //	#define CODEC_EXT c59
 //	#define CODEC_EXT c60
-	#define CODEC_EXT c61
+//	#define CODEC_EXT c61
 //	#define CODEC_EXT c62
+//	#define CODEC_EXT c64
+//	#define CODEC_EXT c63
+	#define CODEC_EXT c64
 #endif
 #define STR_EXPAND(X) #X
 #define STRINGIFY(X) STR_EXPAND(X)
@@ -254,11 +259,14 @@ int main(int argc, char **argv)
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_05.ppm"
 	//	"C:/dataset-LPCB-ppm/canon_eos_1100d_13.ppm"
 	//	"C:/dataset-LPCB-ppm/fujifilm_finepix_x100_03.ppm"
+	//	"C:/dataset-LPCB-ppm/olympus_xz1_02.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA12811.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13757.ppm"
+	//	"C:/dataset-LPCB-ppm/PIA13799.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13803.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13833.ppm"	//CGI
 	//	"C:/dataset-LPCB-ppm/PIA13882.ppm"
+	//	"C:/dataset-LPCB-ppm/PIA13891.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13912.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13914.ppm"
 	//	"C:/dataset-LPCB-ppm/PIA13915.ppm"	//false color terrain
@@ -284,10 +292,12 @@ int main(int argc, char **argv)
 	//	"C:/dataset-synth2-ppm/20240419 1 speed for efficiency.ppm"
 	//	"C:/dataset-synth2-ppm/20240419 2.ppm"			//libre calc
 	//	"C:/dataset-synth2-ppm/20240419 3.ppm"
+	//	"C:/dataset-synth2-ppm/20240421 3 3D-CG.ppm"
 	//	"C:/dataset-synth2-ppm/20240422 1.PPM"
 	//	"C:/dataset-synth2-ppm/20240524 numbers.ppm"
 	//	"C:/dataset-synth2-ppm/20241006 linux.ppm"
 	//	"C:/dataset-synth2-ppm/20241110 4 serpinski_triangle.ppm"
+	//	"C:/dataset-synth2-ppm/20241124 5.ppm"
 	//	"C:/dataset-synth2-ppm/art.ppm"
 	//	"C:/dataset-synth2-ppm/cursive_ru.ppm"			//0.1 MP
 	//	"C:/dataset-synthetic-ppm/20240409 1 LPCB.ppm"
@@ -489,10 +499,13 @@ int main(int argc, char **argv)
 	t=time_sec()-t;
 	printf("score %12.8lf    %12.6lf sec\n", g_score, t);
 #else
+//	for(int k=0;k<10;++k)
+	{
 	if(CODEC_FUNC(_countof(encargs), (char**)encargs))
 		return 1;
 	if(CODEC_FUNC(_countof(decargs), (char**)decargs))
 		return 1;
+	}
 #endif
 #endif
 #ifdef PROFILER

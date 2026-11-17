@@ -25,36 +25,35 @@
 #include<errno.h>
 #include<time.h>
 #ifdef _MSC_VER
-#include<intrin.h>
+#	include<intrin.h>
 #else
-#include<x86intrin.h>
-#include<unistd.h>
+#	include<x86intrin.h>
+//#	include<unistd.h>
 #endif
 #if defined _WIN32 || defined WIN32
-#define WIN32_LEAN_AND_MEAN
-#include<Windows.h>//QueryPerformance...
-#include<conio.h>
-#include<psapi.h>
+#	define WIN32_LEAN_AND_MEAN
+#	include<Windows.h>//QueryPerformance...
+#	include<conio.h>
+#	include<psapi.h>
 #else
-#include<dirent.h>
-#include<sys/types.h>
-#include<sys/sysinfo.h>
-#define sprintf_s	snprintf
-#define vsprintf_s	vsnprintf
-#ifndef _HUGE
-#define _HUGE	HUGE_VAL
-#endif
+#	include<dirent.h>
+#	include<sys/types.h>
+#	include<sys/sysinfo.h>
+#	define sprintf_s	snprintf
+#	define vsprintf_s	vsnprintf
+#	ifndef _HUGE
+#		define _HUGE	HUGE_VAL
+#	endif
 #endif
 #if defined _MSC_VER && defined _WIN32
-#include<process.h>
-#define THREAD_CALL __stdcall
+#	include<process.h>
+#	define THREAD_CALL __stdcall
 typedef unsigned THREAD_RET;
 #else
-#include<pthread.h>
-#define THREAD_CALL
+#	include<pthread.h>
+#	define THREAD_CALL
 typedef void *THREAD_RET;
 #endif
-#include<immintrin.h>
 static const char file[]=__FILE__;
 
 char g_buf[G_BUF_SIZE]={0};

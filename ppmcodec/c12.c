@@ -903,7 +903,7 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, uint8_t *image, uint8_t *stre
 					CLAMP2(ctx, CTXMIN, CTXMAX);
 					ctx-=CTXMIN-nzctx;
 				}
-			//	if(ctx>NCTX-1)ctx=NCTX-1;
+				if(ctx>NCTX-1)ctx=NCTX-1;
 				hpredf=hpred2+(offset0<<ADDBITS>>RCT_BITS);
 				CLAMP2(hpredf, 0, 255<<ADDBITS);
 			//	CLAMP2(hpredf, lumamin[kc]<<ADDBITS, lumamax[kc]<<ADDBITS);
@@ -922,7 +922,7 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, uint8_t *image, uint8_t *stre
 						error=epred+abserr;
 					if(error==256)
 						error=e2;
-					nzeros=error>>nbypass;
+					nzeros=error>>nbypass;		//FIXME  Golomb + truncated binary coding
 #ifdef JOINT_EXP
 					{
 						int idx=(imptr-image)/3&(NJOINT-1LL);
@@ -941,8 +941,6 @@ INLINE void mainloop(int iw, int ih, RCTInfo *rct, uint8_t *image, uint8_t *stre
 				do
 				{
 					bit=tidx>=nzeros;
-					//if(fwd&&!kc&&ctx==NCTX/2&&hpredf==60)
-					//	printf("%d", bit);
 					codebit(ac, statsptr+tidx, &bit, fwd);
 					if(bit)
 						break;

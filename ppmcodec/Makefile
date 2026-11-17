@@ -300,5 +300,17 @@ c60:
 c61:
 	gcc -Wall -O3 -mavx2 -mlzcnt -static -s -Dc61_codec=main c61.c -o c61
 
+c61-x86:
+	gcc -Wall -O3 -static -s -Dc61_codec=main c61.c -o c61-x86
+
 c62:
 	gcc -Wall -O3 -mavx2 -mlzcnt -static -s -Dc62_codec=main c62.c -o c62
+
+c63:
+	clang -Wall -O3 -mavx2 -mlzcnt -static -s -Dc63_codec=main c63.c -o c63
+
+c63-x86:#gcc-only
+	gcc -Wall -O3 -static -s -Dc63_codec=main c63.c -o c63-x86
+
+c64:
+	clang -Wall -O3 -mavx2 -mlzcnt -static -s -Dc64_codec=main c64.c -o c64
