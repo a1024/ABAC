@@ -199,13 +199,13 @@ static int cmp_bpd(const void *left, const void *right)
 	return pL->bpd0<pR->bpd0;
 }
 #endif
-void batch_test2(int custom)
+void batch_test2(int repeat)
 {
 	enum
 	{
 		NTIERS=5
 	};
-	const char cfgfn[]="ebench.txt";
+	//const char cfgfn[]="ebench.txt";
 	const char *ext[]=
 	{
 		"PPM", "PGM", "PNM",
@@ -214,16 +214,15 @@ void batch_test2(int custom)
 		"BMP",
 		"TIF", "TIFF",
 	};
-	ArrayHandle path=0, filenames=0, q=0, paths=0;
-	int nthreads=0, maxlen=0;
+	static ArrayHandle filenames=0, path=0, q=0, paths=0;
+	static int nthreads=0, ncores=0, maxlen=0;
+	static HANDLE *handles=0;
+	static int *indices=0;
+	static int checkpoints[NTIERS]={0};
 	double t=0, total_usize=0, total_csize[4]={0};
-	int user=0;
-	HANDLE *handles=0;
-	int *indices=0;
 	int k=0, kr=0, kr2=0;
 	double tsum=0, csum=0;
 	int bpdgroup=0;
-	int checkpoints[NTIERS]={0};
 	double tier_usizes[NTIERS]={0};
 	double tier_csizes[NTIERS]={0};
 
@@ -231,6 +230,7 @@ void batch_test2(int custom)
 	console_start();
 	acme_strftime(g_buf, G_BUF_SIZE, "%Y-%m-%d_%H:%M:%S");
 	console_log("Batch Test  %s\n", g_buf);
+#if 0
 	if(!custom)
 	{
 		FILE *f=fopen(cfgfn, "r");
@@ -265,6 +265,24 @@ void batch_test2(int custom)
 			goto start;
 		}
 	}
+#endif
+	if(filenames)
+	{
+		if(repeat)
+		{
+			for(k=0;k<(int)paths->count;++k)
+			{
+				ArrayHandle *fn=(ArrayHandle*)array_at(&paths, k);
+				console_log("\"%s\"\n", (char*)(fn[0]+1));
+			}
+			goto start;
+		}
+		array_free(&paths);
+		free(handles);
+		free(indices);
+		array_free(&q);
+		array_free(&filenames);
+	}
 	for(filenames=0;;)
 	{
 		ArrayHandle fns;
@@ -291,14 +309,13 @@ void batch_test2(int custom)
 		console_end();
 		return;
 	}
-	user=1;
-start:
+	//user=1;
 	loud_transforms=0;
 	console_log("Enter number of threads: ");
 	nthreads=console_scan_int();
-	if(nthreads<=0)
-		nthreads=query_cpu_cores();
-
+	ncores=query_cpu_cores();
+	if(nthreads<=0)nthreads=ncores;
+	if(nthreads>2*ncores)nthreads=2*ncores;
 	total_usize=0;
 	maxlen=0;
 	for(k=0;k<(int)filenames->count;++k)
@@ -400,7 +417,9 @@ start:
 	}
 	checkpoints[NTIERS-1]=(int)filenames->count;
 
+start:
 	/*the batch test*/
+	loud_transforms=0;
 	g_automated=1;
 	t=time_sec();
 	for(kr2=kr=0;kr<(int)q->count;kr+=nthreads)
@@ -472,7 +491,7 @@ start:
 		double ctotal=total_csize[0]+total_csize[1]+total_csize[2]+total_csize[3];
 		double CR=total_usize/ctotal;
 		int nprinted=snprintf(str, sizeof(str)-1
-			, "%13.2f %13.2f %13.2f %13.2f %13.2f  BPD %8.6f {%8.6f %8.6f %8.6f %8.6f %8.6f}  %12.6f sec  %12.6f MB/s  %12.6f ms/MB"
+			, "%13.2f %13.2f %13.2f %13.2f %13.2f  BPD %8.6f {%8.6f %8.6f %8.6f %8.6f %8.6f}  %12.6f sec  %12.6f MB/s  %12.6f ms/MB  %dT"
 			, total_usize
 			, ctotal
 			, total_csize[0]
@@ -487,6 +506,7 @@ start:
 			, t
 			, total_usize/(t*1024*1024)
 			, t*1024*1024*1000/total_usize
+			, nthreads
 		);
 		copy_to_clipboard(str, nprinted);
 		console_log("Total UTYUV %s <- copied\n", str);
@@ -497,6 +517,7 @@ start:
 		console_pause();
 		loud_transforms=1;
 	}
+#if 0
 	if(!custom&&user)
 	{
 		FILE *f=fopen(cfgfn, "w");
@@ -515,10 +536,11 @@ start:
 		}
 		fclose(f);
 	}
-	array_free(&paths);
+#endif
 	console_end();
-	free(handles);
-	free(indices);
-	array_free(&q);
-	array_free(&filenames);
+	//array_free(&paths);
+	//free(handles);
+	//free(indices);
+	//array_free(&q);
+	//array_free(&filenames);
 }

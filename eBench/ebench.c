@@ -196,6 +196,7 @@ typedef enum TransformTypeEnum
 #if 0
 	CT_FWD_ADAPTIVE,	CT_INV_ADAPTIVE,
 #endif
+	ST_FWD_FCT,		ST_INV_FCT,
 
 	CST_COMPARE,		CST_INV_SEPARATOR,
 	
@@ -1834,6 +1835,8 @@ static void transforms_printname(float x, float y, uint32_t tid, int place, int6
 	case ST_FWD_L1DITHER:		a=" S Fwd L1 Dither";		break;
 	case ST_FWD_QUANT:		a=" S Fwd Quantize";		break;
 	case ST_INV_QUANT:		a=" S Inv Quantize";		break;
+	case ST_FWD_FCT:		a=" S Fwd FCT";			break;
+	case ST_INV_FCT:		a=" S Inv FCT";			break;
 	case ST_FWD_ADAQUANT:		a=" S Fwd AdaQuant";		break;
 	case ST_INV_ADAQUANT:		a=" S Inv AdaQuant";		break;
 	case ST_FWD_AV4:		a=" S Fwd AV4";			break;
@@ -2907,6 +2910,8 @@ void apply_transform(Image **pimage, int tid, int hasRCT)
 	case ST_FWD_L1DITHER:		pred_l1dither(image);					break;
 	case ST_FWD_QUANT:		pred_quantize(image, 1);				break;
 	case ST_INV_QUANT:		pred_quantize(image, 0);				break;
+	case ST_FWD_FCT:		pred_fct(image, 1);					break;
+	case ST_INV_FCT:		pred_fct(image, 0);					break;
 	case ST_FWD_ADAQUANT:		pred_adaquant(image, 1);				break;
 	case ST_INV_ADAQUANT:		pred_adaquant(image, 0);				break;
 	case ST_FWD_SEL4:		pred_sel4(image, 1);					break;
@@ -5769,7 +5774,7 @@ int io_keydn(IOKey key, char c)
 	case 'B':/*batch test*/
 		if(GET_KEY_STATE(KEY_CTRL))
 		{
-			batch_test2(!GET_KEY_STATE(KEY_SHIFT));
+			batch_test2(GET_KEY_STATE(KEY_SHIFT));
 		}
 		else if(mode==VIS_L1WEIGHTS)
 		{

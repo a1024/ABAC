@@ -677,7 +677,7 @@ extern int loud_transforms;
 extern int g_dist;
 void update_image(void);
 void calc_csize_stateful(Image const *image, int *hist_full, double *entropy);
-void batch_test2(int custom);
+void batch_test2(int repeat);
 
 
 /*transforms*/
@@ -1240,6 +1240,8 @@ void pred_ols8_crct(Image *src, int fwd);	/*  */
 void pred_ols9(Image *src, int fwd);
 
 void pred_lpc(Image *src, int fwd);/*Levinson-Durbin Linear Predictive Coding*/
+
+void pred_fct(Image *src, int fwd);
 
 #if 0
 void pred_select(Image const *src, Image *dst, int fwd, int enable_ma);

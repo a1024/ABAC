@@ -297,7 +297,7 @@ void pred_mixN(Image *src, int fwd)
 {
 	enum
 	{
-		MIXPREDS=6,
+		MIXPREDS=5,
 
 		SHIFT=20,
 
@@ -388,9 +388,9 @@ void pred_mixN(Image *src, int fwd)
 						WWW	=rows[0][0-3*NCH*NROWS*NVAL],
 						WW	=rows[0][0-2*NCH*NROWS*NVAL],
 						W	=rows[0][0-1*NCH*NROWS*NVAL],
-						cN	=rows[1][1+0*NCH*NROWS*NVAL],
-						cW	=rows[0][1-1*NCH*NROWS*NVAL];
-					int curr, j, o1, o2, pred, e;
+						eNE	=rows[1][1+1*NCH*NROWS*NVAL],
+						eW	=rows[0][1-1*NCH*NROWS*NVAL];
+					int curr, j, pred, e;
 					int64_t p1;
 
 #if 1
@@ -411,27 +411,28 @@ void pred_mixN(Image *src, int fwd)
 					(void)WWW;
 					(void)WW;
 					(void)W;
-					(void)cN;
-					(void)cW;
+					(void)eNE;
+					(void)eW;
 #endif
 					curr=((int32_t*)HDR_DATA(src))[idx];
 					j=0;
 					estims[j++]=W;
-					estims[j++]=NE;
+					estims[j++]=NE+eNE;
 					estims[j++]=2*N-NN;
 					estims[j++]=N+W-NW;
+					estims[j++]=NNN+eW;
 
-					o1=kc==2?-2:1;
-					o2=kc==0?2:-1;
-					estims[j++]=rows[0][0+(o1-1*NCH)*NROWS*NVAL];/*176 MB/s*/
-					estims[j++]=rows[0][0+(o2-1*NCH)*NROWS*NVAL];
+					//o1=kc==2?-2:1;
+					//o2=kc==0?2:-1;
+					//estims[j++]=rows[0][0+(o1-1*NCH)*NROWS*NVAL];/*176 MB/s*/
+					//estims[j++]=rows[0][0+(o2-1*NCH)*NROWS*NVAL];
 
 					p1=bias[kc];
 					for(j=0;j<MIXPREDS;++j)
 						p1+=(int64_t)coeffs[kc][j]*estims[j];
 					p1>>=SHIFT;
 					pred=(int)p1;
-#if 0
+#if 1
 					{
 						int vmax=N, vmin=W;
 
@@ -479,10 +480,8 @@ void pred_mixN(Image *src, int fwd)
 							((int32_t*)HDR_DATA(src))[idx]=curr;
 						}
 					}
-					rows[0][0]=curr;
-#if 0
-					rows[0][1]=curr-p1;
-#endif
+					rows[0][0+0*NCH*NROWS*NVAL]=curr;
+					rows[0][1+0*NCH*NROWS*NVAL]=curr-pred;
 
 					/*150 MB/s  6.65 ms/MB  i5-1145G7*/
 #if 0
@@ -512,14 +511,527 @@ void pred_mixN(Image *src, int fwd)
 	}
 	_mm_free(pixels);
 }
+
+
+//double means[5]={0};
+//int varcnt=0;
+//double varmean[5]={0}, varvar[5]={0}, varexp[10]={0};//variance experiment
 void pred_mixR(Image *src, int fwd)
 {
+	enum
+	{
+		REACH=4,
+		KSIZE=48,
+	//	KSIZE=2*REACH*(REACH+1),
+		PREC=5,
+	};
+#define _ 0
+	const int16_t features[][KSIZE]=//18T
+	{
+		//LPCB	
+		//LPCB	3462570078.00 1121301318.56  387823825.45  358888794.55  374588698.56  BPD 2.590680 {1.713214 2.244008 2.485292 2.841329 3.715391}     19.831529 sec    166.510820 MB/s      6.005616 ms/MB
+		{//av - close
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	+1,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	+2,	+11,	+3,	+1,	_,	_,	_,
+			_,	_,	_,	+1,	+13,	//[?]
+		},
+		{//av - far
+				_,	_,	_,	_,	+3,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	+3,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	+4,	_,	_,	+2,	+3,	+5,	+1,
+			+1,	+4,	+4,	+2,	_,	//[?]
+		},
+		{//N-based overshoot
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	+2,	+4,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	-16,	-14,	_,	_,	_,	_,
+			_,	_,	_,	-2,	-14,	+48,	+14,	_,	_,	_,	_,
+			_,	_,	_,	-4,	+14,	//[?]
+		},
+		{//W-based overshoot
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	+2,	-4,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	-20,	+20,	+4,	_,	_,	_,	_,
+			_,	_,	_,	-10,	+40,	//[?]
+		},
+		{//NE-based overshoot
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	-16,	-13,	-4,	_,	_,
+			_,	_,	_,	_,	_,	_,	+30,	+13,	+4,	-1,	_,
+			_,	_,	_,	_,	+19,	//[?]
+		},
+		{//NW-based overshoot
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	-1,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	-8,	-12,	-1,	_,	_,	_,	_,	_,
+			_,	_,	-1,	-12,	+17,	+20,	+9,	_,	_,	_,	_,
+			_,	_,	_,	+1,	+20,	//[?]
+		},
+		
+		//backup #1
+#if 0
+		//LPCB	3462570078.00 1121332697.05  387848305.44  358892028.69  374592362.92  BPD 2.590752 {1.713382 2.244129 2.485344 2.841268 3.715469}     19.833223 sec    166.496596 MB/s      6.006129 ms/MB
+		{//av - close
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	+1,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	+2,	+11,	+3,	+1,	_,	_,	_,
+			_,	_,	_,	+1,	+13,	//[?]
+		},
+		{//av - far
+				_,	_,	_,	_,	+3,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	+3,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	+4,	_,	_,	+2,	+3,	+5,	+1,
+			+1,	+4,	+4,	+2,	_,	//[?]
+		},
+		{//N-based overshoot
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	+2,	+4,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	-16,	-14,	_,	_,	_,	_,
+			_,	_,	_,	-2,	-14,	+48,	+14,	_,	_,	_,	_,
+			_,	_,	_,	-4,	+14,	//[?]
+		},
+		{//W-based overshoot
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	+2,	-4,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	-20,	+20,	+4,	_,	_,	_,	_,
+			_,	_,	_,	-10,	+40,	//[?]
+		},
+		{//NE-based overshoot
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	-16,	-12,	-4,	_,	_,
+			_,	_,	_,	_,	_,	_,	+30,	+12,	+3,	_,	_,
+			_,	_,	_,	_,	+19,	//[?]
+		},
+		{//NW-based overshoot
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	-1,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	-6,	-12,	-1,	_,	_,	_,	_,	_,
+			_,	_,	-1,	-12,	+17,	+19,	+9,	_,	_,	_,	_,
+			_,	_,	_,	+1,	+19,	//[?]
+		},
+#endif
+		
+		//backup
+#if 0
+		//LPCB	3462570078.00 1122112459.65  387991846.35  359166509.29  374954104.01  BPD 2.592554 {1.716336 2.245595 2.486263 2.842087 3.718317}     20.103879 sec    164.255076 MB/s      6.088092 ms/MB
+		{//av - close
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	+1,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	+2,	+11,	+3,	+1,	_,	_,	_,
+			_,	_,	_,	+1,	+13,	//[?]
+		},
+		{//av - far
+				_,	_,	_,	_,	+3,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	+3,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	+4,	_,	_,	+2,	+3,	+5,	+1,
+			+1,	+4,	+4,	+2,	_,	//[?]
+		},
+		{//N-based overshoot
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	+2,	+4,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	-16,	-14,	_,	_,	_,	_,
+			_,	_,	_,	-2,	-14,	+48,	+14,	_,	_,	_,	_,
+			_,	_,	_,	-4,	+14,	//[?]
+		},
+		{//W-based overshoot
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	+2,	-4,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	-20,	+20,	+4,	_,	_,	_,	_,
+			_,	_,	_,	-10,	+40,	//[?]
+		},
+		{//NE-based overshoot
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	-16,	-10,	-3,	_,	_,
+			_,	_,	_,	_,	_,	_,	+28,	+12,	_,	_,	_,
+			_,	_,	_,	_,	+21,	//[?]
+		},
+		{//NW-based overshoot
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	-12,	-6,	-4,	_,	_,	_,	_,	_,
+			_,	_,	_,	-10,	+24,	+12,	+8,	_,	_,	_,	_,
+			_,	_,	_,	_,	+20,	//[?]
+		},
+#endif
+
+		//backup
+#if 0
+		//LPCB	3462570078.00 1122817838.66  388271914.08  359295802.32  375250122.27  BPD 2.594184 {1.721132 2.248089 2.488315 2.841443 3.717659}     19.939707 sec    165.607458 MB/s      6.038375 ms/MB
+		{//av - close
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	+1,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	+2,	+11,	+3,	+1,	_,	_,	_,
+			_,	_,	_,	+1,	+13,	//[?]
+		},
+		{//av - far
+				_,	_,	_,	_,	+3,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	+3,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	+4,	_,	_,	+2,	+3,	+5,	+1,
+			+1,	+4,	+4,	+2,	_,	//[?]
+		},
+		{//N-based overshoot
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	+4,	+2,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	-16,	-14,	_,	_,	_,	_,
+			_,	_,	_,	-2,	-14,	+48,	+14,	_,	_,	_,	_,
+			_,	_,	_,	-4,	+14,	//[?]
+		},
+		{//W-based overshoot
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	+2,	-4,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	-20,	+20,	+4,	_,	_,	_,	_,
+			_,	_,	_,	-10,	+40,	//[?]
+		},
+		{//NE-based overshoot
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	-6,	-12,	-12,	-4,	_,	_,
+			_,	_,	_,	_,	+20,	-2,	+28,	+12,	_,	_,	_,
+			_,	_,	_,	_,	+8,	//[?]
+		},
+		{//NW-based overshoot
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	-12,	-6,	-4,	_,	_,	_,	_,	_,
+			_,	_,	_,	-10,	+24,	+12,	+8,	_,	_,	_,	_,
+			_,	_,	_,	_,	+20,	//[?]
+		},
+#endif
+
+		//backup
+#if 0
+		//LPCB	3462570078.00 1123975996.35  388827921.52  359604247.96  375543826.87  BPD 2.596859 {1.726955 2.252311 2.489962 2.843793 3.716802}     19.934891 sec    165.647461 MB/s      6.036917 ms/MB
+		{//av - close
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	+1,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	+2,	+11,	+3,	+1,	_,	_,	_,
+			_,	_,	_,	+1,	+13,	//[?]
+		},
+		{//av - far
+				_,	_,	_,	_,	+3,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	+3,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	+4,	_,	_,	+1,	+3,	+6,	+1,
+			+1,	+4,	+4,	+2,	_,	//[?]
+		},
+		{//N-based
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	+4,	+2,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	-16,	-14,	_,	_,	_,	_,
+			_,	_,	_,	-2,	-14,	+48,	+14,	_,	_,	_,	_,
+			_,	_,	_,	-4,	+14,	//[?]
+		},
+		{//W-based
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	+2,	-4,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	-20,	+20,	+4,	_,	_,	_,	_,
+			_,	_,	_,	-10,	+40,	//[?]
+		},
+		{//NE-based
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	-6,	-12,	-12,	-4,	_,	_,
+			_,	_,	_,	_,	+24,	+2,	+24,	+8,	_,	_,	_,
+			_,	_,	_,	_,	+8,	//[?]
+		},
+		{//NW-based
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	-12,	-6,	-4,	_,	_,	_,	_,	_,
+			_,	_,	_,	-10,	+24,	+12,	+8,	_,	_,	_,	_,
+			_,	_,	_,	_,	+20,	//[?]
+		},
+#endif
+
+		//backup
+#if 0
+		//no 0 2	3462570078.00 1161390625.89  401635011.41  371822686.47  387932928.01  BPD 2.683303 {1.793990 2.340420 2.570480 2.933952 3.823815}     18.752383 sec    176.093045 MB/s      5.678816 ms/MB
+		//no 4 5	3462570078.00 1134908407.14  392208357.07  363827563.59  378872486.48  BPD 2.622118 {1.759816 2.285423 2.502097 2.874972 3.732956}     18.272113 sec    180.721522 MB/s      5.533375 ms/MB
+		//LPCB		3462570078.00 1124404830.87  389129123.62  359664606.15  375611101.10  BPD 2.597850 {1.728814 2.253617 2.490884 2.844565 3.716851}     19.748424 sec    167.211530 MB/s      5.980449 ms/MB
+		{
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	+2,	+12,	+4,	_,	_,	_,	_,
+			_,	_,	_,	_,	+14,	//[?]
+		},
+		{
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	+2,	-4,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	-20,	+20,	+4,	_,	_,	_,	_,
+			_,	_,	_,	-10,	+40,	//[?]
+		},
+		{
+				_,	_,	_,	_,	+3,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	+3,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	+4,	_,	_,	_,	+3,	+7,	_,
+			_,	+6,	+4,	+2,	_,	//[?]
+		},
+		{
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	+4,	+2,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	-16,	-14,	_,	_,	_,	_,
+			_,	_,	_,	-2,	-14,	+48,	+14,	_,	_,	_,	_,
+			_,	_,	_,	-4,	+14,	//[?]
+		},
+		{
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	-12,	-6,	-4,	_,	_,	_,	_,	_,
+			_,	_,	_,	-10,	+24,	+12,	+8,	_,	_,	_,	_,
+			_,	_,	_,	_,	+20,	//[?]
+		},
+		{
+				_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	_,	_,	_,	_,	_,	_,
+			_,	_,	_,	_,	_,	-6,	-12,	-12,	-4,	_,	_,
+			_,	_,	_,	_,	+24,	+2,	+24,	+8,	_,	_,	_,
+			_,	_,	_,	_,	+8,	//[?]
+		},
+#endif
+
+		//backup
+#if 0
+		//	3462570078.00 1126140596.16  389333511.79  360537841.10  376269243.27  BPD 2.601861 {1.729292 2.255460 2.492483 2.852090 3.725611}     38.120566 sec     86.624217 MB/s     11.544116 ms/MB
+		//LPCB	3462570078.00 1126066162.77  389294922.05  360513867.86  376257372.86  BPD 2.601689 {1.729126 2.255233 2.492296 2.851939 3.725484}     19.810217 sec    166.689951 MB/s      5.999162 ms/MB	SIMD
+		{
+				0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	+2,	+12,	+4,	0,	0,	0,	0,
+			0,	0,	0,	0,	+14,	//[?]
+		},
+		{
+				0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	+2,	-4,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	-22,	+22,	+4,	0,	0,	0,	0,
+			0,	0,	0,	-6,	+36,	//[?]
+		},
+		{
+				0,	0,	0,	0,	+3,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	+3,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	+4,	0,	0,	0,	+3,	+7,	0,
+			0,	+6,	+4,	+2,	0,	//[?]
+		},
+		{
+				0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	+4,	+2,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	-16,	-14,	0,	0,	0,	0,
+			0,	0,	0,	-2,	-14,	+48,	+14,	0,	0,	0,	0,
+			0,	0,	0,	-4,	+14,	//[?]
+		},
+		{
+				0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	-12,	-6,	-4,	0,	0,	0,	0,	0,
+			0,	0,	0,	-10,	+24,	+12,	+8,	0,	0,	0,	0,
+			0,	0,	0,	0,	+20,	//[?]
+		},
+		{
+				0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	-6,	-12,	-12,	-4,	0,	0,
+			0,	0,	0,	0,	+24,	+2,	+24,	+8,	0,	0,	0,
+			0,	0,	0,	0,	+8,	//[?]
+		},
+#endif
+
+		//backup
+#if 0
+		//LPCB	3462570078.00 1126523573.40  389222779.35  360832599.91  376468194.15  BPD 2.602745 {1.728381 2.255042 2.492236 2.853836 3.729978}     38.166588 sec     86.519763 MB/s     11.558053 ms/MB
+		{
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	+1,	+6,	+2,	0,	0,	0,
+			0,	0,	0,	+7,	//[?]
+		},
+		{
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	-2,	+1,	0,	0,	0,
+			0,	0,	0,	-11,	+11,	+2,	0,	0,	0,
+			0,	0,	-3,	+18,	//[?]
+		},
+		{
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	+3,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	+2,	0,	0,	0,	0,	+5,
+			+3,	+2,	+1,	0,	//[?]
+		},
+		{
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	+2,	+1,	0,	0,	0,
+			0,	0,	0,	0,	-8,	-7,	0,	0,	0,
+			0,	0,	-1,	-7,	+24,	+7,	0,	0,	0,
+			0,	0,	-2,	+7,	//[?]
+		},
+		{
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	-6,	-3,	-2,	0,	0,	0,	0,
+			0,	0,	-5,	+12,	+6,	+4,	0,	0,	0,
+			0,	0,	0,	+10,	//[?]
+		},
+		{
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	-3,	-6,	-6,	-2,	0,
+			0,	0,	0,	+12,	+1,	+12,	+4,	0,	0,
+			0,	0,	0,	+4,	//[?]
+		},
+#endif
+
+		//backup
+#if 0
+		//LPCB	3462570078.00 1126933370.60  389627019.18  360826821.80  376479529.61  BPD 2.603692 {1.729857 2.256754 2.493023 2.855437 3.729059}     35.955149 sec     91.841204 MB/s     10.888359 ms/MB
+		{
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	+1,	+7,	+1,	0,	0,	0,
+			0,	0,	0,	+7,	//[?]
+		},
+		{
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	-1,	0,	0,	0,	0,
+			0,	0,	0,	-11,	+11,	+2,	0,	0,	0,
+			0,	0,	-3,	+18,	//[?]
+		},
+		{
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	+3,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	+2,	0,	0,	0,	0,	+5,
+			+4,	+2,	0,	0,	//[?]
+		},
+		{
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	+2,	+1,	0,	0,	0,
+			0,	0,	0,	0,	-8,	-7,	0,	0,	0,
+			0,	0,	-1,	-7,	+24,	+7,	0,	0,	0,
+			0,	0,	-2,	+7,	//[?]
+		},
+		{
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	-6,	-3,	-2,	0,	0,	0,	0,
+			0,	0,	-5,	+12,	+6,	+4,	0,	0,	0,
+			0,	0,	0,	+10,	//[?]
+		},
+		{
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	-3,	-6,	-6,	-2,	0,
+			0,	0,	0,	+12,	+1,	+12,	+4,	0,	0,
+			0,	0,	0,	+4,	//[?]
+		},
+#endif
+
+		//reserve
+#if 0
+		{
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	0,	0,	0,	0,	0,
+			0,	0,	0,	0,	//[?]
+		},
+#endif
+	};
+#if 0
+	//	+1	+7	+1
+	//	+7	[?]
+	//
+	//			-1
+	//		-11	+11	+2
+	//	-3	+18	[?]
+	//
+	//					+3
+	//					0
+	//				+2	0	0	0	0	+5
+	//	+4	+2	0	0	[?]
+	//
+	//		-8	-7
+	//	-7	+24	-7
+	//	+7	[?]
+	//
+	//	-6	-3	-2
+	//	-5	+12	+6	+4
+	//		+10	[?]
+	//
+	//		-3	-6	-6	-2
+	//	+12	+1	+12	+4
+	//	+4	[?]
+#define ESTIMLIST\
+	ESTIM((6*N+6*W+2*NE+2*NW)>>4)\
+	ESTIM((18*W+11*N-11*NW+2*NE-3*WW-1*NN)>>4)\
+	ESTIM((4*WWWW+2*WWW+5*NEEEE+3*NNN+2*NW)>>4)\
+	ESTIM((7*W-7*NW+24*N-8*NN+7*NE-7*NNE)>>4)\
+	ESTIM((10*W+6*N+12*NW+4*NE-(6*NNWW+3*NNW+2*NN+5*NWW))>>4)\
+	ESTIM((4*W+NW+12*N+12*NE+4*NEE-(3*NN+6*NNE+6*NNEE+2*NNEEE))>>4)\
+
+#endif
+#if 0
+	//	+1	+7	+1
+	//	+7	[?]
+	//
+	//			-1
+	//		-11	+11	+2
+	//	-3	+18	[?]
+	//
+	//					+3
+	//					0
+	//				+1	0	0	0	0	+6
+	//	+6	0	0	0	[?]
+	//
+	//		-8	-7
+	//	-7	+24	-7
+	//	+7	[?]
+#define ESTIMLIST\
+	ESTIM((6*N+6*W+2*NE+2*NW)>>4)\
+	ESTIM((18*W+11*N-11*NW+2*NE-3*WW-1*NN)>>4)\
+	ESTIM((4*WWWW+2*WWW+5*NEEEE+3*NNN+2*NW)>>4)\
+	ESTIM((7*W-7*NW+24*N-8*NN+7*NE-7*NNE)>>4)\
+
+#endif
+#if 0
+	//		NNN
+	//		NN
+	//	NW	N	NE
+	//	W	?
 #define ESTIMLIST\
 	ESTIM(W)\
+	ESTIM(NE+eNE)\
 	ESTIM(2*N-NN)\
 	ESTIM(N+W-NW)\
-	ESTIM(NE)\
+	ESTIM(NNN+eW)\
 
+#endif
 #if 0
 #define ESTIMLIST\
 	ESTIM(N)\
@@ -532,32 +1044,50 @@ void pred_mixR(Image *src, int fwd)
 	ESTIM(W+NE-N)\
 
 #endif
+#undef  _
 	enum
 	{
+		MIXPREDS=_countof(features),
 #if 0
 		RCTBITS2=23,
 #endif
-		SHIFT=21,
-#define ESTIM(E) +1
-		MIXPREDS=ESTIMLIST,
-#undef  ESTIM
+		SHIFT=20,
+//#define ESTIM(E) +1
+//		MIXPREDS=ESTIMLIST,
+//#undef  ESTIM
 
 		XPAD=8,
-		NROWS=4,
+		NROWS=8,
 		NCH=4,
-		NVAL=3
+		NVAL=3,
+		//PREC=1,
 	};
-	ALIGN(16) int32_t coeffs[4][MIXPREDS*3]={0}, bias[4]={0}, estims[MIXPREDS*3]={0};
+	//double weights[4][MIXPREDS+1]={0}, velocity[4][MIXPREDS+1]={0};
+	ALIGN(16) int32_t coeffs[4][MIXPREDS]={0}, bias[4]={0}, estims[MIXPREDS]={0};
 	int psize;
-	int32_t *pixels, *rows[4];
+	int32_t *pixels, *rows[NROWS];
 	int amin[4], amax[4], rmin[4], rmax[4], invdist, ky, kx, kc, idx;
 	const uint8_t *perm;
 	int uc0, vc0, vc1;
+	//double mean=0;
 #if 0
 	int e0int[4]={0}, e1int[4]={0}, dshift=31^LZCNT32(g_dist);
 #endif
 	int a_dist[4]={0}, dist2sym[4]={0};
 
+	for(int kp=0;kp<MIXPREDS;++kp)
+	{
+		int sum=0;
+		for(int k=0;k<KSIZE;++k)
+			sum+=features[kp][k];
+		if(sum!=1<<PREC)
+			messagebox(MBOX_OK, "LOL", "P[%d] = %d", kp, sum);
+	}
+	//for(int kc=0;kc<4;++kc)
+	//{
+	//	for(int k=0;k<MIXPREDS;++k)
+	//		weights[kc][k]=1./MIXPREDS;
+	//}
 	(void)invdist;
 	(void)rmax;
 	(void)rmin;
@@ -610,6 +1140,10 @@ void pred_mixR(Image *src, int fwd)
 		rows[1]=pixels+(XPAD*NCH*NROWS-NROWS+(ky-(intptr_t)1+NROWS)%NROWS)*NVAL;
 		rows[2]=pixels+(XPAD*NCH*NROWS-NROWS+(ky-(intptr_t)2+NROWS)%NROWS)*NVAL;
 		rows[3]=pixels+(XPAD*NCH*NROWS-NROWS+(ky-(intptr_t)3+NROWS)%NROWS)*NVAL;
+		rows[4]=pixels+(XPAD*NCH*NROWS-NROWS+(ky-(intptr_t)4+NROWS)%NROWS)*NVAL;
+		rows[5]=pixels+(XPAD*NCH*NROWS-NROWS+(ky-(intptr_t)5+NROWS)%NROWS)*NVAL;
+		rows[6]=pixels+(XPAD*NCH*NROWS-NROWS+(ky-(intptr_t)6+NROWS)%NROWS)*NVAL;
+		rows[7]=pixels+(XPAD*NCH*NROWS-NROWS+(ky-(intptr_t)7+NROWS)%NROWS)*NVAL;
 		for(kx=0;kx<src->iw;++kx, idx+=4)
 		{
 			int yuv[3];
@@ -626,16 +1160,39 @@ void pred_mixR(Image *src, int fwd)
 				rows[1]+=NROWS*NVAL;
 				rows[2]+=NROWS*NVAL;
 				rows[3]+=NROWS*NVAL;
+				rows[4]+=NROWS*NVAL;
+				rows[5]+=NROWS*NVAL;
+				rows[6]+=NROWS*NVAL;
+				rows[7]+=NROWS*NVAL;
 				if(kc==3)
 					continue;
 				{
+					int16_t nb[]=
+					{
+										rows[4][0-4*NCH*NROWS*NVAL],rows[4][0-3*NCH*NROWS*NVAL],rows[4][0-2*NCH*NROWS*NVAL],rows[4][0-1*NCH*NROWS*NVAL],rows[4][0+0*NCH*NROWS*NVAL],rows[4][0+1*NCH*NROWS*NVAL],rows[4][0+2*NCH*NROWS*NVAL],rows[4][0+3*NCH*NROWS*NVAL],rows[4][0+4*NCH*NROWS*NVAL],rows[4][0+5*NCH*NROWS*NVAL],
+						rows[3][0-5*NCH*NROWS*NVAL],	rows[3][0-4*NCH*NROWS*NVAL],rows[3][0-3*NCH*NROWS*NVAL],rows[3][0-2*NCH*NROWS*NVAL],rows[3][0-1*NCH*NROWS*NVAL],rows[3][0+0*NCH*NROWS*NVAL],rows[3][0+1*NCH*NROWS*NVAL],rows[3][0+2*NCH*NROWS*NVAL],rows[3][0+3*NCH*NROWS*NVAL],rows[3][0+4*NCH*NROWS*NVAL],rows[3][0+5*NCH*NROWS*NVAL],
+						rows[2][0-5*NCH*NROWS*NVAL],	rows[2][0-4*NCH*NROWS*NVAL],rows[2][0-3*NCH*NROWS*NVAL],rows[2][0-2*NCH*NROWS*NVAL],rows[2][0-1*NCH*NROWS*NVAL],rows[2][0+0*NCH*NROWS*NVAL],rows[2][0+1*NCH*NROWS*NVAL],rows[2][0+2*NCH*NROWS*NVAL],rows[2][0+3*NCH*NROWS*NVAL],rows[2][0+4*NCH*NROWS*NVAL],rows[2][0+5*NCH*NROWS*NVAL],
+						rows[1][0-5*NCH*NROWS*NVAL],	rows[1][0-4*NCH*NROWS*NVAL],rows[1][0-3*NCH*NROWS*NVAL],rows[1][0-2*NCH*NROWS*NVAL],rows[1][0-1*NCH*NROWS*NVAL],rows[1][0+0*NCH*NROWS*NVAL],rows[1][0+1*NCH*NROWS*NVAL],rows[1][0+2*NCH*NROWS*NVAL],rows[1][0+3*NCH*NROWS*NVAL],rows[1][0+4*NCH*NROWS*NVAL],rows[1][0+5*NCH*NROWS*NVAL],
+						rows[0][0-5*NCH*NROWS*NVAL],	rows[0][0-4*NCH*NROWS*NVAL],rows[0][0-3*NCH*NROWS*NVAL],rows[0][0-2*NCH*NROWS*NVAL],rows[0][0-1*NCH*NROWS*NVAL],
+					};
+#if 0
 					int32_t
+						NNNNNNN	=rows[7][0+0*NCH*NROWS*NVAL],
+						NNNNNN	=rows[6][0+0*NCH*NROWS*NVAL],
+						NNNNNW	=rows[5][0-1*NCH*NROWS*NVAL],
+						NNNNN	=rows[5][0+0*NCH*NROWS*NVAL],
+						NNNNWW	=rows[4][0-2*NCH*NROWS*NVAL],
+						NNNN	=rows[4][0+0*NCH*NROWS*NVAL],
+						NNNWW	=rows[3][0-2*NCH*NROWS*NVAL],
+						NNNW	=rows[3][0-1*NCH*NROWS*NVAL],
 						NNN	=rows[3][0+0*NCH*NROWS*NVAL],
+						NNNE	=rows[3][0+1*NCH*NROWS*NVAL],
 						NNWW	=rows[2][0-2*NCH*NROWS*NVAL],
 						NNW	=rows[2][0-1*NCH*NROWS*NVAL],
 						NN	=rows[2][0+0*NCH*NROWS*NVAL],
 						NNE	=rows[2][0+1*NCH*NROWS*NVAL],
 						NNEE	=rows[2][0+2*NCH*NROWS*NVAL],
+						NNEEE	=rows[2][0+3*NCH*NROWS*NVAL],
 						NWW	=rows[1][0-2*NCH*NROWS*NVAL],
 						NW	=rows[1][0-1*NCH*NROWS*NVAL],
 						N	=rows[1][0+0*NCH*NROWS*NVAL],
@@ -646,7 +1203,27 @@ void pred_mixR(Image *src, int fwd)
 						WWWW	=rows[0][0-4*NCH*NROWS*NVAL],
 						WWW	=rows[0][0-3*NCH*NROWS*NVAL],
 						WW	=rows[0][0-2*NCH*NROWS*NVAL],
-						W	=rows[0][0-1*NCH*NROWS*NVAL];
+						W	=rows[0][0-1*NCH*NROWS*NVAL],
+						eNNNW	=rows[3][1-1*NCH*NROWS*NVAL],
+						eNNN	=rows[3][1+0*NCH*NROWS*NVAL],
+						eNNNE	=rows[3][1+1*NCH*NROWS*NVAL],
+						eNNWW	=rows[2][1-2*NCH*NROWS*NVAL],
+						eNNW	=rows[2][1-1*NCH*NROWS*NVAL],
+						eNN	=rows[2][1+0*NCH*NROWS*NVAL],
+						eNNE	=rows[2][1+1*NCH*NROWS*NVAL],
+						eNNEE	=rows[2][1+2*NCH*NROWS*NVAL],
+						eNWW	=rows[1][1-2*NCH*NROWS*NVAL],
+						eNW	=rows[1][1-1*NCH*NROWS*NVAL],
+						eN	=rows[1][1+0*NCH*NROWS*NVAL],
+						eNE	=rows[1][1+1*NCH*NROWS*NVAL],
+						eNEE	=rows[1][1+2*NCH*NROWS*NVAL],
+						eNEEE	=rows[1][1+3*NCH*NROWS*NVAL],
+						eNEEEE	=rows[1][1+4*NCH*NROWS*NVAL],
+						eWWWW	=rows[0][1-4*NCH*NROWS*NVAL],
+						eWWW	=rows[0][1-3*NCH*NROWS*NVAL],
+						eWW	=rows[0][1-2*NCH*NROWS*NVAL],
+						eW	=rows[0][1-1*NCH*NROWS*NVAL];
+#endif
 #if 0
 						xNW	=rows[1][1-1*NCH*NROWS*NVAL],
 						xN	=rows[1][1+0*NCH*NROWS*NVAL],
@@ -659,9 +1236,12 @@ void pred_mixR(Image *src, int fwd)
 #endif
 					int offset, curr, j, pred, e;
 					int64_t p1;
+					//double fpred;
 
-#if 1
+#if 0
+					(void)NNNW;
 					(void)NNN;
+					(void)NNNE;
 					(void)NNWW;
 					(void)NNW;
 					(void)NN;
@@ -678,25 +1258,125 @@ void pred_mixR(Image *src, int fwd)
 					(void)WWW;
 					(void)WW;
 					(void)W;
+					(void)eNNNW;
+					(void)eNNN;
+					(void)eNNNE;
+					(void)eNNWW;
+					(void)eNNW;
+					(void)eNN;
+					(void)eNNE;
+					(void)eNNEE;
+					(void)eNWW;
+					(void)eNW;
+					(void)eN;
+					(void)eNE;
+					(void)eNEE;
+					(void)eNEEE;
+					(void)eNEEEE;
+					(void)eWWWW;
+					(void)eWWW;
+					(void)eWW;
+					(void)eW;
 #endif
 					if(!fwd)
 						yuv[kc]=((int32_t*)(src+1))[idx+kc];
 					curr=yuv[kc];
-#define ESTIM(E) estims[j++]=E;
-					j=0;
-					ESTIMLIST;
-#undef  ESTIM
+
+#if 1
+					//if(ky==src->ih/2&&kx==src->iw/2)//
+					//	printf("");
+					{
+						ALIGN(32) int16_t arr[16];
+						__m256i nb0=_mm256_loadu_si256((__m256i*)nb+0);
+						__m256i nb1=_mm256_loadu_si256((__m256i*)nb+1);
+						__m256i nb2=_mm256_loadu_si256((__m256i*)nb+2);
+						for(j=0;j<MIXPREDS;++j)
+						{
+						//	int ans=0;
+						//	for(int k=0;k<KSIZE;++k)
+						//		ans+=features[j][k]*nb[k];
+							__m256i f0=_mm256_loadu_si256((const __m256i*)features[j]+0);
+							__m256i f1=_mm256_loadu_si256((const __m256i*)features[j]+1);
+							__m256i f2=_mm256_loadu_si256((const __m256i*)features[j]+2);
+							f0=_mm256_mullo_epi16(f0, nb0);
+							f1=_mm256_mullo_epi16(f1, nb1);
+							f2=_mm256_mullo_epi16(f2, nb2);
+							f0=_mm256_add_epi16(f0, f1);
+							f0=_mm256_add_epi16(f0, f2);
+							f0=_mm256_hadd_epi16(f0, f0);
+							f0=_mm256_hadd_epi16(f0, f0);
+							f0=_mm256_hadd_epi16(f0, f0);
+							_mm256_store_si256((__m256i*)arr, f0);
+							estims[j]=arr[0]+arr[8];
+						//	if(estims[j]!=ans)
+						//		CRASH("");
+						}
+					}
+#else
+					memset(estims, 0, sizeof(estims));
+					for(j=0;j<KSIZE;++j)
+					{
+						for(int k=0;k<MIXPREDS;++k)
+							estims[k]+=features[k][j]*nb[j];
+					}
+#endif
+//#define ESTIM(E) estims[j++]=E;
+//					j=0;
+//					ESTIMLIST;
+//#undef  ESTIM
 #if 0
 					estims[j++]=W;
 					estims[j++]=NE;
 					estims[j++]=2*N-NN;
 					estims[j++]=N+W-NW;
 #endif
+					//fpred=weights[kc][MIXPREDS];
+					//for(j=0;j<MIXPREDS;++j)
+					//	fpred+=weights[kc][j]*estims[j];
+					//p1=ROUND64(fpred);
 
-					p1=bias[kc];
+#if 0
+					//double x;
+					//x=curr+43.550904160302821; mean+=x*x;
+					//x=curr-estims[0]; varvar[0]+=x*x;
+					//x=curr-estims[1]; varvar[1]+=x*x;
+					//x=curr-estims[2]; varvar[2]+=x*x;
+					//x=curr-estims[3]; varvar[3]+=x*x;
+					//x=curr-estims[4]; varvar[4]+=x*x;
+					//x=estims[0]+32.585829630886685; varvar[0]+=x*x;
+					//x=estims[1]+33.116589755280714; varvar[1]+=x*x;
+					//x=estims[2]+32.606758933068349; varvar[2]+=x*x;
+					//x=estims[3]+32.606817545201203; varvar[3]+=x*x;
+					//x=estims[4]+33.047892927900939; varvar[4]+=x*x;
+					//varmean[0]+=estims[0];
+					//varmean[1]+=estims[1];
+					//varmean[2]+=estims[2];
+					//varmean[3]+=estims[3];
+					//varmean[4]+=estims[4];
+					double y[]=
+					{
+						(estims[0]+32.585829630886685)/46.552744214820379,
+						(estims[0]+33.116589755280714)/49.131955043855690,
+						(estims[0]+32.606758933068349)/48.910725643399481,
+						(estims[0]+32.606817545201203)/46.838366014356076,
+						(estims[0]+33.047892927900939)/47.820482558888550,
+					};
+					varexp[0]+=y[0]*y[1];//W vs NE+eNE
+					varexp[1]+=y[0]*y[2];//W vs 2*N-NN
+					varexp[2]+=y[0]*y[3];//W vs N+W-NW
+					varexp[3]+=y[0]*y[4];//W vs NNN+eW
+					varexp[4]+=y[1]*y[2];//NE+eNE vs 2*N-NN
+					varexp[5]+=y[1]*y[3];//NE+eNE vs N+W-NW
+					varexp[6]+=y[1]*y[4];//NE+eNE vs NNN+eW
+					varexp[7]+=y[2]*y[3];//2*N-NN vs N+W-NW
+					varexp[8]+=y[2]*y[4];//2*N-NN vs NNN+eW
+					varexp[9]+=y[3]*y[4];//N+W-NW vs NNN+eW
+#endif
+
+					p1=(int64_t)bias[kc]<<PREC;
 					for(j=0;j<MIXPREDS;++j)
 						p1+=(int64_t)coeffs[kc][j]*estims[j];
-					p1>>=SHIFT;
+					p1>>=SHIFT+PREC;
 					pred=(int)p1;
 				/*	p2=(int)p1;*/
 
@@ -843,23 +1523,82 @@ void pred_mixR(Image *src, int fwd)
 							yuv[kc]=curr;
 						}
 					}
+					rows[0][1+0*NCH*NROWS*NVAL]=curr-pred;
 					curr-=offset;
-					rows[0][0]=curr;
+					rows[0][0+0*NCH*NROWS*NVAL]=curr;
 #if 0
 					errors[kc]=curr-p2;
 #endif
 
 					/*147 MB/s  6.77 ms/MB  i5-1145G7*/
 #if 1
-					e=(curr>(int)p1)-(curr<(int)p1);/*cmp setgt setlt sub*/
 #if 0
 					e=((curr-p1)>>31)-((p1-curr)>>31);/*sub sar sub sar sub*/
 					e=curr-p1; CLAMP2(e, -1, 1);/*sub cmp cmovlt cmovgt*/
 #endif
-					bias[kc]+=e;
+					//{
+					//	double lr=0;
+					//	e=curr-(int)p1;
+					//	for(j=0;j<MIXPREDS;++j)
+					//		estims[j]*=e;
+					//	for(j=0;j<MIXPREDS;++j)
+					//		lr+=abs(estims[j]);
+					//	lr=0x300/(lr+10);
+					//	weights[kc][MIXPREDS]+=e*lr;
+					//	for(j=0;j<MIXPREDS;++j)
+					//		weights[kc][j]+=estims[j]*lr;
+					//}
+					
+					e=(curr>(int)p1)-(curr<(int)p1);/*cmp setgt setlt sub*/
+					bias[kc]+=e<<3;
 					for(j=0;j<MIXPREDS;++j)
-						coeffs[kc][j]+=(int16_t)((int16_t)e*(int16_t)estims[j]);
+						coeffs[kc][j]+=(int16_t)((int16_t)e*((int16_t)estims[j]>>PREC));
 #endif
+					//if(e<0)
+					//{
+					//	double x;
+					//	x=abs(curr-p1)*estims[0]-(- 98.962);means[0]+=x*x;
+					//	x=abs(curr-p1)*estims[1]-(-105.005);means[1]+=x*x;
+					//	x=abs(curr-p1)*estims[2]-(-101.615);means[2]+=x*x;
+					//	x=abs(curr-p1)*estims[3]-(- 99.473);means[3]+=x*x;
+					//	x=abs(curr-p1)*estims[4]-(-105.871);means[4]+=x*x;
+					//	//means[0]+=abs(curr-p1)*estims[0];
+					//	//means[1]+=abs(curr-p1)*estims[1];
+					//	//means[2]+=abs(curr-p1)*estims[2];
+					//	//means[3]+=abs(curr-p1)*estims[3];
+					//	//means[4]+=abs(curr-p1)*estims[4];
+					//	++varcnt;
+					//}
+					//double x;
+					//varvar[0]+=e*estims[0];
+					//varvar[1]+=e*estims[1];
+					//varvar[2]+=e*estims[2];
+					//varvar[3]+=e*estims[3];
+					//varvar[4]+=e*estims[4];
+					//x=e*estims[0]-(+0.03443); varvar[0]+=x*x;
+					//x=e*estims[1]-(-0.02670); varvar[1]+=x*x;
+					//x=e*estims[2]-(+0.02217); varvar[2]+=x*x;
+					//x=e*estims[3]-(-0.01876); varvar[3]+=x*x;
+					//x=e*estims[4]-(-0.01361); varvar[4]+=x*x;
+					//x=(curr-p1)*estims[0]-(-4.8949); varvar[0]+=x*x;
+					//x=(curr-p1)*estims[1]-(-1.1230); varvar[1]+=x*x;
+					//x=(curr-p1)*estims[2]-(-3.1900); varvar[2]+=x*x;
+					//x=(curr-p1)*estims[3]-(-3.9208); varvar[3]+=x*x;
+					//x=(curr-p1)*estims[4]-(+0.6661); varvar[4]+=x*x;
+					//x=curr-p1-estims[0]-(32.5436); varvar[0]+=x*x;
+					//x=curr-p1-estims[1]-(33.0744); varvar[1]+=x*x;
+					//x=curr-p1-estims[2]-(32.5646); varvar[2]+=x*x;
+					//x=curr-p1-estims[3]-(32.5646); varvar[3]+=x*x;
+					//x=curr-p1-estims[4]-(33.0057); varvar[4]+=x*x;
+					//x=curr-estims[0]-(-0.02100); varvar[0]+=x*x;
+					//x=curr-estims[1]-(+0.50975); varvar[1]+=x*x;
+					//x=curr-estims[2]-(-0.00007); varvar[2]+=x*x;
+					//x=curr-estims[3]-(-0.00002); varvar[3]+=x*x;
+					//x=curr-estims[4]-(+0.44105); varvar[4]+=x*x;
+					//x=curr+32.606838536523199; mean+=x*x;
+					//mean+=curr-p1;
+					//x=curr-p1+0.042141033059287535; mean+=x*x;
+					//++varcnt;
 				}
 			}
 #if 0
@@ -880,6 +1619,43 @@ void pred_mixR(Image *src, int fwd)
 			}
 		}
 	}
+#if 0
+	//means[0]/=varcnt;
+	//means[1]/=varcnt;
+	//means[2]/=varcnt;
+	//means[3]/=varcnt;
+	//means[4]/=varcnt;
+	//means[0]=sqrt(means[0]/varcnt);
+	//means[1]=sqrt(means[1]/varcnt);
+	//means[2]=sqrt(means[2]/varcnt);
+	//means[3]=sqrt(means[3]/varcnt);
+	//means[4]=sqrt(means[4]/varcnt);
+#endif
+#if 0
+	//varvar[0]/=varcnt;
+	//varvar[1]/=varcnt;
+	//varvar[2]/=varcnt;
+	//varvar[3]/=varcnt;
+	//varvar[4]/=varcnt;
+	varvar[0]=sqrt(varvar[0]/varcnt);
+	varvar[1]=sqrt(varvar[1]/varcnt);
+	varvar[2]=sqrt(varvar[2]/varcnt);
+	varvar[3]=sqrt(varvar[3]/varcnt);
+	varvar[4]=sqrt(varvar[4]/varcnt);
+
+	//varexp[0]=sqrt(varexp[0]/varcnt);
+	//varexp[1]=sqrt(varexp[1]/varcnt);
+	//varexp[2]=sqrt(varexp[2]/varcnt);
+	//varexp[3]=sqrt(varexp[3]/varcnt);
+	//varexp[4]=sqrt(varexp[4]/varcnt);
+	//varexp[5]=sqrt(varexp[5]/varcnt);
+	//varexp[6]=sqrt(varexp[6]/varcnt);
+	//varexp[7]=sqrt(varexp[7]/varcnt);
+	//varexp[8]=sqrt(varexp[8]/varcnt);
+	//varexp[9]=sqrt(varexp[9]/varcnt);
+//	mean=sqrt(mean/varcnt);
+//	mean/=varcnt;
+#endif
 	_mm_free(pixels);
 }
 

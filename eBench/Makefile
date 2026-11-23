@@ -5,6 +5,7 @@ SRC =\
  custom4.c\
  c18.c\
  ebench.c\
+ fct.c\
  graphics.c\
  hadamard.c\
  image.c\
