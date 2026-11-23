@@ -1115,7 +1115,7 @@ LRESULT __stdcall WndProc(HWND hWnd, uint32_t message, WPARAM wParam, LPARAM lPa
 	}
 	return DefWindowProcA(hWnd, message, wParam, lParam);
 }
-int __stdcall WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrev, _In_ char *pCmdLine, _In_ int nShowCmd)
+int __stdcall WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrev, _In_ char *pCmdLine, _In_ int nCmdShow)
 {
 	WNDCLASSEXA wndClassEx={0};
 	MSG msg;
@@ -1127,9 +1127,9 @@ int __stdcall WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrev, _In_ c
 	wndClassEx.style=CS_HREDRAW|CS_VREDRAW|CS_DBLCLKS;
 	wndClassEx.lpfnWndProc=WndProc;
 	wndClassEx.hInstance=hInstance;
-	wndClassEx.hIcon=LoadIconA(0, (char*)0x00007F00);
-	wndClassEx.hCursor=LoadCursorA(0, (char*)0x00007F00);
-	wndClassEx.lpszClassName="New format";
+	wndClassEx.hIcon=LoadIconA(0, MAKEINTRESOURCEA(IDI_APPLICATION));
+	wndClassEx.hCursor=LoadCursorA(0, MAKEINTRESOURCEA(IDC_ARROW));
+	wndClassEx.lpszClassName="eBench";
 
 	len=GetModuleFileNameW(0, g_wbuf, G_BUF_SIZE);
 	len2=WideCharToMultiByte(CP_UTF8, 0, g_wbuf, len, g_buf, G_BUF_SIZE, 0, 0);
@@ -1171,20 +1171,20 @@ int __stdcall WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrev, _In_ c
 	if(!io_init(__argc-1, __argv+1))
 		return EXIT_FAILURE;
 
-	ShowWindow(ghWnd, nShowCmd);
+	ShowWindow(ghWnd, nCmdShow);
 
 	for(;;)
 	{
-		ret=GetMessageA(&msg, ghWnd, 0, 0);
+		ret=GetMessageA(&msg, 0, 0, 0);
 		if(!ret||ret==-1)/*GetMessageA returns 0 at WM_QUIT, and -1 when ghWnd was closed*/
 			break;
 		TranslateMessage(&msg);
 		DispatchMessageA(&msg);
 	}
 
-		/*finish*/
-		io_cleanup();
-		ReleaseDC(ghWnd, ghDC);
+	/*finish*/
+	io_cleanup();
+	ReleaseDC(ghWnd, ghDC);
 
 	return (int)msg.wParam;
 }

@@ -496,10 +496,10 @@ void pred_mixN(Image *src, int fwd)
 
 					/*147 MB/s  6.77 ms/MB  i5-1145G7*/
 #if 1
-					e=(curr>(int)p1)-(curr<(int)p1);
+					e=(curr>(int)p1)-(curr<(int)p1);/*cmp setgt setlt sub*/
 #if 0
-					e=((curr-p1)>>31)-((p1-curr)>>31);
-					e=curr-p1; CLAMP2(e, -1, 1);/*jump?*/
+					e=((curr-p1)>>31)-((p1-curr)>>31);/*sub sar sub sar sub*/
+					e=curr-p1; CLAMP2(e, -1, 1);/*sub cmp cmovlt cmovgt*/
 #endif
 					bias[kc]+=e;
 					for(j=0;j<MIXPREDS;++j)
@@ -1536,19 +1536,6 @@ void pred_mixR(Image *src, int fwd)
 					e=((curr-p1)>>31)-((p1-curr)>>31);/*sub sar sub sar sub*/
 					e=curr-p1; CLAMP2(e, -1, 1);/*sub cmp cmovlt cmovgt*/
 #endif
-					//{
-					//	double lr=0;
-					//	e=curr-(int)p1;
-					//	for(j=0;j<MIXPREDS;++j)
-					//		estims[j]*=e;
-					//	for(j=0;j<MIXPREDS;++j)
-					//		lr+=abs(estims[j]);
-					//	lr=0x300/(lr+10);
-					//	weights[kc][MIXPREDS]+=e*lr;
-					//	for(j=0;j<MIXPREDS;++j)
-					//		weights[kc][j]+=estims[j]*lr;
-					//}
-					
 					e=(curr>(int)p1)-(curr<(int)p1);/*cmp setgt setlt sub*/
 					bias[kc]+=e<<3;
 					for(j=0;j<MIXPREDS;++j)
